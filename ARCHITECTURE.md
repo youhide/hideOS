@@ -486,6 +486,21 @@ Linux VM or container, as oxinit's `xtask` does.
 - **Outputs**: one OCI image per architecture, one signed UKI per kernel, the
   signed sysexts, and an installer ISO.
 
+### Disk images are installed, not assembled
+
+A bootable disk needs fs-verity enabled on every object, and fs-verity is
+enabled by the kernel of the machine that writes the file. The builder's
+kernel is whatever its host provides — Docker Desktop's has no
+`CONFIG_FS_VERITY` — so the builder cannot write a sealed disk, and a disk
+written without verity would not mount under `verity=require`.
+
+So hideforge stops at the payload: the composefs repository (objects and the
+EROFS image), the UKI, and the ESP's contents. A disk image is made by
+booting hideOS Minimal in QEMU with an empty disk and the payload attached,
+and running `hide install` — the same tool, with the same code path, that
+installs hideOS on a real machine in H7. Every disk image the build produces
+is therefore also a test of the installer.
+
 ## Decisions
 
 | Decision                                     | Status       | Reason in one line                                              |

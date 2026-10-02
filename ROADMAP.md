@@ -72,8 +72,13 @@ console shell runs on a glibc userspace — x86_64 and aarch64.
       with a development key.
 - [ ] `hidestage`: mounts, GPT discovery, btrfs, composefs with digest
       verification, bind mounts, `switch_root` into oxinit.
-- [ ] A disk image: ESP + btrfs (no LUKS yet), booted from OVMF with
-      `systemd-boot` as the stopgap boot manager.
+- [ ] `hide install`: partition, btrfs with its subvolumes, objects with
+      fs-verity enabled, ESP with the UKI and `systemd-boot` as the stopgap
+      boot manager. No LUKS yet.
+- [ ] A disk image, made by booting Minimal in QEMU with an empty disk and
+      the payload attached and running `hide install` — the builder's kernel
+      cannot enable fs-verity. See ARCHITECTURE, "Disk images are installed,
+      not assembled".
 
 Done when: QEMU boots from a disk into the sealed root; writing to `/usr` fails;
 flipping one byte of one object makes reading that file fail with `EIO`; a UKI
