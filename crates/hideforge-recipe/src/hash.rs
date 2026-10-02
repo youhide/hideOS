@@ -56,6 +56,9 @@ pub struct HashContext {
     /// builder's compilers; a `target` recipe's hash must not change when the
     /// builder does, or a new Debian point release would rebuild the world.
     pub host_id: Option<String>,
+    /// SHA-256 of this repository's workspace snapshot, for recipes that
+    /// build from it. See `Build::workspace`.
+    pub workspace: Option<String>,
 }
 
 /// SHA-256 over a recipe's inputs. See `docs/HIDEFORGE.md`.

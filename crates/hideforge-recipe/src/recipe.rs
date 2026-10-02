@@ -113,6 +113,12 @@ pub struct Build {
     /// hideforge before the sandbox exists instead. See `RECIPE_FORMAT.md`.
     #[serde(default)]
     pub vendor: Option<Vendor>,
+    /// Build from this repository's own Cargo workspace — `Cargo.toml`,
+    /// `Cargo.lock` and `crates/`, as git tracks them — unpacked into
+    /// `/build/src` before any `[[source]]`. For hideOS's own programs:
+    /// hidestage, hide.
+    #[serde(default)]
+    pub workspace: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

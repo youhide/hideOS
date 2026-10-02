@@ -46,8 +46,30 @@ pub fn mirrors(url: &str) -> Vec<String> {
 /// the newest modification time in the unpacked tree, before patching, which
 /// becomes `SOURCE_DATE_EPOCH`: the sources' own idea of when they were made,
 /// and the same on every machine.
-pub fn prepare(layout: &Layout, entry: &Entry, src: &Path, arch: Arch) -> Result<u64> {
+pub fn prepare(
+    layout: &Layout,
+    entry: &Entry,
+    src: &Path,
+    arch: Arch,
+    workspace: Option<&str>,
+) -> Result<u64> {
     fs::create_dir_all(src)?;
+    if entry.recipe.build.workspace {
+        let digest =
+            workspace.context("this recipe builds from the workspace, and there is none")?;
+        let status = Command::new("tar")
+            .arg("--extract")
+            .arg("--file")
+            .arg(layout.source(digest))
+            .arg("--directory")
+            .arg(src)
+            .arg("--no-same-owner")
+            .status()
+            .context("running tar")?;
+        if !status.success() {
+            bail!("unpacking the workspace failed");
+        }
+    }
     for source in entry.recipe.sources.iter().filter(|s| s.applies_to(arch)) {
         let archive = layout.source(&source.sha256);
         let dest = src.join(&source.dest);

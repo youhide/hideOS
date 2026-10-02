@@ -35,6 +35,7 @@ mod sandbox;
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 mod sys;
+mod workspace;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -106,11 +107,24 @@ fn run(args: &[String]) -> Result<i32> {
         .ok_or_else(|| anyhow!("no command; try `hideforge list`"))?;
     let set = RecipeSet::load(&options.recipes)
         .with_context(|| format!("loading recipes from {}", options.recipes.display()))?;
+    let layout = Layout::new(&options.work);
+    // The workspace snapshot is needed only for hashing, and archiving it
+    // needs GNU tar: on Linux, in the builder.
+    let workspace = if cfg!(target_os = "linux") && command != "list" && command != "order" {
+        // `recipes` has an empty parent, which git -C does not take.
+        let root = match options.recipes.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => std::path::Path::new("."),
+        };
+        workspace::snapshot(root, &layout)?
+    } else {
+        None
+    };
     let context = HashContext {
         arch: options.arch,
         host_id: std::env::var("HIDEFORGE_HOST_ID").ok(),
+        workspace,
     };
-    let layout = Layout::new(&options.work);
     let parsed = parse_args(rest)?;
     let names: Vec<&str> = parsed.names.iter().map(String::as_str).collect();
     let flag = |name: &str| parsed.flags.iter().any(|f| f == name);
@@ -372,7 +386,13 @@ fn build_one(
     let mut lowers: Vec<PathBuf> = layers.iter().map(|layer| layer.path.clone()).collect();
     lowers.push(dirs.skeleton());
 
-    let epoch = fetch::prepare(layout, entry, &dirs.src(), context.arch)?;
+    let epoch = fetch::prepare(
+        layout,
+        entry,
+        &dirs.src(),
+        context.arch,
+        context.workspace.as_deref(),
+    )?;
     fs::write(dirs.script(), &recipe.build.script)?;
 
     let jobs = std::thread::available_parallelism().map_or(1, |n| n.get());

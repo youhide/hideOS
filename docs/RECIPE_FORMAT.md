@@ -115,6 +115,24 @@ holds every download to a checksum the source itself pins:
   SHA-256 covers it. Git and other-registry dependencies are refused: they
   come with nothing to check them against.
 
+## `build.workspace`
+
+```toml
+[build]
+workspace = true
+vendor = "cargo"
+```
+
+Builds from this repository's own Cargo workspace: `Cargo.toml`,
+`Cargo.lock` and `crates/`, the files git tracks, as they are in the working
+tree. hideforge archives them deterministically, and the archive's SHA-256
+is part of the input hash of every recipe that sets this, so changing one
+of those files rebuilds exactly these recipes. Nothing else in the
+repository is included, so documentation does not reach a build.
+
+It is how hideOS's own programs — hidestage, hide — are built by the same
+toolchain, in the same sandbox, as everything else.
+
 ## `[depends]`
 
 | Key     | Meaning                                                                          |

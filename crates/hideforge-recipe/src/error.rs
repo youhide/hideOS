@@ -56,4 +56,10 @@ pub enum Error {
          image ID, and none was given"
     )]
     MissingHostId(String),
+
+    #[error(
+        "recipe `{0}` builds from the workspace, so its input hash needs the workspace's \
+         digest, and none was given"
+    )]
+    MissingWorkspace(String),
 }

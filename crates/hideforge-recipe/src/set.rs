@@ -241,6 +241,13 @@ impl RecipeSet {
                 .ok_or_else(|| Error::MissingHostId(name.to_owned()))?;
             hasher.line("host", host);
         }
+        if entry.recipe.build.workspace {
+            let workspace = context
+                .workspace
+                .as_deref()
+                .ok_or_else(|| Error::MissingWorkspace(name.to_owned()))?;
+            hasher.line("workspace", workspace);
+        }
         // Run dependencies are not here: they do not change what this build
         // produces, only what an image must carry alongside it. Including
         // them would rebuild a library every time a program it calls at run
@@ -473,6 +480,7 @@ mod tests {
         HashContext {
             arch: Arch::X86_64,
             host_id: Some("sha256:test-builder".to_owned()),
+            workspace: None,
         }
     }
 
@@ -718,6 +726,7 @@ mod tests {
         let none = HashContext {
             arch: Arch::X86_64,
             host_id: None,
+            workspace: None,
         };
         assert!(matches!(
             set.input_hashes(&["stage0-binutils"], &none),
@@ -727,6 +736,7 @@ mod tests {
         let with = |id: &str| HashContext {
             arch: Arch::X86_64,
             host_id: Some(id.to_owned()),
+            workspace: None,
         };
         let one = set
             .input_hashes(&["stage0-binutils"], &with("sha256:aaa"))
@@ -748,6 +758,32 @@ mod tests {
                 .unwrap()
                 .contains("\nhost ")
         );
+    }
+
+    #[test]
+    fn workspace_recipes_hash_the_workspace_and_only_they_do() {
+        let tree = Tree::new();
+        tree.recipe("hide.toml", "hide", "", &[], &[]);
+        let path = tree.0.join("hide.toml");
+        let text = fs::read_to_string(&path)
+            .unwrap()
+            .replace("[build]", "[build]\nworkspace = true");
+        fs::write(&path, text).unwrap();
+        tree.recipe("lib.toml", "lib", "", &[], &[]);
+        let set = tree.load().unwrap();
+
+        assert!(matches!(
+            set.input_hashes(&["hide"], &context()),
+            Err(Error::MissingWorkspace(_))
+        ));
+        let at = |digest: &str| HashContext {
+            workspace: Some(digest.to_owned()),
+            ..context()
+        };
+        let one = set.input_hashes(&["hide", "lib"], &at("aaa")).unwrap();
+        let two = set.input_hashes(&["hide", "lib"], &at("bbb")).unwrap();
+        assert_ne!(one["hide"], two["hide"]);
+        assert_eq!(one["lib"], two["lib"]);
     }
 
     #[test]
