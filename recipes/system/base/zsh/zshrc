@@ -1,0 +1,28 @@
+# hideOS: defaults for interactive zsh. Shipped and updated with the system.
+# Machine-wide changes go in /etc/zsh/zshrc.local; yours go in ~/.zshrc,
+# which is read after this and wins.
+
+HISTFILE=$HOME/.zsh_history
+HISTSIZE=50000
+SAVEHIST=50000
+setopt share_history hist_ignore_dups hist_ignore_space extended_history
+setopt auto_cd interactive_comments no_beep
+
+# Emacs keys, and Home, End and Delete doing what they say.
+bindkey -e
+bindkey '^[[H' beginning-of-line '^[[F' end-of-line '^[[3~' delete-char
+
+autoload -Uz compinit
+mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}"
+compinit -d "${XDG_CACHE_HOME:-$HOME/.cache}/zcompdump"
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+
+# user@host, directory, and a prompt character that turns red when the last
+# command failed.
+PROMPT='%F{magenta}%B%n@%m%b%f %F{cyan}%~%f %(?.%F{green}.%F{red})%#%f '
+
+alias ls='ls --color=auto'
+alias ll='ls -lah'
+
+[[ -r /etc/zsh/zshrc.local ]] && source /etc/zsh/zshrc.local

@@ -59,7 +59,8 @@ The smallest image this project built entirely itself.
       system. Nothing from the host in the output.
 - [ ] Recipes: Linux, glibc, GCC/LLVM runtime, Rust, uutils, bash, zsh,
       util-linux, kmod, oxinit.
-- [ ] Output: a root tree, packed as an initramfs.
+- [ ] Output: hideOS Minimal, a root tree packed as an initramfs, with the
+      kernel next to it.
 
 Done when: QEMU boots the kernel this project compiled, oxinit is PID 1, and a
 console shell runs on a glibc userspace — x86_64 and aarch64.
@@ -112,6 +113,7 @@ TPM2, joins Wi-Fi, suspends and resumes.
 - [ ] COSMIC Settings pages (Updates, Recovery, Extensions) and the update
       applet, in libcosmic.
 - [ ] `hidesetup`: first-boot setup.
+- [ ] The `workstation` image: `minimal` and the desktop layer.
 - [ ] Flatpak with Flathub and `xdg-desktop-portal-cosmic`.
 - [ ] `hide shell`: toolbox-style Podman containers.
 

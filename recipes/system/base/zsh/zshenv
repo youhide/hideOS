@@ -1,0 +1,14 @@
+# hideOS: read by every zsh, interactive or not, before anything of yours.
+# Shipped and updated with the system. Machine-wide changes go in
+# /etc/zsh/zshenv.local; yours go in ~/.zshenv.
+
+# A service started by oxinit, like the console shell, may have no HOME.
+[[ -n $HOME ]] || export HOME=${$(getent passwd $UID)[(ws.:.)6]:-/}
+
+typeset -U path
+path=(/usr/local/bin /usr/bin $path)
+export PATH
+export LANG=${LANG:-C.UTF-8}
+export TERM=${TERM:-linux}
+
+[[ -r /etc/zsh/zshenv.local ]] && source /etc/zsh/zshenv.local

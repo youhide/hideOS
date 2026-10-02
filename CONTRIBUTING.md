@@ -66,6 +66,33 @@ device selection. Every later boot test stands on this one. The host's own
 architecture is accelerated (KVM on Linux, HVF on macOS); the other runs on
 QEMU's JIT and takes longer.
 
+## Building and booting hideOS
+
+hideforge, hideOS's build system, runs in the builder. `cargo xtask forge`
+passes its arguments through:
+
+```bash
+cargo xtask forge -- list                  # every recipe
+cargo xtask forge -- order minimal         # what building it builds, in order
+cargo xtask forge -- build linux           # build one recipe and what it needs
+cargo xtask forge-selftest                 # check the sandbox's guarantees
+```
+
+The first build of the whole system bootstraps a toolchain from source and
+takes about two hours on a 2018 laptop; after that, only what changed
+rebuilds. Recipes are specified in
+[docs/RECIPE_FORMAT.md](docs/RECIPE_FORMAT.md), and how they are built in
+[docs/HIDEFORGE.md](docs/HIDEFORGE.md).
+
+hideOS Minimal, booted:
+
+```bash
+cargo xtask image          # build it into target/images/minimal-x86_64
+cargo xtask boot           # boot it in QEMU; quit with Ctrl-A X
+cargo xtask boot --test    # boot it and wait for the banner, for scripts
+cargo xtask screenshot     # boot it, type a few commands, save a PNG
+```
+
 ## CI
 
 [CI](.github/workflows/ci.yml) runs only for releases: when a `v*` tag is

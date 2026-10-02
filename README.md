@@ -21,6 +21,10 @@ hideOS works like macOS, on Linux:
 - **Your things live elsewhere.** `/home`, settings and data are never touched by
   an update. Applications come from Flatpak, development tools from containers.
 
+Two editions, from the same tree: **Minimal**, a terminal and nothing else,
+and **Workstation**, which is Minimal with the COSMIC desktop on top.
+Switching between them is an update, not a reinstall.
+
 Under that: Rust wherever this project writes code, the COSMIC desktop, glibc,
 btrfs on LUKS2 with TPM2 unlock, x86_64 and aarch64, AMD, Intel and NVIDIA
 graphics.

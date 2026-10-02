@@ -246,6 +246,32 @@ them**; the machine refuses any other signature. Three uses:
 A sysext declares the deployment it was built for and is not merged into any
 other one.
 
+## Editions
+
+Two images, built from one recipe tree and sealed, updated and rolled back
+the same way:
+
+| Edition         | What it is                                                     | Image recipe   | From |
+|-----------------|----------------------------------------------------------------|----------------|------|
+| **Minimal**     | Kernel, oxinit, zsh, the core utilities: a terminal and nothing else. Servers, VMs, CI, and the base of everything. | `minimal`      | H1   |
+| **Workstation** | Minimal and the desktop: COSMIC, PipeWire, NetworkManager, Flatpak, containers. The product. | `workstation`  | H5   |
+
+**Workstation is Minimal plus a layer, never a sibling.** Its image recipe
+depends on `minimal` instead of listing the base again, so both ship the same
+build of every shared package, and a fix to the base reaches both in one
+release.
+
+**Switching edition is a rebase, not a reinstall.** Both are OCI images over
+the same object store: `hide rebase workstation` downloads only what
+Minimal lacks, and the next boot is the other edition with the same `/home`,
+`/etc` and `/var`. Going back is the same command, and rollback works across
+it like across any update.
+
+Two, and not more. Every edition multiplies what CI boots — editions times
+architectures — and an edition nobody tests is an edition that does not
+boot. Variants smaller than an edition, like the NVIDIA driver, are system
+extensions on top of one, not editions of their own.
+
 ## The desktop
 
 COSMIC, from upstream source, built by hideforge like everything else:

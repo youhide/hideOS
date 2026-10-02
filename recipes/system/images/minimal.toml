@@ -1,9 +1,13 @@
-# The H1 image: the smallest system that boots to a shell under oxinit.
+# hideOS Minimal: the system with a terminal and nothing else. The base every
+# edition is built on — Workstation depends on this, rather than repeating
+# it, so that the two can never ship different versions of the same thing.
+# See ARCHITECTURE.md, "Editions".
+#
 # Everything in its run closure is stage 2; hideforge refuses otherwise.
 [package]
-name = "image-h1"
+name = "minimal"
 version = "1"
-description = "H1: kernel, glibc, oxinit and a shell"
+description = "hideOS Minimal: kernel, oxinit, zsh and the core utilities"
 license = "MIT"
 
 [depends]

@@ -29,4 +29,5 @@ script = """
     --enable-multibyte
 make -j"$JOBS"
 make install
+install -Dm644 -t /usr/share/zsh/etc "$FILES/zshenv" "$FILES/zshrc"
 """
