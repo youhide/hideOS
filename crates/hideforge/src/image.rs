@@ -23,6 +23,7 @@ pub fn assemble(
     name: &str,
     kernel: Option<&str>,
     output: &Path,
+    payload: bool,
 ) -> Result<()> {
     let mut layers = Vec::new();
     for member in set.with_run_closure(&[name])? {
@@ -100,6 +101,10 @@ pub fn assemble(
         .stdout(file))
     .context("writing the initramfs")?;
     println!("  image   {} ({} layers)", archive.display(), layers.len());
+
+    if payload {
+        write_payload(layout, name, &root, output)?;
+    }
 
     if let Some(kernel) = kernel {
         let recipe = &set.get(kernel)?.recipe;
@@ -246,6 +251,45 @@ pub fn unresolved_libraries(
         }
     }
     Ok(missing)
+}
+
+/// The same root as a composefs repository, archived as `payload.tar` for
+/// `hide install` to read, and its image digest as `image.digest`. The
+/// repository is written in the work directory: objects are named by digest
+/// and would survive a macOS checkout, but there is no reason to make the
+/// checkout hold a second copy of the system.
+#[cfg(target_os = "linux")]
+fn write_payload(layout: &Layout, name: &str, root: &Path, output: &Path) -> Result<()> {
+    let repo = layout.image_root(&format!("{name}.repo"));
+    if repo.exists() {
+        fs::remove_dir_all(&repo)?;
+    }
+    let digest = crate::payload::write(root, &repo, name)?;
+    fs::write(output.join("image.digest"), format!("sha256:{digest}\n"))?;
+    let tar = fs::File::create(output.join("payload.tar"))?;
+    run(Command::new("tar")
+        .args([
+            "--create",
+            "--sort=name",
+            "--owner=0",
+            "--group=0",
+            "--numeric-owner",
+        ])
+        .args(["--mtime=@0", "--directory"])
+        .arg(&repo)
+        .arg(".")
+        .stdout(tar))
+    .context("archiving the payload")?;
+    println!(
+        "  payload {} (sha256:{digest})",
+        output.join("payload.tar").display()
+    );
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn write_payload(_: &Layout, _: &str, _: &Path, _: &Path) -> Result<()> {
+    bail!("payloads are written on Linux, in the builder")
 }
 
 fn run(command: &mut Command) -> Result<()> {

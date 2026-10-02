@@ -8,9 +8,10 @@
 //!   hash NAME [--explain] NAME's input hash, and what went into it
 //!   fetch NAME...         download and verify sources for NAME and its inputs
 //!   build NAME... [--keep-failed]
-//!   image NAME --output DIR [--kernel NAME]
+//!   image NAME --output DIR [--kernel NAME] [--payload]
 //!                         build NAME and assemble its run closure into an
-//!                         initramfs, with the kernel next to it
+//!                         initramfs, with the kernel next to it; --payload
+//!                         also writes it as a composefs repository
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -27,6 +28,8 @@ mod fetch;
 mod image;
 mod layout;
 mod output;
+#[cfg(target_os = "linux")]
+mod payload;
 #[cfg(target_os = "linux")]
 mod sandbox;
 #[cfg(target_os = "linux")]
@@ -169,7 +172,7 @@ fn run(args: &[String]) -> Result<i32> {
         }
         "image" => {
             let [name] = names.as_slice() else {
-                bail!("usage: hideforge image NAME --output DIR [--kernel NAME]");
+                bail!("usage: hideforge image NAME --output DIR [--kernel NAME] [--payload]");
             };
             let output = parsed
                 .value("--output")
@@ -182,7 +185,15 @@ fn run(args: &[String]) -> Result<i32> {
             let hashes = set.input_hashes(&targets, &context)?;
             let order = set.build_order(&targets)?;
             build(&set, &layout, &context, &hashes, &order, false)?;
-            image::assemble(&set, &layout, &hashes, name, kernel, output.as_ref())?;
+            image::assemble(
+                &set,
+                &layout,
+                &hashes,
+                name,
+                kernel,
+                output.as_ref(),
+                flag("--payload"),
+            )?;
         }
         other => bail!("unknown command `{other}`"),
     }

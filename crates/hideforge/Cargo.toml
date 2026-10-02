@@ -17,3 +17,11 @@ sha2.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true, features = ["fs", "mount", "process", "thread", "system"] }
+# Writes the composefs repository an image ships as. Its API is async; a
+# current-thread tokio runtime drives it, here and nowhere near the boot path.
+composefs = "0.9.3"
+tokio = { version = "1", features = ["rt"] }
+# composefs links OpenSSL. Vendored: built from source with the crate, so the
+# builder image needs no libssl-dev — and a new builder image would change the
+# hash of every host-environment recipe and rebuild stage 0.
+openssl = { version = "0.10", features = ["vendored"] }
