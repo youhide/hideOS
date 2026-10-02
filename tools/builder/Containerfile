@@ -46,4 +46,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             --component clippy,rustfmt \
             --target x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,x86_64-unknown-uefi,aarch64-unknown-uefi
 
+# Mount points for hideforge's `host` environment, which keeps the builder as
+# `/` and so cannot create them inside a read-only root at build time.
+RUN mkdir -p /sysroot /build/src /build/home
+
 WORKDIR /src

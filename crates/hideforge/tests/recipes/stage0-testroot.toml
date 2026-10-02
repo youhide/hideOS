@@ -1,0 +1,49 @@
+# A host-environment build that checks what a host build may and may not do,
+# and leaves behind a tiny root — bash and the libraries it links — for the
+# target-environment fixture to pivot into.
+[package]
+name = "stage0-testroot"
+version = "1"
+description = "Sandbox self-test: host environment"
+license = "MIT"
+stage = 0
+
+[build]
+environment = "host"
+script = """
+# No network: the namespace has only a loopback interface, and it is down.
+if getent hosts deb.debian.org >/dev/null 2>&1; then echo "FAIL: name resolution works"; exit 1; fi
+# The kernel puts fallback tunnel devices (gre0, sit0, ...) in every new
+# network namespace; they are down and lead nowhere. What matters is that no
+# interface is up and there is no route.
+for dev in /sys/class/net/*/; do
+    if [ "$(cat "$dev/operstate")" = up ]; then echo "FAIL: $(basename "$dev") is up"; exit 1; fi
+done
+[ -e /sys/class/net/eth0 ] && { echo "FAIL: eth0 is visible"; exit 1; }
+[ "$(wc -l < /proc/net/route)" -le 1 ] || { echo "FAIL: routes:"; cat /proc/net/route; exit 1; }
+
+# The builder is read-only, and the work volume and checkout are hidden.
+if touch /usr/hideforge-probe 2>/dev/null; then echo "FAIL: builder / is writable"; exit 1; fi
+if [ -n "$(ls -A /work)" ]; then echo "FAIL: /work is visible"; exit 1; fi
+if [ -n "$(ls -A /src)" ]; then echo "FAIL: /src is visible"; exit 1; fi
+
+[ "$(hostname)" = hideforge ] || { echo "FAIL: hostname $(hostname)"; exit 1; }
+[ "$SYSROOT" = /sysroot ] || { echo "FAIL: SYSROOT=$SYSROOT"; exit 1; }
+[ "$$" -gt 1 ] && [ "$(cat /proc/1/comm)" = hideforge ] || { echo "FAIL: PID 1 is $(cat /proc/1/comm)"; exit 1; }
+
+# Scratch is not captured.
+echo scratch > /tmp/not-in-output
+echo scratch > "$HOME/not-in-output"
+
+# The root for the next fixture.
+mkdir -p "$SYSROOT/usr/bin" "$SYSROOT/usr/lib"
+cp /bin/bash /bin/cat /bin/ls /bin/hostname /bin/mkdir "$SYSROOT/usr/bin/"
+# One binary per ldd call: given several, ldd prints a "/bin/bash:" header
+# before each, which looks like a path.
+for lib in $(for b in bash cat ls hostname mkdir; do ldd "/bin/$b"; done | grep -o '/[^ ]*' | sort -u); do
+    mkdir -p "$SYSROOT$(dirname "$lib")"
+    cp -L "$lib" "$SYSROOT$lib"
+done
+ln -s usr/bin "$SYSROOT/bin"
+echo "from stage 0" > "$SYSROOT/usr/lib/marker"
+"""

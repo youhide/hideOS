@@ -1,0 +1,16 @@
+# Must fail, and leave no store path behind.
+[package]
+name = "stage1-fails"
+version = "1"
+description = "Sandbox self-test: a failing script fails the build"
+license = "MIT"
+stage = 1
+
+[depends]
+build = ["stage0-testroot"]
+
+[build]
+script = """
+echo "about to fail" > /usr/lib/partial
+exit 3
+"""

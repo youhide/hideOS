@@ -44,11 +44,17 @@ Two things the environment taught, both now written down in CONTRIBUTING:
 
 ## H1 — hideforge builds a system
 
+**In progress.**
+
 The smallest image this project built entirely itself.
 
-- [ ] Recipe format specified in `docs/RECIPE_FORMAT.md`.
-- [ ] Hermetic build sandbox: user namespaces, no network, declared inputs
-      only, fixed `SOURCE_DATE_EPOCH`.
+- [x] Recipe format specified in `docs/RECIPE_FORMAT.md`, the build model in
+      `docs/HIDEFORGE.md`; parsing, validation, dependency graph and input
+      hashes in `hideforge-recipe`, tested on any host.
+- [x] Hermetic build sandbox: mount, PID, network, UTS and IPC namespaces;
+      an overlay whose upper layer is the output; no network; declared
+      inputs only; `SOURCE_DATE_EPOCH` from the sources. Checked by
+      `cargo xtask forge-selftest`.
 - [ ] Bootstrap stages 0 → 1 → 2: cross toolchain, native toolchain, final
       system. Nothing from the host in the output.
 - [ ] Recipes: Linux, glibc, GCC/LLVM runtime, Rust, uutils, bash, zsh,

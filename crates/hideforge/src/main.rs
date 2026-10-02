@@ -1,0 +1,357 @@
+//! hideforge: builds hideOS from recipes. See `docs/HIDEFORGE.md`.
+//!
+//! ```text
+//! hideforge [--recipes DIR] [--work DIR] [--arch ARCH] COMMAND
+//!
+//!   list                  every recipe
+//!   order NAME...         what building NAME builds, in order
+//!   hash NAME [--explain] NAME's input hash, and what went into it
+//!   fetch NAME...         download and verify sources for NAME and its inputs
+//!   build NAME... [--keep-failed]
+//! ```
+//!
+//! Building needs Linux, root and a writable work directory, which is what the
+//! builder container provides: `cargo xtask forge -- build NAME`.
+
+// `deny`, not `forbid`: `sys` is the one module that relaxes it, and a second
+// `unsafe` block anywhere else stops compiling.
+#![deny(unsafe_code)]
+// Building is Linux-only, so off Linux everything only the build uses is
+// unused. Lints still run in full on Linux, in the builder.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
+mod fetch;
+mod layout;
+mod output;
+#[cfg(target_os = "linux")]
+mod sandbox;
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+mod sys;
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use anyhow::{Context, Result, anyhow, bail};
+use hideforge_recipe::{Arch, HashContext, InputHash, RecipeSet};
+
+use crate::layout::Layout;
+
+struct Options {
+    recipes: PathBuf,
+    work: PathBuf,
+    arch: Arch,
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: &[String]) -> Result<i32> {
+    // The sandbox's own entry points come first and take no global options:
+    // they are hideforge re-executing itself, not a person typing.
+    match args.first().map(String::as_str) {
+        #[cfg(target_os = "linux")]
+        Some("__sandbox") => return sandbox::outer(args.get(1..).unwrap_or_default()),
+        #[cfg(target_os = "linux")]
+        Some("__sandbox-init") => return sandbox::init(args.get(1..).unwrap_or_default()),
+        _ => {}
+    }
+
+    let mut options = Options {
+        recipes: PathBuf::from("recipes"),
+        work: std::env::var_os("HIDEFORGE_WORK")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/work")),
+        arch: std::env::consts::ARCH
+            .parse()
+            .map_err(|e: String| anyhow!(e))?,
+    };
+    let mut rest = args;
+    loop {
+        match rest {
+            [flag, value, tail @ ..] if flag == "--recipes" => {
+                options.recipes = value.into();
+                rest = tail;
+            }
+            [flag, value, tail @ ..] if flag == "--work" => {
+                options.work = value.into();
+                rest = tail;
+            }
+            [flag, value, tail @ ..] if flag == "--arch" => {
+                options.arch = value.parse().map_err(|e: String| anyhow!(e))?;
+                rest = tail;
+            }
+            _ => break,
+        }
+    }
+
+    let (command, rest) = rest
+        .split_first()
+        .ok_or_else(|| anyhow!("no command; try `hideforge list`"))?;
+    let set = RecipeSet::load(&options.recipes)
+        .with_context(|| format!("loading recipes from {}", options.recipes.display()))?;
+    let context = HashContext {
+        arch: options.arch,
+        host_id: std::env::var("HIDEFORGE_HOST_ID").ok(),
+    };
+    let layout = Layout::new(&options.work);
+    let names: Vec<&str> = rest
+        .iter()
+        .filter(|a| !a.starts_with("--"))
+        .map(String::as_str)
+        .collect();
+    let flag = |name: &str| rest.iter().any(|a| a == name);
+
+    match command.as_str() {
+        "list" => {
+            for name in set.names() {
+                let recipe = &set.get(name)?.recipe;
+                println!(
+                    "{:<32} {:<14} stage {}  {}",
+                    name,
+                    recipe.package.version,
+                    recipe.stage(),
+                    recipe.package.description
+                );
+            }
+        }
+        "order" => {
+            for name in set.build_order(&needs_names(&names)?)? {
+                println!("{name}");
+            }
+        }
+        "hash" => {
+            let [name] = names.as_slice() else {
+                bail!("usage: hideforge hash NAME [--explain]");
+            };
+            if flag("--explain") {
+                print!("{}", set.explain_hash(name, &context)?);
+            } else {
+                let hashes = set.input_hashes(&[name], &context)?;
+                let hash = hashes
+                    .get(*name)
+                    .ok_or_else(|| anyhow!("no hash for {name}"))?;
+                println!("{hash}");
+            }
+        }
+        "fetch" => {
+            for name in set.build_order(&needs_names(&names)?)? {
+                fetch::fetch(&layout, set.get(&name)?)?;
+            }
+        }
+        "build" => {
+            let hashes = set.input_hashes(&needs_names(&names)?, &context)?;
+            let order = set.build_order(&names)?;
+            build(
+                &set,
+                &layout,
+                &context,
+                &hashes,
+                &order,
+                flag("--keep-failed"),
+            )?;
+        }
+        other => bail!("unknown command `{other}`"),
+    }
+    Ok(0)
+}
+
+fn needs_names<'a>(names: &[&'a str]) -> Result<Vec<&'a str>> {
+    if names.is_empty() {
+        bail!("name at least one recipe");
+    }
+    Ok(names.to_vec())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn build(
+    _: &RecipeSet,
+    _: &Layout,
+    _: &HashContext,
+    _: &BTreeMap<String, InputHash>,
+    _: &[String],
+    _: bool,
+) -> Result<()> {
+    bail!("building needs Linux; run it in the builder: cargo xtask forge -- build NAME")
+}
+
+#[cfg(target_os = "linux")]
+fn build(
+    set: &RecipeSet,
+    layout: &Layout,
+    context: &HashContext,
+    hashes: &BTreeMap<String, InputHash>,
+    order: &[String],
+    keep_failed: bool,
+) -> Result<()> {
+    for name in order {
+        build_one(set, layout, context, hashes, name, keep_failed)?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn build_one(
+    set: &RecipeSet,
+    layout: &Layout,
+    context: &HashContext,
+    hashes: &BTreeMap<String, InputHash>,
+    name: &str,
+    keep_failed: bool,
+) -> Result<()> {
+    use std::fs;
+    use std::time::Instant;
+
+    use hideforge_recipe::Environment;
+
+    let entry = set.get(name)?;
+    let recipe = &entry.recipe;
+    let hash = hashes
+        .get(name)
+        .ok_or_else(|| anyhow!("no hash for {name}"))?;
+    let output = layout.output(hash, recipe);
+    if output.is_dir() {
+        println!("  cached  {}", layout::store_name(hash, recipe));
+        return Ok(());
+    }
+    println!("  build   {}", layout::store_name(hash, recipe));
+    let started = Instant::now();
+
+    fetch::fetch(layout, entry)?;
+
+    let dirs = layout.build(hash);
+    if dirs.base().exists() {
+        fs::remove_dir_all(dirs.base())?;
+    }
+    for dir in [
+        dirs.src(),
+        dirs.home(),
+        dirs.upper(),
+        dirs.overlay_work(),
+        dirs.root(),
+        dirs.skeleton(),
+    ] {
+        fs::create_dir_all(dir)?;
+    }
+    if recipe.build.environment == Environment::Target {
+        for mount_point in [
+            "proc",
+            "sys",
+            "dev",
+            "tmp",
+            "build/src",
+            "build/home",
+            ".old",
+        ] {
+            fs::create_dir_all(dirs.skeleton().join(mount_point))?;
+        }
+    }
+
+    // Lower layers: every sandbox input's output, which the build order
+    // guarantees exists by now.
+    let mut layers = Vec::new();
+    for input in set.sandbox_inputs(name)? {
+        let input_hash = hashes
+            .get(&input)
+            .ok_or_else(|| anyhow!("no hash for {input}"))?;
+        let path = layout.output(input_hash, &set.get(&input)?.recipe);
+        if !path.is_dir() {
+            bail!(
+                "{name} needs {input}, whose output {} is missing",
+                path.display()
+            );
+        }
+        layers.push((input, path));
+    }
+    let conflicts = output::conflicts(&layers)?;
+    if !conflicts.is_empty() {
+        for c in &conflicts {
+            eprintln!(
+                "  /{} is provided by both {} and {}",
+                c.path.display(),
+                c.first,
+                c.second
+            );
+        }
+        bail!(
+            "{name}: {} path(s) provided twice by its inputs",
+            conflicts.len()
+        );
+    }
+    let mut lowers: Vec<PathBuf> = layers.into_iter().map(|(_, path)| path).collect();
+    let input_layers = lowers.clone();
+    lowers.push(dirs.skeleton());
+
+    let epoch = fetch::prepare(layout, entry, &dirs.src())?;
+    fs::write(dirs.script(), &recipe.build.script)?;
+
+    let jobs = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let sysroot = match recipe.build.environment {
+        Environment::Host => "/sysroot",
+        Environment::Target => "/",
+    };
+    let spec = sandbox::Spec {
+        environment: recipe.build.environment,
+        root: dirs.root(),
+        upper: dirs.upper(),
+        overlay_work: dirs.overlay_work(),
+        lowers,
+        src: dirs.src(),
+        home: dirs.home(),
+        script: "/build/home/.hideforge-build.sh".to_owned(),
+        vars: vec![
+            ("JOBS".to_owned(), jobs.to_string()),
+            ("ARCH".to_owned(), context.arch.as_str().to_owned()),
+            ("TARGET".to_owned(), context.arch.target_triple()),
+            ("SYSROOT".to_owned(), sysroot.to_owned()),
+            ("SOURCE_DATE_EPOCH".to_owned(), epoch.to_string()),
+        ],
+    };
+
+    fs::create_dir_all(layout.logs())?;
+    let log = layout.log(hash, recipe);
+    let status = sandbox::run(&spec, &log)?;
+    if !status.success() {
+        let text = fs::read_to_string(&log).unwrap_or_default();
+        let tail: Vec<&str> = text.lines().rev().take(40).collect();
+        for line in tail.iter().rev() {
+            eprintln!("  | {line}");
+        }
+        if !keep_failed {
+            let _ = fs::remove_dir_all(dirs.base());
+        }
+        bail!("{name} failed ({status}); full log: {}", log.display());
+    }
+
+    let violations = output::check_upper(&dirs.upper(), &input_layers)?;
+    if !violations.is_empty() {
+        for violation in &violations {
+            eprintln!("  {violation}");
+        }
+        if !keep_failed {
+            let _ = fs::remove_dir_all(dirs.base());
+        }
+        bail!("{name} changed files its inputs provide; see above");
+    }
+    sandbox::strip_overlay_xattrs(&dirs.upper())?;
+    sandbox::clamp_mtimes(&dirs.upper(), epoch)?;
+
+    fs::create_dir_all(layout.store())?;
+    fs::rename(dirs.upper(), &output)?;
+    fs::remove_dir_all(dirs.base())?;
+    println!(
+        "  done    {} in {:.1}s",
+        layout::store_name(hash, recipe),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}

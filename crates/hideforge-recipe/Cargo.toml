@@ -1,0 +1,17 @@
+[package]
+name = "hideforge-recipe"
+version.workspace = true
+description = "Recipe parsing, validation, dependency graph and input hashing for hideforge"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# No Linux-only dependencies: this crate is tested on the host, macOS
+# included. Everything that touches namespaces lives in `hideforge`.
+[dependencies]
+basic-toml.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

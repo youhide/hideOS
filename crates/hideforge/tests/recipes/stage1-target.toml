@@ -1,0 +1,24 @@
+# A target-environment build on top of the fixture root: the builder must be
+# gone, the inputs visible, and only new files captured.
+[package]
+name = "stage1-target"
+version = "1"
+description = "Sandbox self-test: target environment"
+license = "MIT"
+stage = 1
+
+[depends]
+build = ["stage0-testroot"]
+
+[build]
+script = """
+[ "$(cat /usr/lib/marker)" = "from stage 0" ] || { echo "FAIL: input not visible"; exit 1; }
+if [ -e /etc/debian_version ]; then echo "FAIL: the builder is visible"; exit 1; fi
+if [ -e /sysroot ]; then echo "FAIL: /sysroot exists in a target build"; exit 1; fi
+[ "$SYSROOT" = / ] || { echo "FAIL: SYSROOT=$SYSROOT"; exit 1; }
+[ "$(hostname)" = hideforge ] || { echo "FAIL: hostname"; exit 1; }
+[ "$(ls /sys/class/net 2>/dev/null)" = "" ] || true
+echo scratch > /tmp/not-in-output
+mkdir -p /usr/share/selftest
+echo "made in stage 1" > /usr/share/selftest/result
+"""

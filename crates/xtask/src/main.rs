@@ -5,6 +5,8 @@
 //! cargo xtask builder build           build the Linux builder image
 //! cargo xtask builder shell           a shell inside it
 //! cargo xtask builder run -- CMD...   one command inside it
+//! cargo xtask forge -- ARG...        hideforge, in the builder
+//! cargo xtask forge-selftest          check the sandbox's guarantees
 //! cargo xtask firmware-smoke [--arch x86_64|aarch64]
 //!                                     boot UEFI firmware in QEMU and check it
 //!                                     reaches boot device selection
@@ -29,6 +31,8 @@ fn main() -> ExitCode {
         Some("doctor") => doctor(),
         Some("builder") => builder(args.get(1..).unwrap_or_default()),
         Some("firmware-smoke") => firmware_smoke(args.get(1..).unwrap_or_default()),
+        Some("forge") => forge(args.get(1..).unwrap_or_default()),
+        Some("forge-selftest") => forge_selftest(),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", usage());
             Ok(())
@@ -53,6 +57,8 @@ fn usage() -> &'static str {
     builder shell                 open a shell in the builder
     builder run -- CMD [ARG...]   run one command in the builder
     firmware-smoke [--arch ARCH]  boot UEFI firmware in QEMU (x86_64, aarch64)
+    forge -- ARG...               run hideforge in the builder
+    forge-selftest                check the sandbox's guarantees
 "
 }
 
@@ -347,7 +353,16 @@ fn builder_command(runtime: &str, root: &Path, interactive: bool) -> Command {
         // Build output goes to the volume, not into the checkout's `target/`,
         // which on macOS is a case-insensitive bind mount and much slower.
         .args(["--env", "CARGO_TARGET_DIR=/work/target"])
-        .args(["--workdir", "/src"]);
+        .args(["--env", "HIDEFORGE_WORK=/work"])
+        .args(["--workdir", "/src"])
+        // hideforge's sandbox creates namespaces and mounts overlays. The
+        // builder is the isolation boundary from the host; inside it,
+        // namespaces are for hermeticity, and they need the privilege.
+        .arg("--privileged");
+    // Host-environment recipes hash the builder they ran in.
+    if let Some(id) = builder_image_id(runtime) {
+        command.args(["--env", &format!("HIDEFORGE_HOST_ID={id}")]);
+    }
     // KVM, where the host has it. Docker Desktop on macOS never does: QEMU
     // inside the builder runs on TCG there, and `firmware-smoke` on the host
     // is the faster path.
@@ -356,6 +371,16 @@ fn builder_command(runtime: &str, root: &Path, interactive: bool) -> Command {
     }
     command.arg(BUILDER_IMAGE);
     command
+}
+
+fn builder_image_id(runtime: &str) -> Option<String> {
+    let output = Command::new(runtime)
+        .args(["image", "inspect", "--format", "{{.Id}}", BUILDER_IMAGE])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let id = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    (output.status.success() && !id.is_empty()).then_some(id)
 }
 
 /// `$HIDEOS_CONTAINER`, then docker, then podman.
@@ -377,6 +402,67 @@ fn daemon_reachable(runtime: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+/// `cargo xtask forge -- build NAME`: hideforge, built in release mode inside
+/// the builder and run there. Release because it hashes and walks trees of
+/// tens of thousands of files, and a debug build makes that the slow part.
+fn forge(args: &[String]) -> Result<(), String> {
+    let args = match args.first().map(String::as_str) {
+        Some("--") => args.get(1..).unwrap_or_default(),
+        _ => args,
+    };
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    let root = workspace_root()?;
+    run(builder_command(&runtime, &root, false)
+        .args([
+            "cargo",
+            "run",
+            "--quiet",
+            "--release",
+            "--package",
+            "hideforge",
+            "--",
+        ])
+        .args(args))
+}
+
+/// Builds the fixtures in `crates/hideforge/tests/recipes` in a scratch work
+/// directory and checks each guarantee the sandbox makes. The fixtures check
+/// isolation from the inside, and fail their own build if any check fails;
+/// this checks the outcomes from the outside.
+fn forge_selftest() -> Result<(), String> {
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    let root = workspace_root()?;
+    let script = r#"
+set -u
+W=/work/selftest
+rm -rf "$W"
+F="cargo run --quiet --release --package hideforge -- --recipes crates/hideforge/tests/recipes --work $W"
+fail() { echo "FAIL: $*"; exit 1; }
+
+$F build stage1-target || fail "the host and target fixtures should build"
+out=$(ls -d $W/store/*-stage1-target-1)
+[ "$(cd "$out" && find . -mindepth 1 | sort | tr '
+' ' ')" = "./usr ./usr/share ./usr/share/selftest ./usr/share/selftest/result " ]     || fail "stage1-target's output should be exactly the file it made: $(cd "$out" && find .)"
+echo "ok    host build: no network, read-only builder, hidden /work and /src"
+echo "ok    target build: pivoted root, inputs visible, builder gone"
+echo "ok    output is exactly what the build created"
+
+$F build stage1-target | grep -q cached || fail "a second build should be cached"
+echo "ok    unchanged inputs are not rebuilt"
+
+$F build stage1-replaces 2>&1 | grep -q "replaced inherited /usr/lib/marker"     || fail "replacing an inherited file should be refused, naming it"
+echo "ok    replacing an inherited file is refused"
+
+$F build stage1-fails 2>&1 | grep -q "exit status: 3" || fail "the script's exit status should be reported"
+ls -d $W/store/*-stage1-fails-1 >/dev/null 2>&1 && fail "a failed build should leave no store path"
+echo "ok    a failed build reports its status and leaves no store path"
+
+[ -z "$(ls -A $W/build 2>/dev/null)" ] || fail "build directories left behind: $(ls $W/build)"
+echo "ok    no build directories left behind"
+"#;
+    run(builder_command(&runtime, &root, false).args(["bash", "-c", script]))
 }
 
 // ---------------------------------------------------------------------------

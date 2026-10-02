@@ -1,0 +1,17 @@
+[package]
+name = "hideforge"
+version.workspace = true
+description = "Builds hideOS from recipes in hermetic sandboxes"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+hideforge-recipe.workspace = true
+anyhow.workspace = true
+sha2.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true, features = ["fs", "mount", "process", "thread", "system"] }

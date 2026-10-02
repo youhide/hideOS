@@ -1,0 +1,13 @@
+# Must fail: rewrites a file its input provides.
+[package]
+name = "stage1-replaces"
+version = "1"
+description = "Sandbox self-test: replacing an inherited file is refused"
+license = "MIT"
+stage = 1
+
+[depends]
+build = ["stage0-testroot"]
+
+[build]
+script = "echo changed > /usr/lib/marker"
