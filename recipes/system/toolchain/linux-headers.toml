@@ -1,0 +1,28 @@
+# The kernel's userspace API headers, for the system's C library and for
+# everything compiled against it.
+[package]
+name = "linux-headers"
+version = "7.2.8"
+description = "Linux API headers"
+license = "GPL-2.0-only WITH Linux-syscall-note"
+homepage = "https://kernel.org"
+
+# Checked against kernel.org's published sha256sums for v7.x.
+[[source]]
+url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.8.tar.xz"
+sha256 = "12e8d5a973d1ad7c5a5c69882e4022b131ed715db7003fdcd760ddf8c3e51941"
+
+[depends]
+build = ["stage1-root"]
+
+[build]
+script = """
+case "$ARCH" in
+    aarch64) karch=arm64 ;;
+    *) karch="$ARCH" ;;
+esac
+make mrproper
+make ARCH="$karch" headers
+find usr/include -type f ! -name '*.h' -delete
+cp -r usr/include/. /usr/include/
+"""

@@ -1,0 +1,16 @@
+# What oxinit starts on a hideOS machine. For now: a banner, and a login
+# shell on the console.
+[package]
+name = "hideos-units"
+version = "1"
+description = "hideOS service units for oxinit"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+run = ["oxinit", "zsh"]
+
+[build]
+script = """
+install -Dm644 -t /usr/lib/oxinit/units "$FILES"/*.toml
+"""

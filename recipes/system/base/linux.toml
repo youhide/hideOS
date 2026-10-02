@@ -1,0 +1,48 @@
+# The kernel. The architecture's default configuration with hideOS's
+# fragment merged over it. No modules yet: everything H1 boots with is
+# built in, and installing modules needs kmod, which comes with real
+# hardware in H4.
+[package]
+name = "linux"
+version = "7.2.8"
+description = "Linux kernel"
+license = "GPL-2.0-only"
+homepage = "https://kernel.org"
+
+# Checked against kernel.org's published sha256sums for v7.x.
+[[source]]
+url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.8.tar.xz"
+sha256 = "12e8d5a973d1ad7c5a5c69882e4022b131ed715db7003fdcd760ddf8c3e51941"
+
+[depends]
+build = ["toolchain", "elfutils"]
+
+[build]
+script = """
+# The kernel reads ARCH from the environment, and calls aarch64 arm64.
+case "$ARCH" in
+    aarch64) export ARCH=arm64; image=arch/arm64/boot/Image ;;
+    x86_64) image=arch/x86/boot/bzImage ;;
+esac
+
+make mrproper
+make defconfig
+scripts/kconfig/merge_config.sh -m .config "$FILES/hideos.config"
+make olddefconfig
+
+# Every line of the fragment must have survived: merge_config warns about a
+# symbol olddefconfig dropped, and a warning in a build log is a setting
+# nobody will notice is missing.
+missing=0
+while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    grep -qxF "$line" .config || { echo "not applied: $line"; missing=1; }
+done < "$FILES/hideos.config"
+[ "$missing" = 0 ]
+
+make -j"$JOBS" KBUILD_BUILD_USER=hideforge KBUILD_BUILD_HOST=hideforge \\
+    KBUILD_BUILD_TIMESTAMP="@$SOURCE_DATE_EPOCH" "$(basename "$image")"
+release=$(make -s kernelrelease)
+install -Dm644 "$image" "/usr/lib/modules/$release/vmlinuz"
+install -Dm644 .config "/usr/lib/modules/$release/config"
+"""

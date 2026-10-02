@@ -1,0 +1,12 @@
+[unit]
+description = "Login shell on the console"
+after       = ["banner"]
+
+[service]
+exec = "/usr/bin/zsh -l"
+# The console as this shell's controlling terminal, so job control and
+# Ctrl-C work. One unit on a machine declares it.
+tty  = true
+restart = "always"
+# An interactive shell ignores SIGTERM; don't make shutdown wait on it.
+stop-sec = "2s"

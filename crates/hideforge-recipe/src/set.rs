@@ -14,13 +14,14 @@ pub struct Entry {
     pub recipe: Recipe,
     /// The recipe file.
     pub path: PathBuf,
-    /// The directory holding its patches: next to the file, named after its
-    /// stem.
+    /// The directory holding its patches and other files: next to the recipe,
+    /// named after its stem. Available to the script as `$FILES`.
     pub files_dir: PathBuf,
     /// SHA-256 of the recipe file, byte for byte.
     file_digest: String,
-    /// SHA-256 of each patch, in the order the recipe applies them.
-    patch_digests: Vec<(String, String)>,
+    /// SHA-256 of every file in `files_dir`, by path relative to it, sorted.
+    /// Patches and anything else a script uses from `$FILES`.
+    file_digests: Vec<(String, String)>,
 }
 
 /// Every recipe under one directory, checked against each other.
@@ -52,21 +53,24 @@ impl RecipeSet {
             let recipe = Recipe::parse(&text, &path)?;
 
             let files_dir = path.with_extension("");
-            let mut patch_digests = Vec::new();
+            let file_digests = digest_files(&files_dir)?;
             for patch in &recipe.build.patches {
-                let patch_path = files_dir.join(patch);
-                let patch_bytes = fs::read(&patch_path).map_err(|source| Error::Read {
-                    path: patch_path.clone(),
-                    source,
-                })?;
-                patch_digests.push((patch.clone(), sha256_hex(&patch_bytes)));
+                if !file_digests.iter().any(|(name, _)| name == patch) {
+                    return Err(Error::Read {
+                        path: files_dir.join(patch),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "patch named in the recipe does not exist",
+                        ),
+                    });
+                }
             }
 
             let name = recipe.name().to_owned();
             let entry = Entry {
                 recipe,
                 file_digest: sha256_hex(&bytes),
-                patch_digests,
+                file_digests,
                 files_dir,
                 path,
             };
@@ -226,8 +230,8 @@ impl RecipeSet {
         let mut hasher = Hasher::new();
         hasher.line("name", name);
         hasher.line("recipe", &entry.file_digest);
-        for (patch, digest) in &entry.patch_digests {
-            hasher.line("patch", &format!("{patch} {digest}"));
+        for (file, digest) in &entry.file_digests {
+            hasher.line("file", &format!("{file} {digest}"));
         }
         hasher.line("arch", context.arch.as_str());
         if entry.recipe.build.environment == Environment::Host {
@@ -280,11 +284,55 @@ impl RecipeSet {
     }
 }
 
+/// SHA-256 of every regular file under `dir`, by relative path, sorted. An
+/// absent directory has no files.
+fn digest_files(dir: &Path) -> Result<Vec<(String, String)>, Error> {
+    let mut digests = Vec::new();
+    if !dir.is_dir() {
+        return Ok(digests);
+    }
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let read = fs::read_dir(&next).map_err(|source| Error::Read {
+            path: next.clone(),
+            source,
+        })?;
+        for item in read {
+            let item = item.map_err(|source| Error::Read {
+                path: next.clone(),
+                source,
+            })?;
+            let path = item.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let bytes = fs::read(&path).map_err(|source| Error::Read {
+                path: path.clone(),
+                source,
+            })?;
+            let relative = path
+                .strip_prefix(dir)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+            digests.push((relative, sha256_hex(&bytes)));
+        }
+    }
+    digests.sort();
+    Ok(digests)
+}
+
+/// Every recipe file under `dir`. A directory named after a recipe next to
+/// it is that recipe's files directory, not more recipes: it can hold `.toml`
+/// files that are data, like oxinit units.
 fn collect_toml(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Error> {
     let read = fs::read_dir(dir).map_err(|source| Error::Read {
         path: dir.to_path_buf(),
         source,
     })?;
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
     for item in read {
         let item = item.map_err(|source| Error::Read {
             path: dir.to_path_buf(),
@@ -296,11 +344,18 @@ fn collect_toml(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Error> {
             source,
         })?;
         if kind.is_dir() {
-            collect_toml(&path, out)?;
+            dirs.push(path);
         } else if path.extension().is_some_and(|ext| ext == "toml") {
-            out.push(path);
+            files.push(path);
         }
     }
+    for sub in dirs {
+        let is_files_dir = files.iter().any(|file| file.with_extension("") == sub);
+        if !is_files_dir {
+            collect_toml(&sub, out)?;
+        }
+    }
+    out.extend(files);
     Ok(())
 }
 
@@ -560,6 +615,45 @@ mod tests {
         fs::create_dir_all(tree.0.join("zlib")).unwrap();
         fs::write(tree.0.join("zlib/fix.patch"), "--- a\n+++ b\n").unwrap();
         assert!(tree.load().is_ok());
+    }
+
+    #[test]
+    fn toml_files_in_a_recipes_files_directory_are_not_recipes() {
+        let tree = Tree::new();
+        tree.recipe("units.toml", "units", "", &[], &[]);
+        fs::create_dir_all(tree.0.join("units")).unwrap();
+        fs::write(tree.0.join("units/console.toml"), "[unit]\n").unwrap();
+        // A directory that is not a files directory is still searched.
+        tree.recipe("more/thing.toml", "thing", "", &[], &[]);
+        let set = tree.load().unwrap();
+        assert!(set.get("units").is_ok());
+        assert!(set.get("thing").is_ok());
+    }
+
+    #[test]
+    fn every_file_next_to_a_recipe_is_part_of_its_hash() {
+        let tree = Tree::new();
+        tree.recipe("linux.toml", "linux", "", &[], &[]);
+        let before = tree
+            .load()
+            .unwrap()
+            .input_hashes(&["linux"], &context())
+            .unwrap();
+        fs::create_dir_all(tree.0.join("linux")).unwrap();
+        fs::write(tree.0.join("linux/config"), "CONFIG_X=y\n").unwrap();
+        let after = tree
+            .load()
+            .unwrap()
+            .input_hashes(&["linux"], &context())
+            .unwrap();
+        assert_ne!(before["linux"], after["linux"]);
+        fs::write(tree.0.join("linux/config"), "CONFIG_X=n\n").unwrap();
+        let changed = tree
+            .load()
+            .unwrap()
+            .input_hashes(&["linux"], &context())
+            .unwrap();
+        assert_ne!(after["linux"], changed["linux"]);
     }
 
     #[test]

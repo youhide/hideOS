@@ -36,6 +36,17 @@ impl Layout {
         }
     }
 
+    /// Where this hideforge copies its own executable for the sandbox to
+    /// re-execute. See `sandbox::run`.
+    pub fn exe_copy(&self) -> PathBuf {
+        // A directory per process, and the file still named `hideforge`, so
+        // the sandbox's PID 1 is called that in `ps` and /proc/1/comm.
+        self.root
+            .join("build")
+            .join(format!(".hideforge-{}", std::process::id()))
+            .join("hideforge")
+    }
+
     pub fn logs(&self) -> PathBuf {
         self.root.join("logs")
     }

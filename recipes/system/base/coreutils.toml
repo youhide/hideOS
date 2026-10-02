@@ -1,0 +1,30 @@
+# uutils: the core utilities, in Rust, as one multicall binary.
+[package]
+name = "coreutils"
+version = "0.12.0"
+description = "Core utilities (uutils, Rust)"
+license = "MIT"
+homepage = "https://uutils.github.io"
+
+# TLS only: GitHub's archive of the release tag.
+[[source]]
+url = "https://github.com/uutils/coreutils/archive/refs/tags/0.12.0.tar.gz"
+sha256 = "4fb327655cb4ffcbf2f16550cf9234079ffe839692f7aa1a6eda104af684e122"
+
+[depends]
+build = ["toolchain", "stage1-rust"]
+# Rust's standard library on GNU links libgcc_s.
+run = ["glibc", "gcc"]
+
+[build]
+vendor = "cargo"
+script = """
+cargo build --release --locked --features unix
+install -Dm755 target/release/coreutils /usr/bin/coreutils
+# Every utility the binary knows is a link to it. Read the list first: the
+# links replace the stage-0 tools this loop itself is using.
+utils=$(target/release/coreutils --list)
+for util in $utils; do
+    ln -sf coreutils "/usr/bin/$util"
+done
+"""

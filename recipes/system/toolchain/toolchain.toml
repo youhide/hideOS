@@ -1,0 +1,14 @@
+# What every stage-2 build after the toolchain depends on: the stage-2 root
+# and the system compiler, libraries and headers layered over it.
+[package]
+name = "toolchain"
+version = "1"
+description = "The system toolchain over the stage-2 build root"
+license = "MIT"
+
+[depends]
+build = ["stage1-root"]
+run = ["stage1-root", "linux-headers", "glibc", "zlib", "binutils", "gcc"]
+
+[build]
+script = "true"

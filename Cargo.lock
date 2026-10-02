@@ -88,8 +88,10 @@ name = "hideforge"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "basic-toml",
  "hideforge-recipe",
  "rustix",
+ "serde",
  "sha2",
 ]
 

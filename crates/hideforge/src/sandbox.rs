@@ -129,11 +129,44 @@ impl Spec {
     }
 }
 
+/// A copy of the running executable, for the sandbox to re-execute, removed
+/// when dropped.
+///
+/// Not `/proc/self/exe` directly: during development that is cargo's target
+/// directory, and rebuilding hideforge while it builds replaces the file. The
+/// next sandbox would then run a different hideforge, or none, since the path
+/// of a replaced executable reads back with " (deleted)" appended.
+pub struct ExeCopy(PathBuf);
+
+impl ExeCopy {
+    pub fn new(path: PathBuf) -> Result<ExeCopy> {
+        let exe = std::env::current_exe().context("finding hideforge's own executable")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(&exe, &path)
+            .with_context(|| format!("copying hideforge to {}", path.display()))?;
+        Ok(ExeCopy(path))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for ExeCopy {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+        if let Some(parent) = self.0.parent() {
+            let _ = fs::remove_dir(parent);
+        }
+    }
+}
+
 /// Runs a build in a sandbox, with its stdout and stderr going to `log`.
-pub fn run(spec: &Spec, log: &Path) -> Result<ExitStatus> {
+pub fn run(spec: &Spec, log: &Path, exe: &ExeCopy) -> Result<ExitStatus> {
     let log_file = fs::File::create(log).with_context(|| log.display().to_string())?;
-    let exe = std::env::current_exe().context("finding hideforge's own executable")?;
-    Command::new(exe)
+    Command::new(exe.path())
         .arg("__sandbox")
         .args(spec.to_args())
         .stdin(Stdio::null())

@@ -1,0 +1,35 @@
+# Only libelf, which the kernel build's objtool links against.
+[package]
+name = "elfutils"
+version = "0.196"
+description = "ELF object file access library (libelf)"
+license = "GPL-2.0-or-later OR LGPL-3.0-or-later"
+homepage = "https://sourceware.org/elfutils/"
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://sourceware.org/elfutils/ftp/0.196/elfutils-0.196.tar.bz2"
+sha256 = "fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc", "zlib"]
+
+[build]
+script = """
+# Explicitly without the compression libraries the stage-0 root happens to
+# have: a stage-2 library must not link something only an earlier stage
+# provides.
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-debuginfod \\
+    --enable-libdebuginfod=dummy \\
+    --without-lzma \\
+    --without-bzlib \\
+    --without-zstd
+make -j"$JOBS"
+make -C libelf install
+install -Dm644 config/libelf.pc /usr/lib/pkgconfig/libelf.pc
+rm -f /usr/lib/libelf.a
+"""

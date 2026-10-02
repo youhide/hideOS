@@ -1,0 +1,41 @@
+[package]
+name = "util-linux"
+version = "2.42.4"
+description = "mount, dmesg, lsblk and other system utilities"
+license = "GPL-2.0-or-later"
+homepage = "https://github.com/util-linux/util-linux"
+
+# Checked against kernel.org's published sha256sums for v2.42.
+[[source]]
+url = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-2.42.4.tar.xz"
+sha256 = "fbd62a100ab7bb8746ba0661255c3c48185b1e9021507c624da01fbc696330ec"
+
+[depends]
+build = ["toolchain", "ncurses"]
+run = ["glibc", "ncurses"]
+
+[build]
+script = """
+./configure \\
+    --build="$TARGET" \\
+    --bindir=/usr/bin \\
+    --sbindir=/usr/bin \\
+    --libdir=/usr/lib \\
+    --runstatedir=/run \\
+    --docdir=/usr/share/doc/util-linux-2.42.4 \\
+    --disable-static \\
+    --disable-chfn-chsh \\
+    --disable-login \\
+    --disable-nologin \\
+    --disable-su \\
+    --disable-setpriv \\
+    --disable-runuser \\
+    --disable-pylibmount \\
+    --disable-liblastlog2 \\
+    --without-python \\
+    --without-systemd \\
+    --without-systemdsystemunitdir \\
+    ADJTIME_PATH=/var/lib/hwclock/adjtime
+make -j"$JOBS"
+make install
+"""

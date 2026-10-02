@@ -1,0 +1,50 @@
+# The top of a hideOS root: everything lives in /usr, and the old top-level
+# directories point into it. The empty mount points the image needs, and the
+# few files in /etc that cannot be anywhere else yet.
+[package]
+name = "filesystem"
+version = "1"
+description = "hideOS directory layout"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+
+[build]
+script = """
+mkdir -p /usr/bin /usr/lib /usr/share
+# -n: replace the symlinks the build root already has rather than following
+# them into the directories they point at.
+ln -sfn usr/bin /bin
+ln -sfn usr/bin /sbin
+ln -sfn bin /usr/sbin
+ln -sfn usr/lib /lib
+if [ "$ARCH" = x86_64 ]; then ln -sfn usr/lib /lib64; fi
+
+mkdir -p /etc /var /home /root /run /tmp /proc /sys /dev /mnt
+chmod 0700 /root
+chmod 1777 /tmp
+
+cat > /etc/passwd <<'END'
+root:x:0:0:root:/root:/usr/bin/zsh
+nobody:x:65534:65534:Unprivileged user:/:/usr/bin/false
+END
+cat > /etc/group <<'END'
+root:x:0:
+tty:x:5:
+wheel:x:10:
+users:x:100:
+nogroup:x:65534:
+END
+echo hideos > /etc/hostname
+cat > /etc/hosts <<'END'
+127.0.0.1 localhost hideos
+::1       localhost
+END
+cat > /etc/os-release <<'END'
+NAME="hideOS"
+ID=hideos
+PRETTY_NAME="hideOS (pre-alpha)"
+HOME_URL="https://github.com/youhide/hideOS"
+END
+"""

@@ -8,6 +8,9 @@
 //!   hash NAME [--explain] NAME's input hash, and what went into it
 //!   fetch NAME...         download and verify sources for NAME and its inputs
 //!   build NAME... [--keep-failed]
+//!   image NAME --output DIR [--kernel NAME]
+//!                         build NAME and assemble its run closure into an
+//!                         initramfs, with the kernel next to it
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -21,6 +24,7 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 mod fetch;
+mod image;
 mod layout;
 mod output;
 #[cfg(target_os = "linux")]
@@ -104,12 +108,9 @@ fn run(args: &[String]) -> Result<i32> {
         host_id: std::env::var("HIDEFORGE_HOST_ID").ok(),
     };
     let layout = Layout::new(&options.work);
-    let names: Vec<&str> = rest
-        .iter()
-        .filter(|a| !a.starts_with("--"))
-        .map(String::as_str)
-        .collect();
-    let flag = |name: &str| rest.iter().any(|a| a == name);
+    let parsed = parse_args(rest)?;
+    let names: Vec<&str> = parsed.names.iter().map(String::as_str).collect();
+    let flag = |name: &str| parsed.flags.iter().any(|f| f == name);
 
     match command.as_str() {
         "list" => {
@@ -149,7 +150,7 @@ fn run(args: &[String]) -> Result<i32> {
             let targets = set.with_run_closure(&needs_names(&names)?)?;
             let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
             for name in set.build_order(&targets)? {
-                fetch::fetch(&layout, set.get(&name)?)?;
+                fetch::fetch(&layout, set.get(&name)?, options.arch)?;
             }
         }
         "build" => {
@@ -166,9 +167,65 @@ fn run(args: &[String]) -> Result<i32> {
                 flag("--keep-failed"),
             )?;
         }
+        "image" => {
+            let [name] = names.as_slice() else {
+                bail!("usage: hideforge image NAME --output DIR [--kernel NAME]");
+            };
+            let output = parsed
+                .value("--output")
+                .ok_or_else(|| anyhow!("image needs --output DIR"))?;
+            let kernel = parsed.value("--kernel");
+            let mut wanted = vec![*name];
+            wanted.extend(kernel);
+            let targets = set.with_run_closure(&wanted)?;
+            let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
+            let hashes = set.input_hashes(&targets, &context)?;
+            let order = set.build_order(&targets)?;
+            build(&set, &layout, &context, &hashes, &order, false)?;
+            image::assemble(&set, &layout, &hashes, name, kernel, output.as_ref())?;
+        }
         other => bail!("unknown command `{other}`"),
     }
     Ok(0)
+}
+
+/// A command's arguments: recipe names, `--flag`s, and `--option VALUE`s.
+struct Args {
+    names: Vec<String>,
+    flags: Vec<String>,
+    values: Vec<(String, String)>,
+}
+
+impl Args {
+    fn value(&self, name: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+/// Options that take a value. Everything else starting with `--` is a flag.
+const VALUE_OPTIONS: &[&str] = &["--output", "--kernel"];
+
+fn parse_args(args: &[String]) -> Result<Args> {
+    let mut parsed = Args {
+        names: Vec::new(),
+        flags: Vec::new(),
+        values: Vec::new(),
+    };
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if VALUE_OPTIONS.contains(&arg.as_str()) {
+            let value = iter.next().ok_or_else(|| anyhow!("{arg} needs a value"))?;
+            parsed.values.push((arg.clone(), value.clone()));
+        } else if arg.starts_with("--") {
+            parsed.flags.push(arg.clone());
+        } else {
+            parsed.names.push(arg.clone());
+        }
+    }
+    Ok(parsed)
 }
 
 fn needs_names<'a>(names: &[&'a str]) -> Result<Vec<&'a str>> {
@@ -199,8 +256,9 @@ fn build(
     order: &[String],
     keep_failed: bool,
 ) -> Result<()> {
+    let exe = sandbox::ExeCopy::new(layout.exe_copy())?;
     for name in order {
-        build_one(set, layout, context, hashes, name, keep_failed)?;
+        build_one(set, layout, context, hashes, name, keep_failed, &exe)?;
     }
     Ok(())
 }
@@ -213,6 +271,7 @@ fn build_one(
     hashes: &BTreeMap<String, InputHash>,
     name: &str,
     keep_failed: bool,
+    exe: &sandbox::ExeCopy,
 ) -> Result<()> {
     use std::fs;
     use std::time::Instant;
@@ -232,7 +291,7 @@ fn build_one(
     println!("  build   {}", layout::store_name(hash, recipe));
     let started = Instant::now();
 
-    fetch::fetch(layout, entry)?;
+    fetch::fetch(layout, entry, context.arch)?;
 
     let dirs = layout.build(hash);
     if dirs.base().exists() {
@@ -302,7 +361,7 @@ fn build_one(
     let mut lowers: Vec<PathBuf> = layers.iter().map(|layer| layer.path.clone()).collect();
     lowers.push(dirs.skeleton());
 
-    let epoch = fetch::prepare(layout, entry, &dirs.src())?;
+    let epoch = fetch::prepare(layout, entry, &dirs.src(), context.arch)?;
     fs::write(dirs.script(), &recipe.build.script)?;
 
     let jobs = std::thread::available_parallelism().map_or(1, |n| n.get());
@@ -325,12 +384,16 @@ fn build_one(
             ("TARGET".to_owned(), context.arch.target_triple()),
             ("SYSROOT".to_owned(), sysroot.to_owned()),
             ("SOURCE_DATE_EPOCH".to_owned(), epoch.to_string()),
+            (
+                "FILES".to_owned(),
+                format!("/build/src/{}", fetch::FILES_DIR),
+            ),
         ],
     };
 
     fs::create_dir_all(layout.logs())?;
     let log = layout.log(hash, recipe);
-    let status = sandbox::run(&spec, &log)?;
+    let status = sandbox::run(&spec, &log, exe)?;
     if !status.success() {
         let text = fs::read_to_string(&log).unwrap_or_default();
         let tail: Vec<&str> = text.lines().rev().take(40).collect();

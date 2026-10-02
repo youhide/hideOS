@@ -1,0 +1,36 @@
+[package]
+name = "binutils"
+version = "2.47"
+description = "Assembler, linker and binary tools"
+license = "GPL-3.0-or-later"
+homepage = "https://www.gnu.org/software/binutils/"
+
+# GPG signature verified against the GNU keyring (Nick Clifton).
+[[source]]
+url = "https://ftp.gnu.org/gnu/binutils/binutils-2.47.tar.xz"
+sha256 = "154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff"
+
+[depends]
+build = ["stage1-root", "glibc", "zlib"]
+run = ["glibc", "zlib"]
+
+[build]
+script = """
+mkdir build && cd build
+../configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --enable-ld=default \\
+    --enable-plugins \\
+    --enable-shared \\
+    --disable-werror \\
+    --enable-64-bit-bfd \\
+    --enable-new-dtags \\
+    --enable-gprofng=no \\
+    --with-system-zlib \\
+    --enable-default-hash-style=gnu
+make -j"$JOBS" tooldir=/usr
+make tooldir=/usr install
+rm -f /usr/lib/lib{bfd,ctf,ctf-nobfd,opcodes,sframe}.a
+"""

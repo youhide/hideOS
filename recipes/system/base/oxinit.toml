@@ -1,0 +1,25 @@
+# PID 1. Built from its own repository at a release tag, like any upstream:
+# see ARCHITECTURE.md, "Repositories".
+[package]
+name = "oxinit"
+version = "0.1.0"
+description = "Service manager and PID 1"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/youhide/oxinit"
+
+# TLS only: GitHub's archive of the release tag.
+[[source]]
+url = "https://github.com/youhide/oxinit/archive/refs/tags/v0.1.0.tar.gz"
+sha256 = "195a9c57a5163e206f4bf382c04be61c926ed72c03ae7b1588b97da2e3d78339"
+
+[depends]
+build = ["toolchain", "stage1-rust"]
+run = ["glibc", "gcc"]
+
+[build]
+vendor = "cargo"
+script = """
+cargo build --release --locked -p oxinit -p oxctl -p oxlogd
+install -Dm755 -t /usr/bin target/release/oxinit target/release/oxctl target/release/oxlogd
+mkdir -p /usr/lib/oxinit/units
+"""

@@ -1,0 +1,60 @@
+# Rust, from the Rust project's own binaries: rustc is written in Rust, so
+# the first one has to come from somewhere. This one builds hideOS's Rust
+# programs; a Rust built from source by it is a later recipe. See
+# docs/HIDEFORGE.md, "What is not bootstrapped from source".
+[package]
+name = "stage1-rust"
+version = "1.99.0"
+description = "Rust compiler and cargo, upstream binaries (temporary)"
+license = "MIT OR Apache-2.0"
+homepage = "https://www.rust-lang.org"
+stage = 1
+
+# All six: checked against the SHA-256 static.rust-lang.org publishes.
+[[source]]
+url = "https://static.rust-lang.org/dist/rustc-1.99.0-x86_64-unknown-linux-gnu.tar.xz"
+sha256 = "77171ba2a0345fdf2abc4fedda55d6de078dae7a68527c28be8c77dcc9604bd5"
+dest = "rustc"
+arch = "x86_64"
+
+[[source]]
+url = "https://static.rust-lang.org/dist/cargo-1.99.0-x86_64-unknown-linux-gnu.tar.xz"
+sha256 = "d7674918d28093097614cd9728b6ca60db9ea3038f640f0bd1e9a4188c7568ce"
+dest = "cargo"
+arch = "x86_64"
+
+[[source]]
+url = "https://static.rust-lang.org/dist/rust-std-1.99.0-x86_64-unknown-linux-gnu.tar.xz"
+sha256 = "3e58dff2d0b72196b5ea4e90536e174d400de88564a52694686b81e091169933"
+dest = "rust-std"
+arch = "x86_64"
+
+[[source]]
+url = "https://static.rust-lang.org/dist/rustc-1.99.0-aarch64-unknown-linux-gnu.tar.xz"
+sha256 = "89c0f1a3a44df63c95e5d5f2ba093d0a12c5f5f57f8635f8a7a0ce50cf86600e"
+dest = "rustc"
+arch = "aarch64"
+
+[[source]]
+url = "https://static.rust-lang.org/dist/cargo-1.99.0-aarch64-unknown-linux-gnu.tar.xz"
+sha256 = "113229fcc16cc1ba004923a4cc275fbf3281dafaaf8b97269f9c00189d497fd4"
+dest = "cargo"
+arch = "aarch64"
+
+[[source]]
+url = "https://static.rust-lang.org/dist/rust-std-1.99.0-aarch64-unknown-linux-gnu.tar.xz"
+sha256 = "1cf7e2ef58ed1cfa6f1adea18e155cbf254c1951f39e5f5e3376879f55fd64a4"
+dest = "rust-std"
+arch = "aarch64"
+
+[depends]
+build = ["stage0-root", "stage1-etc"]
+
+[build]
+script = """
+for component in rustc cargo rust-std; do
+    sh "$component/install.sh" --prefix=/usr --disable-ldconfig
+done
+# The installer's own bookkeeping, for an uninstall nobody will run.
+rm -f /usr/lib/rustlib/{install.log,uninstall.sh,manifest-*,components,rust-installer-version}
+"""

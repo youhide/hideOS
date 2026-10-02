@@ -7,6 +7,8 @@
 //! cargo xtask builder run -- CMD...   one command inside it
 //! cargo xtask forge -- ARG...        hideforge, in the builder
 //! cargo xtask forge-selftest          check the sandbox's guarantees
+//! cargo xtask image [--arch ARCH]     build the H1 image into target/images
+//! cargo xtask boot [--arch] [--test]  boot it in QEMU
 //! cargo xtask firmware-smoke [--arch x86_64|aarch64]
 //!                                     boot UEFI firmware in QEMU and check it
 //!                                     reaches boot device selection
@@ -33,6 +35,8 @@ fn main() -> ExitCode {
         Some("firmware-smoke") => firmware_smoke(args.get(1..).unwrap_or_default()),
         Some("forge") => forge(args.get(1..).unwrap_or_default()),
         Some("forge-selftest") => forge_selftest(),
+        Some("image") => image(args.get(1..).unwrap_or_default()),
+        Some("boot") => boot(args.get(1..).unwrap_or_default()),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", usage());
             Ok(())
@@ -59,6 +63,8 @@ fn usage() -> &'static str {
     firmware-smoke [--arch ARCH]  boot UEFI firmware in QEMU (x86_64, aarch64)
     forge -- ARG...               run hideforge in the builder
     forge-selftest                check the sandbox's guarantees
+    image [--arch ARCH]           build the H1 image into target/images
+    boot [--arch ARCH] [--test]   boot it in QEMU; --test waits for the banner
 "
 }
 
@@ -82,6 +88,9 @@ struct Arch {
     /// How long the firmware smoke test waits. A foreign architecture runs
     /// through QEMU's JIT with nothing to accelerate it.
     timeout: Duration,
+    /// The serial port the kernel is told to use. Wrong, and a boot prints
+    /// nothing at all, with nothing to say why.
+    console: &'static str,
 }
 
 const ARCHES: &[Arch] = &[
@@ -117,6 +126,7 @@ const ARCHES: &[Arch] = &[
             ),
         ],
         timeout: Duration::from_secs(90),
+        console: "ttyS0",
     },
     Arch {
         name: "aarch64",
@@ -148,6 +158,7 @@ const ARCHES: &[Arch] = &[
             ),
         ],
         timeout: Duration::from_secs(300),
+        console: "ttyAMA0",
     },
 ];
 
@@ -438,6 +449,9 @@ fn forge_selftest() -> Result<(), String> {
 set -u
 W=/work/selftest
 rm -rf "$W"
+# Its own target directory, so a self-test never rebuilds the hideforge a
+# real build in another container is running.
+export CARGO_TARGET_DIR=/work/target-selftest
 F="cargo run --quiet --release --package hideforge -- --recipes crates/hideforge/tests/recipes --work $W"
 fail() { echo "FAIL: $*"; exit 1; }
 
@@ -469,6 +483,138 @@ echo "ok    a failed build reports its status and leaves no store path"
 echo "ok    no build directories left behind"
 "#;
     run(builder_command(&runtime, &root, false).args(["bash", "-c", script]))
+}
+
+// ---------------------------------------------------------------------------
+// image and boot
+
+/// Where `image` puts an architecture's kernel and initramfs: in the
+/// checkout, so QEMU on the host can read them. Two files, so the
+/// case-insensitivity that rules out building here does not matter.
+fn image_dir(arch: Arch) -> Result<PathBuf, String> {
+    Ok(workspace_root()?
+        .join("target")
+        .join("images")
+        .join(format!("h1-{}", arch.name)))
+}
+
+fn image(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    let root = workspace_root()?;
+    let output = format!("/src/target/images/h1-{}", arch.name);
+    run(builder_command(&runtime, &root, false)
+        .args([
+            "cargo",
+            "run",
+            "--quiet",
+            "--release",
+            "--package",
+            "hideforge",
+            "--",
+        ])
+        .args([
+            "--arch", arch.name, "image", "image-h1", "--kernel", "linux",
+        ])
+        .args(["--output", &output]))
+}
+
+/// What the hideOS banner unit prints once oxinit has started it: proof that
+/// the kernel booted, oxinit is PID 1, read its units, and ran a program on
+/// the glibc userspace.
+const BOOT_MARKER: &str = "hideOS: booted on";
+
+fn boot(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let test = args.iter().any(|a| a == "--test");
+    let dir = image_dir(arch)?;
+    let kernel = dir.join("vmlinuz");
+    let initrd = dir.join("initramfs.cpio");
+    if !kernel.is_file() || !initrd.is_file() {
+        return Err(format!(
+            "no image in {}; run `cargo xtask image --arch {}` first",
+            dir.display(),
+            arch.name
+        ));
+    }
+
+    let mut command = Command::new(arch.qemu);
+    for accel in accelerators(arch) {
+        command.args(["-accel", accel]);
+    }
+    command
+        .args(arch.machine)
+        .args(["-m", "2048", "-smp", "2", "-no-reboot", "-nic", "none"])
+        .arg("-kernel")
+        .arg(&kernel)
+        .arg("-initrd")
+        .arg(&initrd)
+        // rdinit, not init: in an initramfs the kernel runs rdinit, and the
+        // default /init does not exist in a hideOS root. panic=-1: reboot at
+        // once on a panic, which -no-reboot turns into QEMU exiting, so a
+        // failed boot ends instead of hanging.
+        .arg("-append")
+        .arg(format!(
+            "console={} rdinit=/usr/bin/oxinit panic=-1",
+            arch.console
+        ));
+
+    if !test {
+        println!("booting hideOS {} (quit QEMU with Ctrl-A X)", arch.name);
+        command.arg("-nographic");
+        return run(&mut command);
+    }
+
+    let log = dir.join("serial.log");
+    let _ = fs::remove_file(&log);
+    command
+        .args(["-display", "none", "-monitor", "none"])
+        .arg("-serial")
+        .arg(format!("file:{}", log.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    println!(
+        "booting hideOS {} (timeout {}s)",
+        arch.name,
+        arch.timeout.as_secs()
+    );
+    let started = Instant::now();
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", arch.qemu))?;
+    let outcome = loop {
+        let serial = fs::read(&log)
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        if let Some(line) = serial.lines().find(|l| l.contains(BOOT_MARKER)) {
+            break Ok(format!(
+                "{} in {:.1}s",
+                line.trim(),
+                started.elapsed().as_secs_f64()
+            ));
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            break Err(format!("QEMU exited ({status}) before the banner"));
+        }
+        if started.elapsed() > arch.timeout {
+            break Err(format!("no banner after {}s", arch.timeout.as_secs()));
+        }
+        thread::sleep(Duration::from_millis(200));
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    match outcome {
+        Ok(message) => {
+            println!("{}: {message}", arch.name);
+            Ok(())
+        }
+        Err(message) => Err(format!(
+            "{}: {message}; serial log in {}",
+            arch.name,
+            log.display()
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------

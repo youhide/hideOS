@@ -1,0 +1,69 @@
+# The system compiler. Its runtime libraries — libgcc_s, libstdc++ — are what
+# every C++ program on hideOS links against.
+[package]
+name = "gcc"
+version = "16.2.0"
+description = "GNU C and C++ compilers and runtime libraries"
+license = "GPL-3.0-or-later WITH GCC-exception-3.1"
+homepage = "https://gcc.gnu.org"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz"
+sha256 = "e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz"
+sha256 = "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+dest = "gmp"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.xz"
+sha256 = "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01"
+dest = "mpfr"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/mpc/mpc-1.4.1.tar.xz"
+sha256 = "91204cd32f164bd3b7c992d4a6a8ce6519511aadab30f78b6982d0bf8d73e931"
+dest = "mpc"
+
+[depends]
+build = ["stage1-root", "glibc", "zlib", "binutils"]
+run = ["glibc", "zlib", "binutils"]
+
+[build]
+script = """
+if [ "$ARCH" = x86_64 ]; then
+    sed -e '/m64=/s/lib64/lib/' -i gcc/config/i386/t-linux64
+fi
+
+mkdir build && cd build
+# --disable-bootstrap: GCC's own three-stage self-check costs three times
+# the build; hideforge's reproducibility check asks the same question.
+../configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --host="$TARGET" \\
+    --target="$TARGET" \\
+    LD=ld \\
+    --enable-languages=c,c++ \\
+    --enable-default-pie \\
+    --enable-default-ssp \\
+    --enable-host-pie \\
+    --disable-multilib \\
+    --disable-bootstrap \\
+    --disable-fixincludes \\
+    --disable-nls \\
+    --with-system-zlib
+make -j"$JOBS"
+make install
+
+ln -sf gcc /usr/bin/cc
+mkdir -p /usr/lib/bfd-plugins
+ln -sf "../../libexec/gcc/$TARGET/16.2.0/liblto_plugin.so" /usr/lib/bfd-plugins/
+
+# The compiler works end to end, with the libraries just installed.
+echo 'int main(void) { return 0; }' > /tmp/probe.c
+gcc /tmp/probe.c -o /tmp/probe && /tmp/probe
+printf '#include <string>\\nint main() { std::string s("ok"); return s.size() == 2 ? 0 : 1; }\\n' > /tmp/probe.cc
+g++ /tmp/probe.cc -o /tmp/probe && /tmp/probe
+"""

@@ -17,6 +17,9 @@ run = [
     "stage1-perl",
     "stage1-python",
     "stage1-texinfo",
+    "stage1-flex",
+    "stage1-bc",
+    "stage1-pkgconf",
 ]
 
 [build]

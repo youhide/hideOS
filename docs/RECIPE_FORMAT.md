@@ -35,7 +35,9 @@ people; hideforge reads recursively and identifies recipes only by
 
 Files a recipe refers to — patches, configuration — live in a directory next
 to it with the recipe's file stem: `recipes/base/zlib.toml` finds its patches
-in `recipes/base/zlib/`.
+in `recipes/base/zlib/`. Every file there is part of the recipe's input
+hash, and the script finds them all in `$FILES`. That directory is not
+searched for recipes, so it can hold `.toml` files that are data.
 
 ## `[package]`
 
@@ -60,6 +62,7 @@ starts.
 | `dest`    | no       | Where to unpack, relative to `/build/src`. Default: `.`          |
 | `strip`   | no       | Leading path components to strip. Default `1`, which is right for a tarball with a single top directory. |
 | `extract` | no       | `false` to copy the file into `dest` unopened. Default `true`.   |
+| `arch`    | no       | `x86_64` or `aarch64`: used only when building for that architecture. For sources that are themselves built for one, like a binary toolchain. |
 
 The first source unpacks into `/build/src` itself, which is where the script
 starts. Additional sources typically go into a subdirectory — GCC's bundled
@@ -94,6 +97,24 @@ in the file it was written. Files in the recipe's directory, applied in order wi
 `patch -p1` in `/build/src` after unpacking. Every patch carries a header
 saying why it exists and whether it was sent upstream.
 
+## `build.vendor`
+
+```toml
+[build]
+vendor = "cargo"
+```
+
+For sources whose build would download dependencies, which a sandbox with no
+network cannot. hideforge does it instead, before the sandbox exists, and
+holds every download to a checksum the source itself pins:
+
+- `"cargo"`: every crates.io package in the `Cargo.lock` at the top of the
+  source is downloaded, checked against the lockfile's SHA-256, unpacked into
+  `/build/src/.hideforge-vendor`, and cargo is configured to use only that,
+  offline. The lockfile is inside the source archive, so the recipe's own
+  SHA-256 covers it. Git and other-registry dependencies are refused: they
+  come with nothing to check them against.
+
 ## `[depends]`
 
 | Key     | Meaning                                                                          |
@@ -126,6 +147,7 @@ Environment variables the script can rely on:
 | `TARGET`            | `$ARCH-hideos-linux-gnu`                              |
 | `SYSROOT`           | `/sysroot` in a `host` build, `/` in a `target` build |
 | `SOURCE_DATE_EPOCH` | See [Reproducibility](HIDEFORGE.md#reproducibility)    |
+| `FILES`             | The recipe's own files, from the directory next to it  |
 | `HOME`              | A scratch directory, not captured                     |
 | `PATH`              | `/tools/bin` or `$SYSROOT/tools/bin` first if present, then the standard directories |
 

@@ -1,0 +1,22 @@
+[package]
+name = "stage1-pkgconf"
+version = "3.0.7"
+description = "pkg-config, for builds that look libraries up (temporary)"
+license = "ISC"
+stage = 1
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://distfiles.ariadne.space/pkgconf/pkgconf-3.0.7.tar.xz"
+sha256 = "c926ff491cbd9a331a589160811bd97ab1749b4d5198a519338f2cdfabe6940a"
+
+[depends]
+build = ["stage0-root", "stage1-etc"]
+
+[build]
+script = """
+./configure --prefix=/usr --disable-static
+make -j"$JOBS"
+make install
+ln -s pkgconf /usr/bin/pkg-config
+"""

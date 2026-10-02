@@ -1,0 +1,22 @@
+[package]
+name = "stage1-flex"
+version = "2.6.4"
+description = "Lexer generator, for building the kernel (temporary)"
+license = "BSD-2-Clause"
+stage = 1
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz"
+sha256 = "e87aae032bf07c26f85ac0ed3250998c37621d95f8bd748b31f15b33c45ee995"
+
+[depends]
+build = ["stage0-root", "stage1-etc"]
+
+[build]
+script = """
+./configure --prefix=/usr --disable-static
+make -j"$JOBS"
+make install
+ln -s flex /usr/bin/lex
+"""

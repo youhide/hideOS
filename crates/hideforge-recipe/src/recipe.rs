@@ -42,6 +42,10 @@ pub struct Source {
     pub strip: u32,
     #[serde(default = "Source::default_extract")]
     pub extract: bool,
+    /// Only for this architecture. For sources that are themselves built for
+    /// one, like a binary toolchain.
+    #[serde(default)]
+    pub arch: Option<String>,
 }
 
 impl Source {
@@ -77,6 +81,18 @@ pub struct Build {
     /// a format whose meaning depends on key order is a trap.
     #[serde(default)]
     pub patches: Vec<String>,
+    /// Dependencies a language package manager would download, fetched by
+    /// hideforge before the sandbox exists instead. See `RECIPE_FORMAT.md`.
+    #[serde(default)]
+    pub vendor: Option<Vendor>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Vendor {
+    /// Every crates.io package in the source's `Cargo.lock`, checked against
+    /// the lockfile's own SHA-256.
+    Cargo,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -146,6 +162,15 @@ struct RawRecipe {
     #[serde(default)]
     depends: Depends,
     build: Build,
+}
+
+impl Source {
+    /// Whether this source is used when building for `arch`.
+    pub fn applies_to(&self, arch: crate::Arch) -> bool {
+        self.arch
+            .as_deref()
+            .is_none_or(|wanted| wanted == arch.as_str())
+    }
 }
 
 impl Recipe {
@@ -250,6 +275,10 @@ impl Recipe {
                 ));
             }
             check_relative(&source.dest).map_err(|reason| invalid("source.dest", reason))?;
+            if let Some(arch) = &source.arch {
+                arch.parse::<crate::Arch>()
+                    .map_err(|reason| invalid("source.arch", reason))?;
+            }
         }
 
         for patch in &self.build.patches {
@@ -430,6 +459,17 @@ script = "./configure --prefix=/usr && make -j$JOBS && make install"
             );
             assert_eq!(field_of(parse(&text).unwrap_err()), "source.dest", "{bad}");
         }
+    }
+
+    #[test]
+    fn sources_can_be_limited_to_one_architecture() {
+        let text = ZLIB.replace("sha256 = \"38ef", "arch = \"aarch64\"\nsha256 = \"38ef");
+        let recipe = parse(&text).unwrap();
+        assert!(recipe.sources[0].applies_to(crate::Arch::Aarch64));
+        assert!(!recipe.sources[0].applies_to(crate::Arch::X86_64));
+
+        let text = ZLIB.replace("sha256 = \"38ef", "arch = \"riscv64\"\nsha256 = \"38ef");
+        assert_eq!(field_of(parse(&text).unwrap_err()), "source.arch");
     }
 
     #[test]

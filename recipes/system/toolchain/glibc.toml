@@ -1,0 +1,65 @@
+# The C library. Built, as in Linux From Scratch chapter 8, by stage 0's
+# native GCC; everything after the system GCC is built by that.
+[package]
+name = "glibc"
+version = "2.44"
+description = "GNU C library"
+license = "LGPL-2.1-or-later"
+homepage = "https://www.gnu.org/software/libc/"
+
+# GPG signature verified against the GNU keyring (Andreas K. Huettel).
+[[source]]
+url = "https://ftp.gnu.org/gnu/glibc/glibc-2.44.tar.xz"
+sha256 = "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667"
+
+[depends]
+build = ["stage1-root", "linux-headers"]
+# Its headers include the kernel's.
+run = ["linux-headers"]
+
+[build]
+script = """
+mkdir build && cd build
+# sbin is merged into bin.
+echo "rootsbindir=/usr/bin" > configparms
+echo "sbindir=/usr/bin" >> configparms
+../configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --host="$TARGET" \\
+    --disable-werror \\
+    --disable-nscd \\
+    --enable-kernel=6.6 \\
+    --enable-stack-protector=strong \\
+    libc_cv_slibdir=/usr/lib
+make -j"$JOBS"
+
+# make install wants ld.so.conf to exist, and runs a sanity check that
+# assumes it is installing onto the machine it will run on.
+mkdir -p /etc
+cat > /etc/ld.so.conf <<'END'
+include /etc/ld.so.conf.d/*.conf
+END
+sed '/test-installation/s@$(PERL)@echo not running@' -i ../Makefile
+make install
+sed '/RTLDLIST=/s@/usr@@g' -i /usr/bin/ldd
+
+# Locales: C.UTF-8, which hideforge's own builds will use once it exists,
+# and the two its author lives in.
+mkdir -p /usr/lib/locale
+localedef -i C -f UTF-8 C.UTF-8
+localedef -i en_US -f UTF-8 en_US.UTF-8
+localedef -i pt_BR -f UTF-8 pt_BR.UTF-8
+
+cat > /etc/nsswitch.conf <<'END'
+passwd: files
+group: files
+shadow: files
+hosts: files dns
+networks: files
+protocols: files
+services: files
+ethers: files
+rpc: files
+END
+"""

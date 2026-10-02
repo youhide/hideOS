@@ -1,0 +1,23 @@
+[package]
+name = "zlib"
+version = "1.3.2"
+description = "Compression library"
+license = "Zlib"
+homepage = "https://zlib.net"
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://zlib.net/zlib-1.3.2.tar.xz"
+sha256 = "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3"
+
+[depends]
+build = ["stage1-root", "glibc"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure --prefix=/usr
+make -j"$JOBS"
+make install
+rm -f /usr/lib/libz.a
+"""

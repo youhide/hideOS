@@ -1,0 +1,32 @@
+# The login shell. See ARCHITECTURE.md, "The shell": global startup files
+# come from /usr/share/zsh/etc, which hideOS ships and updates, and those
+# source /etc/zsh/*.local for an administrator's changes.
+[package]
+name = "zsh"
+version = "5.9.2"
+description = "Z shell"
+license = "MIT-Modern-Variant"
+homepage = "https://www.zsh.org"
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://www.zsh.org/pub/zsh-5.9.2.tar.xz"
+sha256 = "36fa734374b44783582cec09bcd67822e2f992c779ec1624ab5596df078d2f81"
+
+[depends]
+build = ["toolchain", "ncurses"]
+run = ["glibc", "ncurses"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --enable-etcdir=/usr/share/zsh/etc \\
+    --enable-fndir=/usr/share/zsh/functions \\
+    --enable-scriptdir=/usr/share/zsh/scripts \\
+    --with-tcsetpgrp \\
+    --enable-multibyte
+make -j"$JOBS"
+make install
+"""

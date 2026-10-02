@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 hideforge-recipe.workspace = true
 anyhow.workspace = true
+basic-toml.workspace = true
+serde.workspace = true
 sha2.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
