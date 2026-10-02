@@ -757,11 +757,13 @@ fn publish_site() -> Result<(), String> {
         .join("target/images")
         .join(format!("{EDITION}-x86_64"))
         .join("screenshot.png");
+    // Without a screenshot the page still publishes, and shows the image's
+    // description in its place until the next publish after one is taken.
     if !screenshot.is_file() {
-        return Err(format!(
-            "no {}; run `cargo xtask screenshot` first",
+        println!(
+            "note: no {}; publishing without it (run `cargo xtask screenshot`)",
             screenshot.display()
-        ));
+        );
     }
     let script = r#"
 set -eu
@@ -776,9 +778,9 @@ else
     git -C "$root" worktree add -q --detach "$tree"
     git -C "$tree" checkout -q --orphan gh-pages
 fi
-git -C "$tree" rm -rq --ignore-unmatch . >/dev/null
+git -C "$tree" rm -rqf --ignore-unmatch . >/dev/null
 cp "$root/site/index.html" "$tree/index.html"
-cp "$shot" "$tree/screenshot.png"
+if [ -f "$shot" ]; then cp "$shot" "$tree/screenshot.png"; fi
 # Plain files, not a Jekyll site.
 touch "$tree/.nojekyll"
 git -C "$tree" add -A
