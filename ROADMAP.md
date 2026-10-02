@@ -28,7 +28,7 @@ The smallest image this project built entirely itself.
       only, fixed `SOURCE_DATE_EPOCH`.
 - [ ] Bootstrap stages 0 → 1 → 2: cross toolchain, native toolchain, final
       system. Nothing from the host in the output.
-- [ ] Recipes: Linux, glibc, GCC/LLVM runtime, Rust, uutils, bash, fish,
+- [ ] Recipes: Linux, glibc, GCC/LLVM runtime, Rust, uutils, bash, zsh,
       util-linux, kmod, oxinit.
 - [ ] Output: a root tree, packed as an initramfs.
 

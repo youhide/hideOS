@@ -287,6 +287,25 @@ The image is for the system. Users do not install into it.
 - **The hideOS toolset ships in the image**: oxinit, the `hide` CLI, and the
   author's own tools as they are ported or written in Rust.
 
+### The shell
+
+**zsh is the login shell**, as on macOS. Not fish, although fish 4 is Rust:
+the shell is the one program where compatibility with everything people paste
+into it matters more than the language it is written in, and zsh accepts what
+the rest of the world writes for bash. Users coming from macOS bring their
+`.zshrc` with them.
+
+What hideOS adds is the defaults. zsh is built to read its global files from
+`/usr/share/zsh/` — completions, history, a prompt, key bindings that behave
+like a modern terminal — and those files source `/etc/zsh/*.local` when it
+exists, so the stateless rule holds: nothing in `/etc` is needed, and an
+administrator's changes survive every update.
+
+- `/bin/sh` is bash, for scripts. Not the login shell, and not dash: upstream
+  packages' scripts assume bashisms more often than they admit.
+- fish and nushell are not in the image. They install fine in a `hide shell`
+  container, or as a Flatpak where one exists.
+
 ## Component map
 
 **Ours (Rust)** — written by this project or the author:
@@ -305,7 +324,7 @@ The image is for the system. Users do not install into it.
 
 **Upstream, already Rust:** COSMIC (compositor, panel, settings, greeter,
 files, terminal, editor, portal), greetd, uutils (coreutils, findutils,
-diffutils), sudo-rs, ntpd-rs, fish 4, composefs-rs, rustls where a component
+diffutils), sudo-rs, ntpd-rs, composefs-rs, rustls where a component
 allows it.
 
 **Upstream, C, shipping until replaced:**
@@ -319,6 +338,7 @@ allows it.
 | elogind                  | Seats, sessions, suspend, lid — COSMIC needs logind's D-Bus API | `hidelogin` |
 | dbus-daemon              | The session and system bus                       | `busd` when it is ready   |
 | PipeWire + WirePlumber   | Audio and screen capture                         | —                         |
+| zsh, bash                | Login shell, and `/bin/sh` for scripts — see [The shell](#the-shell) | —           |
 | NetworkManager + iwd     | Networking; COSMIC's applet talks to NM          | —                         |
 | polkit                   | Authorization for COSMIC Settings                | —                         |
 | cryptsetup (lib), btrfs-progs, util-linux, kmod | Storage and modules       | Partly, via hidestage     |
