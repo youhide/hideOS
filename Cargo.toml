@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/xtask",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+# Stable minus two releases. CI builds on exactly this version, so it is a
+# checked promise rather than a guess.
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/youhide/hideOS"
+publish = false
+
+[workspace.dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+# Never "abort", in any profile. hidestage and hideboot are on the boot path,
+# and an abort there is a machine that does not boot; unwinding leaves a
+# `catch_unwind` at the top a chance to reach the fallback shell.
+panic = "unwind"
+
+[profile.dev]
+panic = "unwind"

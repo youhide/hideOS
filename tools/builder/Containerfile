@@ -1,0 +1,49 @@
+# The hideOS builder: a Linux environment with everything H0–H3 need, usable
+# from any host with docker or podman.
+#
+#   cargo xtask builder build
+#   cargo xtask builder shell
+#
+# This is the *host* side of the bootstrap. Nothing from this image reaches a
+# hideOS image: hideforge's stage 0 uses it to build a cross toolchain, and
+# from stage 1 on everything is built by hideOS's own toolchain. So the choice
+# of distribution here is about convenience, not about what ships. Debian
+# stable is picked because every tool below is packaged in it.
+FROM docker.io/library/debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Grouped by the milestone that first needs them, so it is clear what can go
+# when that milestone's own tooling replaces it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        # Anything: fetching, unpacking, version control.
+        ca-certificates curl git xz-utils zstd bzip2 patch file \
+        # H1: the stage-0 toolchain bootstrap and the kernel build.
+        build-essential bison flex gawk texinfo python3 bc perl \
+        libelf-dev libssl-dev cpio rsync \
+        clang lld llvm \
+        # H0+: booting what was built.
+        qemu-system-x86 qemu-system-arm ovmf qemu-efi-aarch64 \
+        # H2: the sealed image and the disk around it. No `composefs`: trixie
+        # does not package it, and hideforge generates images with
+        # composefs-rs anyway; the EROFS tools stay to inspect what it wrote.
+        # systemd-boot is the stopgap boot manager until hideBoot (H7), used
+        # only as a standalone EFI binary copied onto the ESP.
+        erofs-utils btrfs-progs dosfstools mtools gdisk \
+        systemd-boot-efi sbsigntool \
+        # H3: OCI images and a local registry to push them to.
+        skopeo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust from rustup, not Debian: hideOS tracks stable minus two, and Debian
+# stable ships something older. The registry under CARGO_HOME is mounted from
+# a volume by `cargo xtask builder`, so crates are downloaded once.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --no-modify-path --profile minimal \
+            --component clippy,rustfmt \
+            --target x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,x86_64-unknown-uefi,aarch64-unknown-uefi
+
+WORKDIR /src

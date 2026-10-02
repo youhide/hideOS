@@ -1,0 +1,111 @@
+# Split by cost, as in oxinit: `check` is seconds, the rest run in parallel.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push supersedes an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: fmt, clippy, tests (${{ matrix.os }})
+    # Both hosts. Policy crates must build and test on macOS, where the
+    # author works; Linux is where everything ships.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  msrv:
+    name: builds on the declared MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the declared minimum
+        run: |
+          MSRV=$(grep '^rust-version' Cargo.toml | cut -d'"' -f2)
+          echo "MSRV is $MSRV"
+          rustup toolchain install "$MSRV" --profile minimal
+          echo "MSRV=$MSRV" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - run: rustup run "$MSRV" cargo check --workspace --all-targets
+
+  advisories:
+    name: dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      # Blocking on purpose. Crates linked into hidestage end up on the boot
+      # path, and an advisory against one of them is not for later.
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  firmware:
+    name: UEFI firmware boots (${{ matrix.arch }})
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      # GitHub's Linux runners have KVM, but /dev/kvm is root-only until a
+      # udev rule opens it. Without it x86_64 still passes, on TCG, slowly.
+      - name: Open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: QEMU and firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-system-arm ovmf qemu-efi-aarch64
+
+      - run: cargo xtask firmware-smoke --arch ${{ matrix.arch }}
+
+      - name: The serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial-firmware-${{ matrix.arch }}
+          path: target/firmware-smoke/${{ matrix.arch }}.log
+          if-no-files-found: ignore
+
+  builder:
+    name: the builder image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The image is the environment every later milestone builds in. One
+      # that no longer builds — a package renamed in Debian, rustup moved —
+      # should fail here, not on the next person's machine.
+      - run: cargo xtask builder build
+      # Its Rust builds this workspace, and its QEMU and Debian's OVMF boot.
+      # Two different things from the `firmware` job, which uses the
+      # runner's own packages.
+      - name: The toolchain and QEMU inside it work
+        run: cargo xtask builder run -- cargo xtask firmware-smoke --arch x86_64

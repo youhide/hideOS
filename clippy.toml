@@ -1,0 +1,7 @@
+# Boot-path crates deny unwrap, expect, panic, and indexing. Tests are not on
+# the boot path and a failing assertion is the point of a test, so the
+# restriction stops at the test boundary.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

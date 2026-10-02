@@ -1,0 +1,14 @@
+[package]
+name = "xtask"
+version.workspace = true
+description = "Development automation: environment checks, the builder container, QEMU"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# xtask runs on the developer's machine, never on the boot path. None of the
+# boot-path rules apply, and it has no dependencies so that `cargo xtask` works
+# on a fresh checkout without fetching anything.
+[dependencies]
