@@ -1,7 +1,12 @@
 # hideOS
 
-A Linux workstation operating system, built from source, with
+The operating system built around [COSMIC](https://system76.com/cosmic).
+A Linux workstation OS, built from source, with
 [oxinit](https://github.com/youhide/oxinit) as PID 1.
+
+COSMIC is protected against crashing because it is written in Rust. hideOS
+takes that from the desktop down to the boot: Rust underneath, a sealed system
+that cannot be corrupted, and updates that roll themselves back when they fail.
 
 **Pre-alpha. Nothing boots yet.** See [ROADMAP.md](ROADMAP.md).
 

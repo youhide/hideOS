@@ -15,6 +15,25 @@ PID 1. The model is macOS: the system is a sealed, signed, read-only image that
 is replaced whole on every update, and everything the user owns lives
 somewhere else.
 
+**hideOS is the operating system built around COSMIC.** COSMIC's own pitch is
+"protected against crashing": it is written in Rust, so a whole class of
+crashes — memory corruption — cannot happen in it. That is a property of a
+language, and it stops at the desktop's edge. hideOS extends it into a
+property of the system, all the way down:
+
+- **Below the desktop, the same language.** PID 1, the initrd, the updater and
+  the boot manager are Rust, held to a stricter rule than memory safety: no
+  panics on the boot path. Memory safety removes corruption; it does not
+  remove a `panic!` or a logic error, and those still crash a program.
+- **Around the desktop, recovery.** What Rust cannot prevent — a bad driver, a
+  broken update, a power cut — the sealed image and automatic rollback make
+  survivable. See [Reliability](#reliability).
+- **One desktop, integrated, not supported.** COSMIC is the only desktop
+  hideOS ships or tests. System features — updates, rollback, extensions,
+  disk encryption, recovery — appear as COSMIC Settings pages and panel
+  applets, talking to hideOS daemons over D-Bus. There is no abstraction layer
+  for other desktops, and no configuration that exists only in a terminal.
+
 ## Principles
 
 1. **The system is sealed.** `/usr` is content-addressed and verified on every
@@ -227,6 +246,34 @@ them**; the machine refuses any other signature. Three uses:
 A sysext declares the deployment it was built for and is not merged into any
 other one.
 
+## The desktop
+
+COSMIC, from upstream source, built by hideforge like everything else:
+`cosmic-comp`, `cosmic-session`, `cosmic-panel`, `cosmic-settings`,
+`cosmic-greeter` (on greetd), `cosmic-files`, `cosmic-term`, `cosmic-edit`,
+`cosmic-store`, `xdg-desktop-portal-cosmic`.
+
+hideOS adds its own pieces, in Rust, with libcosmic, the toolkit COSMIC itself
+is written in, so they are indistinguishable from the rest of the desktop:
+
+| Piece                         | What it shows                                                   | Talks to          |
+|-------------------------------|-----------------------------------------------------------------|-------------------|
+| Settings → System → Updates   | Channel, available update, staged deployment, history           | `hideupd`         |
+| Settings → System → Recovery  | Deployments on disk, pin, roll back, recovery key status        | `hideupd`         |
+| Settings → System → Extensions| Installed and available system extensions (NVIDIA, …)           | `hideupd`         |
+| Update applet in the panel    | "Restart to update" when a deployment is staged                 | `hideupd`         |
+| First-boot setup              | User, network, disk-encryption PIN, recovery key                | `hidesetup`       |
+| `cosmic-store`                | Flatpak applications (upstream; hideOS adds its remote)         | Flatpak           |
+
+`hideupd` exposes a D-Bus API (`os.hide.Update1`), defined in this repository
+and generated with `zbus`; the `hide` CLI and the Settings pages are both
+clients of it, so there is exactly one implementation of every operation.
+Privileged operations go through polkit.
+
+Upstream first: a change COSMIC needs — a bug, a missing hook, an integration
+point — goes upstream to pop-os, not into a hideOS patch, unless upstream
+declines it.
+
 ## Applications and development
 
 The image is for the system. Users do not install into it.
@@ -251,6 +298,7 @@ The image is for the system. Users do not install into it.
 | `hidestage`   | initrd `/init`: unlock, verify, assemble, `switch_root`          | To write      |
 | `hideupd`     | Update daemon: pull, unpack, deploy, garbage-collect             | To write      |
 | `hide`        | User-facing CLI: `update`, `rollback`, `status`, `ext`, `shell`  | To write      |
+| COSMIC pieces | Settings pages, panel applet, first-boot setup (`hidesetup`)     | To write      |
 | `hideboot`    | UEFI boot manager with boot counting (youhide/hideBoot)          | H7            |
 | `hidedev`     | Device manager, libudev-compatible; replaces eudev               | Later         |
 | `hidelogin`   | `org.freedesktop.login1` subset; replaces elogind                | Later         |

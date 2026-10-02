@@ -79,6 +79,10 @@ TPM2, joins Wi-Fi, suspends and resumes.
 - [ ] Mesa, PipeWire, WirePlumber.
 - [ ] Per-user services in oxinit (oxinit-side work).
 - [ ] greetd + cosmic-greeter, the COSMIC session and applications.
+- [ ] `os.hide.Update1` D-Bus API on hideupd; the `hide` CLI moved onto it.
+- [ ] COSMIC Settings pages (Updates, Recovery, Extensions) and the update
+      applet, in libcosmic.
+- [ ] `hidesetup`: first-boot setup.
 - [ ] Flatpak with Flathub and `xdg-desktop-portal-cosmic`.
 - [ ] `hide shell`: toolbox-style Podman containers.
 
