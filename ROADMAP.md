@@ -8,16 +8,39 @@ The design these build toward is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## H0 — Foundations
 
-**In progress.**
+**Done.**
 
 - [x] Repository, architecture, roadmap.
 - [x] Settle what H1–H3 build on: OCI as the update transport, our own boot
       manager in H7 with `systemd-boot` until then. Secure Boot keys vs. shim
       stays open until the installer, which is the first thing it affects.
-- [ ] Cargo workspace and `xtask`, with oxinit's lint policy and CI (fmt,
-      clippy, tests on Linux and macOS hosts).
-- [ ] A Linux build environment reachable from macOS (Lima or a container),
-      with QEMU and OVMF for both architectures.
+- [x] Cargo workspace and `xtask`: `doctor`, `builder`, `firmware-smoke`.
+- [x] CI for releases only — a `v*` tag or a manual dispatch — running fmt,
+      clippy and tests on Linux and macOS, the MSRV build, advisories, both
+      firmware boots, and the builder image.
+- [x] A Linux build environment reachable from macOS: the builder container,
+      with QEMU and UEFI firmware for both architectures.
+
+Verified on an Intel Mac, over SSH, with Docker Desktop:
+
+- `cargo xtask firmware-smoke` on the host reaches boot device selection in
+  1.6s on x86_64 (HVF) and 6.8s on aarch64 (TCG), with Homebrew's edk2.
+- The same inside the builder, with Debian's OVMF and AAVMF and no
+  acceleration: 9.7s and 8.3s. Two firmware builds, two QEMUs, one check.
+- The builder image builds in 78s; its Rust is 1.99.
+- `/work` is case-sensitive (`a` and `A` coexist) with 112 GB free, while the
+  checkout is not — `doctor` reports exactly that.
+- The one CI run, before CI was restricted to releases, passed every job.
+
+Two things the environment taught, both now written down in CONTRIBUTING:
+
+- **The checkout's filesystem cannot hold a Linux build.** macOS volumes are
+  case-insensitive and the kernel tree has files differing only in case. So
+  builds happen in a named volume on the container runtime's own filesystem,
+  never in the checkout.
+- **The macOS keychain is locked over SSH.** `gh` reads its token from there,
+  and reports a valid token as invalid until the keychain is unlocked inside
+  the same session.
 
 ## H1 — hideforge builds a system
 
