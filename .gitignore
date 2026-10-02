@@ -1,0 +1,26 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# hideforge outputs
+/out/
+/cache/
+*.img
+*.iso
+*.efi
+*.cfs
+
+# Signing keys never go in the repository
+/keys/
+*.key
+*.pem
+
+# Personal, machine-local Claude Code notes and settings
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Editor and OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
