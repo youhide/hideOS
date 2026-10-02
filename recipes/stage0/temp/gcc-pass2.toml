@@ -2,9 +2,12 @@
 # where it builds the final GCC.
 #
 # Unlike Linux From Scratch, this pass does not rebuild libstdc++: it would
-# overwrite the files stage0-libstdcxx installed, and an output may not
-# replace another's. The stage0 libstdc++ was built without thread support,
-# which nothing in stage 1 needs before the final GCC, which builds its own.
+# overwrite the files stage0-libstdcxx installed, and two outputs of one
+# stage may not claim the same file. So this compiler uses that libstdc++,
+# and has to be told where its headers are: stage0-libstdcxx put them where
+# the cross compiler looks, /tools/$TARGET/include/c++, not in /usr/include.
+# The stage0 libstdc++ was built without thread support, which nothing needs
+# before the system GCC, which builds its own.
 [package]
 name = "stage0-gcc-pass2"
 version = "16.2.0"
@@ -63,6 +66,7 @@ mkdir build && cd build
     --disable-libssp \\
     --disable-libvtv \\
     --disable-libstdcxx \\
+    --with-gxx-include-dir="/tools/$TARGET/include/c++/16.2.0" \\
     --enable-languages=c,c++
 make -j"$JOBS"
 make DESTDIR="$SYSROOT" install

@@ -94,7 +94,15 @@ fn is_whiteout(meta: &fs::Metadata) -> bool {
 /// second package to install documentation would otherwise rewrite the first
 /// one's copy and fail the build for it. They are generated when an image is
 /// assembled.
-const IMAGE_INDEXES: &[&str] = &["share/info/dir"];
+///
+/// - `share/info/dir`: the Info directory, rewritten by every `install-info`.
+/// - `etc/ld.so.cache`: the dynamic linker's library cache, rewritten by every
+///   `ldconfig` a `make install` runs. Without it the linker searches its
+///   default paths, which on hideOS is everything.
+///
+/// Changing this list changes what outputs contain: bump
+/// `hideforge_recipe::OUTPUT_POLICY` with it.
+const IMAGE_INDEXES: &[&str] = &["share/info/dir", "etc/ld.so.cache"];
 
 /// Removes [`IMAGE_INDEXES`] from an output, wherever they appear in it:
 /// `usr/share/info/dir`, `tools/share/info/dir`, and so on.
@@ -288,10 +296,12 @@ mod tests {
         s.file("out/tools/share/info/dir");
         s.file("out/usr/share/info/gcc.info");
         s.file("out/usr/share/dir");
+        s.file("out/etc/ld.so.cache");
         let removed = remove_image_indexes(&s.0.join("out")).unwrap();
         assert_eq!(
             removed,
             [
+                PathBuf::from("etc/ld.so.cache"),
                 PathBuf::from("tools/share/info/dir"),
                 PathBuf::from("usr/share/info/dir")
             ]

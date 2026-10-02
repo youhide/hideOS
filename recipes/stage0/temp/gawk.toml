@@ -1,15 +1,20 @@
 # Temporary tool, cross-compiled for stage 1 to run.
 [package]
 name = "stage0-gawk"
-version = "5.4.1"
+version = "5.3.2"
 description = "GNU awk (temporary, for stage 1)"
 license = "GPL-3.0-or-later"
 stage = 0
 
+# 5.3.2, not 5.4.1: 5.4.1 gets GCC's opt-gather.awk wrong (the first record
+# comes out as "0"), natively as well as cross-compiled, and GCC's generated
+# options.cc is then full of #error. 5.3.2 is the version Linux From Scratch
+# builds GCC with.
+#
 # GPG signature verified against the GNU keyring (Arnold Robbins).
 [[source]]
-url = "https://ftp.gnu.org/gnu/gawk/gawk-5.4.1.tar.xz"
-sha256 = "07f6f7342b7febe4313fc2c2542ad93d64fe20ad8717200109f105a826f5fd37"
+url = "https://ftp.gnu.org/gnu/gawk/gawk-5.3.2.tar.xz"
+sha256 = "f8c3486509de705192138b00ef2c00bbbdd0e84c30d5c07d23fc73a9dc4cc9cc"
 
 [depends]
 build = ["stage0-cross-toolchain"]

@@ -82,6 +82,16 @@ impl fmt::Debug for InputHash {
     }
 }
 
+/// The version of what hideforge does to an output after a build: which
+/// image indexes it removes, what it checks, how it clamps timestamps. A
+/// change to any of that changes what an output contains without changing any
+/// recipe, so it must change every hash.
+///
+/// Bump it in the same commit as such a change. Everything rebuilds, which
+/// is the point. Version 1 hashed nothing, to keep the store that existed
+/// when this was introduced; from 2 on it is a line in every hash.
+pub const OUTPUT_POLICY: u32 = 1;
+
 /// Builds the text that is hashed, one line per input, so that what went
 /// into a hash can be printed and diffed when two hashes unexpectedly differ.
 pub(crate) struct Hasher {
@@ -93,9 +103,11 @@ impl Hasher {
     /// store path changes with it rather than silently colliding with paths
     /// made under the old scheme.
     pub(crate) fn new() -> Hasher {
-        Hasher {
-            lines: "hideforge-input-v1\n".to_owned(),
+        let mut lines = "hideforge-input-v1\n".to_owned();
+        if OUTPUT_POLICY > 1 {
+            lines.push_str(&format!("policy {OUTPUT_POLICY}\n"));
         }
+        Hasher { lines }
     }
 
     pub(crate) fn line(&mut self, key: &str, value: &str) {

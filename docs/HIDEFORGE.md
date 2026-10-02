@@ -22,7 +22,13 @@ The **input hash** covers everything that can change the output:
 - for host-environment builds, the builder image ID.
 
 Same inputs, same path, so a store path that already exists is a build that
-does not need to run. Change one byte of one recipe and everything that
+does not need to run.
+
+hideforge itself is an input too, in one respect: what it does to an output
+after the build — the indexes it removes, the timestamps it clamps. That is
+versioned as `OUTPUT_POLICY` and hashed, and bumping it with any such change
+rebuilds everything. Other changes to hideforge do not change outputs and do
+not rebuild anything. Change one byte of one recipe and everything that
 depends on it gets a new path and rebuilds; nothing else does.
 
 Outputs are never modified after the build that made them. An image is
@@ -77,7 +83,8 @@ an overlay whiteout, which is dropped from the output: it only ever meant
 something inside that sandbox.
 
 One exception, applied by hideforge rather than by recipes: indexes over
-every package's files — `share/info/dir` — are removed from every output.
+every package's files — `share/info/dir`, `etc/ld.so.cache` — are removed
+from every output.
 They belong to the image, are generated when it is assembled, and would
 otherwise make the second package that installs documentation fail for
 rewriting the first one's.
