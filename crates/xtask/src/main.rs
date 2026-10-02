@@ -10,6 +10,7 @@
 //! cargo xtask image [--arch ARCH]     build hideOS Minimal into target/images
 //! cargo xtask boot [--arch] [--test]  boot it in QEMU
 //! cargo xtask screenshot [--arch]     boot it, type commands, save a PNG
+//! cargo xtask publish-site            push site/ to the gh-pages branch
 //! cargo xtask firmware-smoke [--arch x86_64|aarch64]
 //!                                     boot UEFI firmware in QEMU and check it
 //!                                     reaches boot device selection
@@ -39,6 +40,7 @@ fn main() -> ExitCode {
         Some("image") => image(args.get(1..).unwrap_or_default()),
         Some("boot") => boot(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
+        Some("publish-site") => publish_site(),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", usage());
             Ok(())
@@ -68,6 +70,7 @@ fn usage() -> &'static str {
     image [--arch ARCH]           build hideOS Minimal into target/images
     boot [--arch ARCH] [--test]   boot it in QEMU; --test waits for the banner
     screenshot [--arch ARCH]      boot it, type a few commands, save a PNG
+    publish-site                  push site/ and the screenshot to gh-pages
 "
 }
 
@@ -742,6 +745,55 @@ fn screenshot(args: &[String]) -> Result<(), String> {
     result?;
     println!("{}: {}", arch.name, png.display());
     Ok(())
+}
+
+/// Publishes `site/` and the latest x86_64 screenshot to the `gh-pages`
+/// branch, which GitHub Pages serves. By hand, on purpose: nothing deploys
+/// on push. The branch holds only the built site, one commit per publish,
+/// each naming the main commit it came from.
+fn publish_site() -> Result<(), String> {
+    let root = workspace_root()?;
+    let screenshot = root
+        .join("target/images")
+        .join(format!("{EDITION}-x86_64"))
+        .join("screenshot.png");
+    if !screenshot.is_file() {
+        return Err(format!(
+            "no {}; run `cargo xtask screenshot` first",
+            screenshot.display()
+        ));
+    }
+    let script = r#"
+set -eu
+root="$1"; shot="$2"
+source_commit=$(git -C "$root" rev-parse --short HEAD)
+tree=$(mktemp -d)
+trap 'git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1 || true' EXIT
+if git -C "$root" ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+    git -C "$root" fetch -q origin gh-pages
+    git -C "$root" worktree add -q "$tree" -B gh-pages origin/gh-pages
+else
+    git -C "$root" worktree add -q --detach "$tree"
+    git -C "$tree" checkout -q --orphan gh-pages
+fi
+git -C "$tree" rm -rq --ignore-unmatch . >/dev/null
+cp "$root/site/index.html" "$tree/index.html"
+cp "$shot" "$tree/screenshot.png"
+# Plain files, not a Jekyll site.
+touch "$tree/.nojekyll"
+git -C "$tree" add -A
+if git -C "$tree" diff --cached --quiet; then
+    echo "site unchanged"
+    exit 0
+fi
+git -C "$tree" commit -q -m "site: from $source_commit"
+git -C "$tree" push -q origin gh-pages
+echo "published from $source_commit"
+"#;
+    run(Command::new("sh")
+        .args(["-c", script, "publish-site"])
+        .arg(&root)
+        .arg(&screenshot))
 }
 
 /// The QEMU key name that types `c` on a US keyboard.
