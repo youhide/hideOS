@@ -1,0 +1,19 @@
+[package]
+name = "hide"
+version.workspace = true
+description = "hideOS's command line: install, and later update, rollback and status"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+# The payload is a tar archive read straight off a disk; hideOS ships no tar
+# program, and this needs none.
+tar = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true, features = ["fs", "mount", "process", "system"] }
+composefs-ioctls = "0.9.3"

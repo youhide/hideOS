@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/hide",
     "crates/hideforge",
     "crates/hideforge-recipe",
     "crates/hidestage",
