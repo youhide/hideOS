@@ -1,0 +1,19 @@
+[package]
+name = "hidestage"
+version.workspace = true
+description = "hideOS's initrd: verifies the sealed system image and starts oxinit on it"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# On the boot path: every dependency here runs before anything can help. Two,
+# both small. composefs-ioctls holds the fs-verity ioctls, so the unsafe code
+# lives there, not here; it depends on rustix and thiserror and nothing else.
+[dependencies]
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true, features = ["fs", "mount", "process", "system", "thread"] }
+composefs-ioctls = "0.9.3"

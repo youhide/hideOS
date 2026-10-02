@@ -39,6 +39,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "composefs-ioctls"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f49fef677aaf69e444bfdb1ea7142aa57dde9cb77458478c54a59466bac7a6d6"
+dependencies = [
+ "rustix",
+ "thiserror",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -102,6 +112,15 @@ dependencies = [
  "basic-toml",
  "serde",
  "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "hidestage"
+version = "0.0.0"
+dependencies = [
+ "composefs-ioctls",
+ "rustix",
  "thiserror",
 ]
 

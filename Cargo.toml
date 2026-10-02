@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/hideforge",
     "crates/hideforge-recipe",
+    "crates/hidestage",
     "crates/xtask",
 ]
 
