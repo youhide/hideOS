@@ -417,6 +417,30 @@ fn build_one(
         }
         bail!("{name} changed files its inputs provide; see above");
     }
+    // A stage-2 output may only link what stage 2 provides. The build root
+    // has stage 0 and 1 underneath, so a configure script that finds a
+    // library there links it, the build works, and the result fails on a
+    // machine where only stage 2 exists. Found here, not when an image is
+    // assembled.
+    if recipe.stage() == hideforge_recipe::Stage::Two {
+        let mut roots = vec![dirs.upper()];
+        roots.extend(
+            layers
+                .iter()
+                .filter(|l| l.stage == 2)
+                .map(|l| l.path.clone()),
+        );
+        let unresolved = image::unresolved_libraries(&dirs.upper(), &roots)?;
+        if !unresolved.is_empty() {
+            for (file, library) in &unresolved {
+                eprintln!("  /{file} needs {library}, which no stage-2 output provides");
+            }
+            if !keep_failed {
+                let _ = fs::remove_dir_all(dirs.base());
+            }
+            bail!("{name} links libraries only an earlier stage provides; see above");
+        }
+    }
     output::remove_whiteouts(&dirs.upper())?;
     sandbox::strip_overlay_xattrs(&dirs.upper())?;
     sandbox::clamp_mtimes(&dirs.upper(), epoch)?;

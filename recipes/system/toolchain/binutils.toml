@@ -17,6 +17,11 @@ run = ["glibc", "zlib"]
 [build]
 script = """
 mkdir build && cd build
+# ac_cv_lib_lex: ar's and ranlib's lexers declare noyywrap and need no lex
+# library, but configure links whichever it finds, and the one in the build
+# root is stage 1's libfl. The image check caught ar asking for a libfl.so.2
+# that no stage-2 package provides.
+ac_cv_lib_lex='none needed' \\
 ../configure \\
     --prefix=/usr \\
     --build="$TARGET" \\

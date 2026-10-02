@@ -21,5 +21,5 @@ mod set;
 
 pub use error::Error;
 pub use hash::{Arch, HashContext, InputHash, OUTPUT_POLICY};
-pub use recipe::{Build, Depends, Environment, Package, Recipe, Source, Stage, Vendor};
+pub use recipe::{Build, Depends, Environment, Image, Package, Recipe, Source, Stage, Vendor};
 pub use set::{Entry, RecipeSet};

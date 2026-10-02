@@ -47,6 +47,14 @@ impl Layout {
             .join("hideforge")
     }
 
+    /// Where an image's root is assembled before it is archived. In the work
+    /// directory, never next to the output: the output may be on a macOS
+    /// checkout, and a root with the kernel headers in it does not survive a
+    /// case-insensitive filesystem.
+    pub fn image_root(&self, name: &str) -> PathBuf {
+        self.root.join("images").join(name)
+    }
+
     pub fn logs(&self) -> PathBuf {
         self.root.join("logs")
     }

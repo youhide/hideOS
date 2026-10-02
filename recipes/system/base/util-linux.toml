@@ -15,6 +15,9 @@ build = ["toolchain", "ncurses"]
 run = ["glibc", "ncurses"]
 
 [build]
+# kill and more come from uutils, which is hideOS's coreutils: two packages
+# providing one path is an error in an image, and this is where it is
+# resolved.
 script = """
 ./configure \\
     --build="$TARGET" \\
@@ -32,6 +35,8 @@ script = """
     --disable-runuser \\
     --disable-pylibmount \\
     --disable-liblastlog2 \\
+    --disable-kill \\
+    --disable-more \\
     --without-python \\
     --without-systemd \\
     --without-systemdsystemunitdir \\

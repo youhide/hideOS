@@ -22,3 +22,19 @@ run = [
 
 [build]
 script = "true"
+
+# hideOS ships no compiler: development happens in containers. GCC and
+# binutils are in this closure for their runtime libraries — libgcc_s,
+# libstdc++ — and everything else they install stays out, until recipes can
+# split their outputs.
+[image]
+exclude = [
+    "usr/include/",
+    "usr/lib/gcc/",
+    "usr/libexec/gcc/",
+    "usr/share/man/",
+    "usr/share/info/",
+    "usr/share/doc/",
+    "usr/share/i18n/",
+    "*.a",
+]

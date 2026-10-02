@@ -14,7 +14,7 @@ use hideforge_recipe::{InputHash, RecipeSet, Stage};
 use crate::layout::Layout;
 use crate::output;
 
-/// Merges the run closure of `name` into `output/root`, archives it as
+/// Merges the run closure of `name` into a scratch root, archives it as
 /// `output/initramfs.cpio`, and copies `kernel`'s image to `output/vmlinuz`.
 pub fn assemble(
     set: &RecipeSet,
@@ -56,11 +56,12 @@ pub fn assemble(
         bail!("{name}: {} path(s) provided twice", conflicts.len());
     }
 
-    let root = output.join("root");
+    let root = layout.image_root(name);
     if root.exists() {
         fs::remove_dir_all(&root)?;
     }
     fs::create_dir_all(&root)?;
+    fs::create_dir_all(output)?;
     for layer in &layers {
         // cp -a, because it keeps symlinks, modes and timestamps exactly as
         // the store has them, and the store is what was verified.
@@ -70,6 +71,23 @@ pub fn assemble(
             .arg(&root))
         .with_context(|| format!("copying {}", layer.name))?;
     }
+
+    let image = &set.get(name)?.recipe.image;
+    let excluded = exclude(&root, image)?;
+    let stripped = strip(&root)?;
+    let missing = missing_libraries(&root)?;
+    if !missing.is_empty() {
+        for (file, library) in &missing {
+            eprintln!("  /{file} needs {library}, which is not in the image");
+        }
+        bail!(
+            "{name}: {} unresolved shared library dependencies",
+            missing.len()
+        );
+    }
+    println!(
+        "  root    {excluded} paths excluded, {stripped} ELF files stripped, every DT_NEEDED found"
+    );
 
     // Sorted names, fixed owner, reproducible mode: the same closure gives
     // the same archive, byte for byte.
@@ -103,6 +121,131 @@ pub fn assemble(
         );
     }
     Ok(())
+}
+
+/// Removes everything the image recipe excludes. Returns how many paths
+/// went; a directory counts once, however much was in it.
+fn exclude(root: &Path, image: &hideforge_recipe::Image) -> Result<usize> {
+    let mut removed = 0;
+    for (relative, meta) in output::walk(root)? {
+        let path = root.join(&relative);
+        // Already gone with a directory removed earlier in this walk.
+        if fs::symlink_metadata(&path).is_err() {
+            continue;
+        }
+        if image.excludes(&relative.to_string_lossy()) {
+            if meta.is_dir() {
+                fs::remove_dir_all(&path)?;
+            } else {
+                fs::remove_file(&path)?;
+            }
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// Every regular file under `root` that starts with the ELF magic.
+pub fn elf_files(root: &Path) -> Result<Vec<String>> {
+    use std::io::Read;
+    let mut files = Vec::new();
+    for (relative, meta) in output::walk(root)? {
+        if !meta.is_file() {
+            continue;
+        }
+        let mut magic = [0u8; 4];
+        let is_elf = fs::File::open(root.join(&relative))
+            .and_then(|mut f| f.read_exact(&mut magic))
+            .is_ok()
+            && magic == *b"\x7fELF";
+        if is_elf {
+            files.push(relative.to_string_lossy().into_owned());
+        }
+    }
+    Ok(files)
+}
+
+/// Strips debug information from every ELF file in the image. The store keeps
+/// it: an output is what was built, with everything needed to debug it, and
+/// an image is what ships. llvm-strip, because one binary handles every
+/// architecture hideOS builds for.
+fn strip(root: &Path) -> Result<usize> {
+    let files = elf_files(root)?;
+    for chunk in files.chunks(200) {
+        run(Command::new("llvm-strip")
+            .arg("--strip-debug")
+            .args(chunk)
+            .current_dir(root))
+        .context("stripping")?;
+    }
+    Ok(files.len())
+}
+
+/// Every (file, library) where an ELF file in the image names a shared
+/// library in DT_NEEDED that the image does not contain.
+fn missing_libraries(root: &Path) -> Result<Vec<(String, String)>> {
+    unresolved_libraries(root, &[root.to_path_buf()])
+}
+
+/// Every (file, library) where an ELF file under `scan` names a shared
+/// library in DT_NEEDED that none of `roots` contains. Each root is a tree
+/// laid out from `/`. Libraries are looked for where the dynamic linker looks:
+/// the file's own RUNPATH or RPATH, with `$ORIGIN` as its directory, then
+/// /usr/lib, which /lib and /lib64 point to.
+pub fn unresolved_libraries(
+    scan: &Path,
+    roots: &[std::path::PathBuf],
+) -> Result<Vec<(String, String)>> {
+    let mut missing = Vec::new();
+    for file in elf_files(scan)? {
+        let out = Command::new("readelf")
+            .args(["--dynamic", "--wide"])
+            .arg(&file)
+            .current_dir(scan)
+            .output()
+            .context("running readelf")?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let bracketed = |line: &str| {
+            line.split('[')
+                .nth(1)
+                .and_then(|s| s.split(']').next())
+                .map(str::to_owned)
+        };
+        let origin = Path::new(&file)
+            .parent()
+            .map(|p| format!("/{}", p.display()))
+            .unwrap_or_else(|| "/".to_owned());
+        let mut search: Vec<String> = text
+            .lines()
+            .filter(|l| l.contains("(RUNPATH)") || l.contains("(RPATH)"))
+            .filter_map(bracketed)
+            .flat_map(|paths| {
+                paths
+                    .split(':')
+                    .map(|p| p.replace("$ORIGIN", &origin).replace("${ORIGIN}", &origin))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        search.push("/usr/lib".to_owned());
+        for library in text
+            .lines()
+            .filter(|l| l.contains("(NEEDED)"))
+            .filter_map(bracketed)
+        {
+            let found = roots.iter().any(|root| {
+                search.iter().any(|dir| {
+                    let path = root.join(dir.trim_start_matches('/')).join(&library);
+                    // A symlink may point into another layer: an absolute
+                    // target is resolved against each root, not against /.
+                    fs::symlink_metadata(&path).is_ok()
+                })
+            });
+            if !found {
+                missing.push((file.clone(), library));
+            }
+        }
+    }
+    Ok(missing)
 }
 
 fn run(command: &mut Command) -> Result<()> {

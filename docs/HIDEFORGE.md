@@ -82,6 +82,12 @@ build may replace or delete what an earlier stage provided. Deleting leaves
 an overlay whiteout, which is dropped from the output: it only ever meant
 something inside that sandbox.
 
+- **A stage-2 output may only link stage-2 libraries.** Every library an ELF
+  file in it names in `DT_NEEDED` must be in the output itself or in another
+  stage-2 output in the sandbox. The earlier stages are underneath during the
+  build, and a configure script that finds a library there will link it; the
+  build works, and the binary fails on any machine that has only stage 2.
+
 One exception, applied by hideforge rather than by recipes: indexes over
 every package's files — `share/info/dir`, `etc/ld.so.cache` — are removed
 from every output.

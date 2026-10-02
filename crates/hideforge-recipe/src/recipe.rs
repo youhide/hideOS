@@ -16,6 +16,34 @@ pub struct Recipe {
     pub sources: Vec<Source>,
     pub depends: Depends,
     pub build: Build,
+    pub image: Image,
+}
+
+/// What `hideforge image` does with this recipe's run closure, when it is
+/// the image being assembled. Ignored otherwise.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Image {
+    /// Paths left out of the image. `dir/` is a directory and everything in
+    /// it; `*.ext` is every file with that extension; anything else is one
+    /// exact path. All relative to `/`.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+}
+
+impl Image {
+    /// Whether `path`, relative to `/`, is left out.
+    pub fn excludes(&self, path: &str) -> bool {
+        self.exclude.iter().any(|pattern| {
+            if let Some(dir) = pattern.strip_suffix('/') {
+                path == dir || path.starts_with(pattern.as_str())
+            } else if let Some(ext) = pattern.strip_prefix('*') {
+                path.ends_with(ext)
+            } else {
+                path == pattern
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -162,6 +190,8 @@ struct RawRecipe {
     #[serde(default)]
     depends: Depends,
     build: Build,
+    #[serde(default)]
+    image: Image,
 }
 
 impl Source {
@@ -185,6 +215,7 @@ impl Recipe {
             sources: raw.source,
             depends: raw.depends,
             build: raw.build,
+            image: raw.image,
         };
         recipe.validate(path)?;
         Ok(recipe)
@@ -286,6 +317,21 @@ impl Recipe {
                 return Err(invalid(
                     "build.patches",
                     format!("`{patch}` must be a plain file name in the recipe's directory"),
+                ));
+            }
+        }
+
+        for pattern in &self.image.exclude {
+            let body = pattern.trim_start_matches('*');
+            if pattern.is_empty()
+                || pattern.starts_with('/')
+                || pattern.split('/').any(|part| part == "..")
+                || (pattern.starts_with('*')
+                    && (body.is_empty() || body.contains('*') || body.contains('/')))
+            {
+                return Err(invalid(
+                    "image.exclude",
+                    format!("`{pattern}` must be `dir/`, `*.ext` or an exact relative path"),
                 ));
             }
         }
@@ -470,6 +516,29 @@ script = "./configure --prefix=/usr && make -j$JOBS && make install"
 
         let text = ZLIB.replace("sha256 = \"38ef", "arch = \"riscv64\"\nsha256 = \"38ef");
         assert_eq!(field_of(parse(&text).unwrap_err()), "source.arch");
+    }
+
+    #[test]
+    fn image_exclusions_match_directories_extensions_and_paths() {
+        let text =
+            format!("{ZLIB}\n[image]\nexclude = [\"usr/include/\", \"*.a\", \"usr/bin/cc\"]\n");
+        let image = parse(&text).unwrap().image;
+        assert!(image.excludes("usr/include"));
+        assert!(image.excludes("usr/include/stdio.h"));
+        assert!(!image.excludes("usr/include-other/x.h"));
+        assert!(image.excludes("usr/lib/libz.a"));
+        assert!(!image.excludes("usr/lib/libz.so"));
+        assert!(image.excludes("usr/bin/cc"));
+        assert!(!image.excludes("usr/bin/cc1"));
+
+        for bad in ["/usr/include/", "../etc/", "*", "*.a/b", "**/x"] {
+            let text = format!("{ZLIB}\n[image]\nexclude = [\"{bad}\"]\n");
+            assert_eq!(
+                field_of(parse(&text).unwrap_err()),
+                "image.exclude",
+                "{bad}"
+            );
+        }
     }
 
     #[test]

@@ -1,0 +1,32 @@
+# TLS and cryptography. The kernel build needs it first, to embed and sign
+# with certificates; module signing with hideOS's key will use it too.
+[package]
+name = "openssl"
+version = "4.0.3"
+description = "TLS and general-purpose cryptography library"
+license = "Apache-2.0"
+homepage = "https://openssl-library.org"
+
+# Checked against the SHA-256 published with the GitHub release.
+[[source]]
+url = "https://github.com/openssl/openssl/releases/download/openssl-4.0.3/openssl-4.0.3.tar.gz"
+sha256 = "325b5c806167c13b40b1ffeadfe0248197c00eccc4cf123ec1e28d2d2fd216d9"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc", "zlib"]
+
+[build]
+script = """
+./config \\
+    --prefix=/usr \\
+    --openssldir=/etc/ssl \\
+    --libdir=lib \\
+    shared \\
+    zlib-dynamic
+make -j"$JOBS"
+# The libraries, programs and headers, and the directories under
+# /etc/ssl; not the thousands of man pages.
+make install_sw install_ssldirs
+rm -f /usr/lib/libcrypto.a /usr/lib/libssl.a
+"""

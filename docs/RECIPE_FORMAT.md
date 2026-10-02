@@ -153,6 +153,19 @@ Environment variables the script can rely on:
 
 Nothing else from the caller's environment is passed through.
 
+## `[image]`
+
+Only for a recipe that is assembled into an image with `hideforge image`.
+
+| Key       | Meaning                                                              |
+|-----------|----------------------------------------------------------------------|
+| `exclude` | Paths left out of the image: `dir/` for a directory and everything in it, `*.ext` for every file with that extension, anything else for one exact path. Relative to `/`. |
+
+Whatever is excluded, the image must still work: hideforge checks that every
+shared library any ELF file in the image names in `DT_NEEDED` is in the
+image, and refuses the image if one is not. Debug information is stripped
+from every ELF file in an image; the store keeps it.
+
 ## Stages
 
 `stage` places a recipe in the bootstrap described in
