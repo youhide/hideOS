@@ -132,6 +132,26 @@ impl RecipeSet {
         Ok(inputs)
     }
 
+    /// `targets` and everything they need at run time, recursively. What a
+    /// person means by "build X": X, usable.
+    pub fn with_run_closure(&self, targets: &[&str]) -> Result<Vec<String>, Error> {
+        let mut closure = BTreeSet::new();
+        let mut pending: Vec<&str> = targets.to_vec();
+        while let Some(next) = pending.pop() {
+            if closure.insert(next.to_owned()) {
+                pending.extend(
+                    self.get(next)?
+                        .recipe
+                        .depends
+                        .run
+                        .iter()
+                        .map(String::as_str),
+                );
+            }
+        }
+        Ok(closure.into_iter().collect())
+    }
+
     /// Everything needed to build `targets`, dependencies before dependents,
     /// targets included. Deterministic: the same set and targets always give
     /// the same order.
@@ -370,6 +390,21 @@ mod tests {
         let inputs: Vec<String> = set.sandbox_inputs("app").unwrap().into_iter().collect();
         // The app's own run dependency is not in its sandbox.
         assert_eq!(inputs, ["compiler", "libc", "tzdata"]);
+    }
+
+    #[test]
+    fn run_closure_is_what_building_a_name_means() {
+        let tree = Tree::new();
+        tree.recipe("meta.toml", "meta", "", &[], &["gcc", "glibc"]);
+        tree.recipe("gcc.toml", "gcc", "", &[], &["binutils"]);
+        tree.recipe("glibc.toml", "glibc", "", &[], &[]);
+        tree.recipe("binutils.toml", "binutils", "", &[], &[]);
+        tree.recipe("unrelated.toml", "unrelated", "", &[], &[]);
+        let set = tree.load().unwrap();
+        assert_eq!(
+            set.with_run_closure(&["meta"]).unwrap(),
+            ["binutils", "gcc", "glibc", "meta"]
+        );
     }
 
     #[test]

@@ -54,6 +54,26 @@ pub fn check_upper(upper: &Path, lowers: &[PathBuf]) -> io::Result<Vec<Violation
     Ok(violations)
 }
 
+/// Files no output may contain, because they are indexes over *every*
+/// package's files and so belong to the image, not to any one package. The
+/// second package to install documentation would otherwise rewrite the first
+/// one's copy and fail the build for it. They are generated when an image is
+/// assembled.
+const IMAGE_INDEXES: &[&str] = &["share/info/dir"];
+
+/// Removes [`IMAGE_INDEXES`] from an output, wherever they appear in it:
+/// `usr/share/info/dir`, `tools/share/info/dir`, and so on.
+pub fn remove_image_indexes(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut removed = Vec::new();
+    for (relative, meta) in walk(dir)? {
+        if meta.is_file() && IMAGE_INDEXES.iter().any(|index| relative.ends_with(index)) {
+            fs::remove_file(dir.join(&relative))?;
+            removed.push(relative);
+        }
+    }
+    Ok(removed)
+}
+
 /// Two layers providing the same non-directory path. In an overlay the upper
 /// one would silently win; here it is an error that names both.
 #[derive(Debug, PartialEq, Eq)]
@@ -169,6 +189,25 @@ mod tests {
             violations,
             [Violation::Replaced(PathBuf::from("usr/share/info/dir"))]
         );
+    }
+
+    #[test]
+    fn image_indexes_are_removed_wherever_they_are() {
+        let s = Scratch::new();
+        s.file("out/usr/share/info/dir");
+        s.file("out/tools/share/info/dir");
+        s.file("out/usr/share/info/gcc.info");
+        s.file("out/usr/share/dir");
+        let removed = remove_image_indexes(&s.0.join("out")).unwrap();
+        assert_eq!(
+            removed,
+            [
+                PathBuf::from("tools/share/info/dir"),
+                PathBuf::from("usr/share/info/dir")
+            ]
+        );
+        assert!(s.0.join("out/usr/share/info/gcc.info").exists());
+        assert!(s.0.join("out/usr/share/dir").exists());
     }
 
     #[test]

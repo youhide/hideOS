@@ -125,7 +125,9 @@ fn run(args: &[String]) -> Result<i32> {
             }
         }
         "order" => {
-            for name in set.build_order(&needs_names(&names)?)? {
+            let targets = set.with_run_closure(&needs_names(&names)?)?;
+            let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
+            for name in set.build_order(&targets)? {
                 println!("{name}");
             }
         }
@@ -144,13 +146,17 @@ fn run(args: &[String]) -> Result<i32> {
             }
         }
         "fetch" => {
-            for name in set.build_order(&needs_names(&names)?)? {
+            let targets = set.with_run_closure(&needs_names(&names)?)?;
+            let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
+            for name in set.build_order(&targets)? {
                 fetch::fetch(&layout, set.get(&name)?)?;
             }
         }
         "build" => {
-            let hashes = set.input_hashes(&needs_names(&names)?, &context)?;
-            let order = set.build_order(&names)?;
+            let targets = set.with_run_closure(&needs_names(&names)?)?;
+            let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
+            let hashes = set.input_hashes(&targets, &context)?;
+            let order = set.build_order(&targets)?;
             build(
                 &set,
                 &layout,
@@ -332,6 +338,7 @@ fn build_one(
         bail!("{name} failed ({status}); full log: {}", log.display());
     }
 
+    output::remove_image_indexes(&dirs.upper())?;
     let violations = output::check_upper(&dirs.upper(), &input_layers)?;
     if !violations.is_empty() {
         for violation in &violations {

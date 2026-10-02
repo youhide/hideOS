@@ -68,6 +68,12 @@ Two rules keep this honest:
 - **Two outputs may not provide the same path** in one sandbox or one image.
   The merge fails and names both.
 
+One exception, applied by hideforge rather than by recipes: indexes over
+every package's files — `share/info/dir` — are removed from every output.
+They belong to the image, are generated when it is assembled, and would
+otherwise make the second package that installs documentation fail for
+rewriting the first one's.
+
 ### Two environments
 
 | Environment  | `/` is                                        | Used by                    |
