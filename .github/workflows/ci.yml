@@ -1,10 +1,14 @@
+# Runs for releases only: a pushed `v*` tag, or by hand from the Actions tab.
+# Not on every push or pull request. Day-to-day verification is local, through
+# the same `cargo xtask` commands this file calls, so anything that fails here
+# can be reproduced without it.
+#
 # Split by cost, as in oxinit: `check` is seconds, the rest run in parallel.
 name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    tags: ["v*"]
   workflow_dispatch:
 
 # A newer push supersedes an older one.

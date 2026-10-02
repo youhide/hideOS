@@ -66,6 +66,20 @@ device selection. Every later boot test stands on this one. The host's own
 architecture is accelerated (KVM on Linux, HVF on macOS); the other runs on
 QEMU's JIT and takes longer.
 
+## CI
+
+[CI](.github/workflows/ci.yml) runs only for releases: when a `v*` tag is
+pushed, or when started by hand from the Actions tab. It does not run on pushes
+or pull requests. Before pushing, run locally what it would:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo xtask firmware-smoke --arch x86_64
+cargo xtask firmware-smoke --arch aarch64
+```
+
 ## Working over SSH on macOS
 
 The macOS keychain is locked in SSH sessions, including a remote Claude Code
