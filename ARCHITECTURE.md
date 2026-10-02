@@ -72,14 +72,17 @@ flowchart TD
     OX -->|boot-complete reached| OK[hide-boot-ok: deployment marked good]
 ```
 
-**hideboot** — **Proposed**: our own UEFI boot manager, written with
-[`uefi-rs`](https://github.com/rust-osdev/uefi-rs). Its job is small: list the
+**hideboot** — our own UEFI boot manager, written with
+[`uefi-rs`](https://github.com/rust-osdev/uefi-rs), in its own repository,
+[youhide/hideBoot](https://github.com/youhide/hideBoot). Its job is small: list the
 UKIs on the ESP, apply boot counting (a `+tries` suffix in the file name,
 decremented before boot, as in the Boot Loader Specification), pick the newest
 deployment with tries left, fall back to the previous one otherwise, and offer a
-menu on a held key. Until it exists, the stopgap is `systemd-boot` used as a
-standalone EFI binary — it already implements the same file-name convention, so
-switching later changes nothing on disk.
+menu on a held key. It lands in H7. Until then the stopgap is `systemd-boot`
+used as a standalone EFI binary — it already implements the same file-name
+convention, so switching later changes nothing on disk. That convention is the
+contract between the two, and the only thing hideOS may assume about its boot
+manager.
 
 **UKI** (Unified Kernel Image). One signed PE binary per deployment containing
 the kernel, the hideOS initrd and the kernel command line. The command line
@@ -178,7 +181,7 @@ flowchart LR
     N -->|3 failed boots| P[hideboot falls back to previous]
 ```
 
-**Transport is OCI** — **Proposed**. The build publishes the system as an OCI
+**Transport is OCI.** The build publishes the system as an OCI
 image to a registry, the way bootc does. What that buys: delta downloads
 (layers, and `zstd:chunked` within layers), mirroring and caching from any
 registry, signatures with existing tooling, and the ability to inspect or run
@@ -248,7 +251,7 @@ The image is for the system. Users do not install into it.
 | `hidestage`   | initrd `/init`: unlock, verify, assemble, `switch_root`          | To write      |
 | `hideupd`     | Update daemon: pull, unpack, deploy, garbage-collect             | To write      |
 | `hide`        | User-facing CLI: `update`, `rollback`, `status`, `ext`, `shell`  | To write      |
-| `hideboot`    | UEFI boot manager with boot counting                             | Proposed      |
+| `hideboot`    | UEFI boot manager with boot counting (youhide/hideBoot)          | H7            |
 | `hidedev`     | Device manager, libudev-compatible; replaces eudev               | Later         |
 | `hidelogin`   | `org.freedesktop.login1` subset; replaces elogind                | Later         |
 
@@ -287,6 +290,28 @@ roadmaps stay in step.
   a disk should be able to say so and wait for udev.
 - **Hardware watchdog.** Feed `/dev/watchdog` from the event loop, so a hung
   PID 1 reboots the machine — and the reboot counts against the deployment.
+
+## Repositories
+
+| Repository                                            | Contents                                         |
+|-------------------------------------------------------|--------------------------------------------------|
+| [youhide/hideOS](https://github.com/youhide/hideOS)   | `hideforge`, `hidestage`, `hideupd`, `hide`, recipes, image definitions |
+| [youhide/oxinit](https://github.com/youhide/oxinit)   | PID 1, `oxctl`, `oxlogd`                         |
+| [youhide/hideBoot](https://github.com/youhide/hideBoot) | `hideboot`                                     |
+
+The split follows one rule: **a component gets its own repository when it is
+useful without hideOS and talks to hideOS only through a published
+convention.** oxinit is an init system for any Linux; it knows units, not
+deployments. hideboot is a boot manager for any Boot Loader Specification
+layout; it knows UKI file names and tries counters, not composefs.
+
+Everything else shares formats that change together — the deployment layout,
+the composefs digest on the command line, the OCI image schema — and a change
+to any of them is one commit across builder, initrd and updater, not three
+coordinated releases. Those stay in this repository.
+
+hideOS consumes the other two as source, pinned by commit in hideforge
+recipes, and builds them like any other package.
 
 ## Failure policy
 
@@ -377,9 +402,9 @@ Linux VM or container, as oxinit's `xtask` does.
 | x86_64 and aarch64, AMD/Intel and NVIDIA     | **Decided**  | The machines it will run on                                     |
 | btrfs on LUKS2 for data                      | **Decided**  | Checksums, snapshots, fs-verity, one pool                       |
 | Only hideOS-signed sysexts                   | **Decided**  | Like Cryptexes: extensions are part of the system, not the user's |
-| OCI as update transport                      | **Proposed** | Deltas, registries and signing tooling for free                 |
-| Own UEFI boot manager (`hideboot`)           | **Proposed** | Boot counting is the rollback; it should be ours and in Rust    |
-| Secure Boot via own keys vs. shim            | **Proposed** | Depends on what laptops in setup mode allow                     |
+| OCI as update transport                      | **Decided**  | Deltas, registries and signing tooling for free                 |
+| Own UEFI boot manager (`hideboot`), in H7    | **Decided**  | Boot counting is the rollback; it should be ours and in Rust    |
+| Secure Boot via own keys vs. shim            | **Proposed** | Decided with the installer, by what laptops in setup mode allow |
 | Device manager and logind in Rust            | **Later**    | eudev and elogind work; replace after the desktop is daily-driven |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI

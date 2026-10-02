@@ -11,7 +11,9 @@ The design these build toward is in [ARCHITECTURE.md](ARCHITECTURE.md).
 **In progress.**
 
 - [x] Repository, architecture, roadmap.
-- [ ] Decide the open items in ARCHITECTURE's [Decisions](ARCHITECTURE.md#decisions).
+- [x] Settle what H1–H3 build on: OCI as the update transport, our own boot
+      manager in H7 with `systemd-boot` until then. Secure Boot keys vs. shim
+      stays open until the installer, which is the first thing it affects.
 - [ ] Cargo workspace and `xtask`, with oxinit's lint policy and CI (fmt,
       clippy, tests on Linux and macOS hosts).
 - [ ] A Linux build environment reachable from macOS (Lima or a container),
@@ -96,7 +98,8 @@ reaching for another machine. CI boots to the greeter and logs in.
 - [ ] Secure Boot key enrollment, or shim — whichever H0 decided.
 - [ ] Recovery UKI: rollback, reinstall keeping `/home`, shell.
 - [ ] Release channels `edge`, `beta`, `stable` on a public registry.
-- [ ] `hideboot`, if H0 decided to write it.
+- [ ] `hideboot` (in youhide/hideBoot) replaces `systemd-boot`; nothing on the
+      ESP changes.
 
 ## H8 — Replacing the bridges
 
