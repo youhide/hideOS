@@ -323,12 +323,59 @@ mod tests {
             ));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
-            Tree(dir)
+            let tree = Tree(dir);
+            // A target build needs a root to run in, so every stage gets a
+            // base for recipes that declare no build dependency to stand on.
+            tree.write(
+                "bases/stage0-base.toml",
+                "stage0-base",
+                "stage = 0",
+                &[],
+                &[],
+                "environment = \"host\"\n",
+            );
+            tree.write(
+                "bases/stage1-base.toml",
+                "stage1-base",
+                "stage = 1",
+                &["stage0-base"],
+                &[],
+                "",
+            );
+            tree.write("bases/base.toml", "base", "", &["stage1-base"], &[], "");
+            tree
+        }
+
+        /// A recipe with no build dependencies stands on its stage's base.
+        fn recipe(&self, file: &str, name: &str, extra: &str, build: &[&str], run: &[&str]) {
+            let base = if extra.contains("stage = 0") {
+                None
+            } else if extra.contains("stage = 1") {
+                Some("stage1-base")
+            } else {
+                Some("base")
+            };
+            let mut deps: Vec<&str> = build.to_vec();
+            let mut environment = "";
+            match (build.is_empty(), base) {
+                (true, Some(base)) => deps.push(base),
+                (true, None) => environment = "environment = \"host\"\n",
+                _ => {}
+            }
+            self.write(file, name, extra, &deps, run, environment);
         }
 
         /// Writes a minimal recipe. `extra` goes into `[package]`, `build`
-        /// and `run` into `[depends]`.
-        fn recipe(&self, file: &str, name: &str, extra: &str, build: &[&str], run: &[&str]) {
+        /// and `run` into `[depends]`, `build_extra` into `[build]`.
+        fn write(
+            &self,
+            file: &str,
+            name: &str,
+            extra: &str,
+            build: &[&str],
+            run: &[&str],
+            build_extra: &str,
+        ) {
             let list = |names: &[&str]| {
                 names
                     .iter()
@@ -339,7 +386,7 @@ mod tests {
             let text = format!(
                 "[package]\nname = \"{name}\"\nversion = \"1\"\ndescription = \"d\"\n\
                  license = \"MIT\"\n{extra}\n\n[depends]\nbuild = [{}]\nrun = [{}]\n\n\
-                 [build]\nscript = \"true\"\n",
+                 [build]\n{build_extra}script = \"true\"\n",
                 list(build),
                 list(run)
             );
@@ -359,10 +406,18 @@ mod tests {
         }
     }
 
+    /// The scratch tree's base chain, left out of what a test asserts.
+    fn without_bases(names: impl IntoIterator<Item = String>) -> Vec<String> {
+        names
+            .into_iter()
+            .filter(|n| !matches!(n.as_str(), "base" | "stage0-base" | "stage1-base"))
+            .collect()
+    }
+
     fn context() -> HashContext {
         HashContext {
             arch: Arch::X86_64,
-            host_id: None,
+            host_id: Some("sha256:test-builder".to_owned()),
         }
     }
 
@@ -373,9 +428,15 @@ mod tests {
         tree.recipe("base/lib.toml", "lib", "", &["tool"], &[]);
         tree.recipe("dev/tool.toml", "tool", "", &[], &[]);
         let set = tree.load().unwrap();
-        assert_eq!(set.len(), 3);
-        assert_eq!(set.build_order(&["app"]).unwrap(), ["tool", "lib", "app"]);
-        assert_eq!(set.build_order(&["lib"]).unwrap(), ["tool", "lib"]);
+        assert_eq!(set.len(), 6);
+        assert_eq!(
+            without_bases(set.build_order(&["app"]).unwrap()),
+            ["tool", "lib", "app"]
+        );
+        assert_eq!(
+            without_bases(set.build_order(&["lib"]).unwrap()),
+            ["tool", "lib"]
+        );
     }
 
     #[test]
@@ -387,7 +448,7 @@ mod tests {
         tree.recipe("tzdata.toml", "tzdata", "", &[], &[]);
         tree.recipe("runtime-only.toml", "runtime-only", "", &[], &[]);
         let set = tree.load().unwrap();
-        let inputs: Vec<String> = set.sandbox_inputs("app").unwrap().into_iter().collect();
+        let inputs = without_bases(set.sandbox_inputs("app").unwrap());
         // The app's own run dependency is not in its sandbox.
         assert_eq!(inputs, ["compiler", "libc", "tzdata"]);
     }
@@ -402,7 +463,7 @@ mod tests {
         tree.recipe("unrelated.toml", "unrelated", "", &[], &[]);
         let set = tree.load().unwrap();
         assert_eq!(
-            set.with_run_closure(&["meta"]).unwrap(),
+            without_bases(set.with_run_closure(&["meta"]).unwrap()),
             ["binutils", "gcc", "glibc", "meta"]
         );
     }
@@ -546,7 +607,7 @@ mod tests {
                 &["lib"],
                 &HashContext {
                     arch: Arch::Aarch64,
-                    host_id: None,
+                    ..context()
                 },
             )
             .unwrap();
@@ -554,19 +615,18 @@ mod tests {
     }
 
     #[test]
-    fn host_recipes_need_and_hash_the_builder_id_target_recipes_ignore_it() {
+    fn host_recipes_need_and_hash_the_builder_id_target_recipes_only_inherit_it() {
         let tree = Tree::new();
         tree.recipe("s0.toml", "stage0-binutils", "stage = 0", &[], &[]);
-        let path = tree.0.join("s0.toml");
-        let text = fs::read_to_string(&path)
-            .unwrap()
-            .replace("[build]", "[build]\nenvironment = \"host\"");
-        fs::write(&path, text).unwrap();
         tree.recipe("lib.toml", "lib", "", &[], &[]);
         let set = tree.load().unwrap();
 
+        let none = HashContext {
+            arch: Arch::X86_64,
+            host_id: None,
+        };
         assert!(matches!(
-            set.input_hashes(&["stage0-binutils"], &context()),
+            set.input_hashes(&["stage0-binutils"], &none),
             Err(Error::MissingHostId(_))
         ));
 
@@ -574,11 +634,26 @@ mod tests {
             arch: Arch::X86_64,
             host_id: Some(id.to_owned()),
         };
-        let all = ["stage0-binutils", "lib"];
-        let one = set.input_hashes(&all, &with("sha256:aaa")).unwrap();
-        let two = set.input_hashes(&all, &with("sha256:bbb")).unwrap();
+        let one = set
+            .input_hashes(&["stage0-binutils"], &with("sha256:aaa"))
+            .unwrap();
+        let two = set
+            .input_hashes(&["stage0-binutils"], &with("sha256:bbb"))
+            .unwrap();
         assert_ne!(one["stage0-binutils"], two["stage0-binutils"]);
-        assert_eq!(one["lib"], two["lib"]);
+
+        // A target recipe hashes no builder of its own. It changes with the
+        // builder only through a host-built input, as it should.
+        assert!(
+            set.explain_hash("stage0-binutils", &with("x"))
+                .unwrap()
+                .contains("\nhost x\n")
+        );
+        assert!(
+            !set.explain_hash("lib", &with("x"))
+                .unwrap()
+                .contains("\nhost ")
+        );
     }
 
     #[test]

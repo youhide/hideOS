@@ -1,0 +1,27 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-grep"
+version = "3.12"
+description = "Pattern matching (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Jim Meyering).
+[[source]]
+url = "https://ftp.gnu.org/gnu/grep/grep-3.12.tar.xz"
+sha256 = "2649b27c0e90e632eadcd757be06c6e9a4f48d941de51e7c0f83ff76408a07b9"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)"
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

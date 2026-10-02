@@ -1,0 +1,27 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-m4"
+version = "1.4.21"
+description = "Macro processor (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Eric Blake).
+[[source]]
+url = "https://ftp.gnu.org/gnu/m4/m4-1.4.21.tar.xz"
+sha256 = "f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)"
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

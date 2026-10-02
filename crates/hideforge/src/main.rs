@@ -266,17 +266,22 @@ fn build_one(
     // guarantees exists by now.
     let mut layers = Vec::new();
     for input in set.sandbox_inputs(name)? {
+        let input_recipe = &set.get(&input)?.recipe;
         let input_hash = hashes
             .get(&input)
             .ok_or_else(|| anyhow!("no hash for {input}"))?;
-        let path = layout.output(input_hash, &set.get(&input)?.recipe);
+        let path = layout.output(input_hash, input_recipe);
         if !path.is_dir() {
             bail!(
                 "{name} needs {input}, whose output {} is missing",
                 path.display()
             );
         }
-        layers.push((input, path));
+        layers.push(output::Layer {
+            name: input,
+            path,
+            stage: input_recipe.stage().number(),
+        });
     }
     let conflicts = output::conflicts(&layers)?;
     if !conflicts.is_empty() {
@@ -293,8 +298,8 @@ fn build_one(
             conflicts.len()
         );
     }
-    let mut lowers: Vec<PathBuf> = layers.into_iter().map(|(_, path)| path).collect();
-    let input_layers = lowers.clone();
+    output::overlay_order(&mut layers);
+    let mut lowers: Vec<PathBuf> = layers.iter().map(|layer| layer.path.clone()).collect();
     lowers.push(dirs.skeleton());
 
     let epoch = fetch::prepare(layout, entry, &dirs.src())?;
@@ -339,7 +344,7 @@ fn build_one(
     }
 
     output::remove_image_indexes(&dirs.upper())?;
-    let violations = output::check_upper(&dirs.upper(), &input_layers)?;
+    let violations = output::check_upper(&dirs.upper(), &layers, recipe.stage().number())?;
     if !violations.is_empty() {
         for violation in &violations {
             eprintln!("  {violation}");
@@ -349,6 +354,7 @@ fn build_one(
         }
         bail!("{name} changed files its inputs provide; see above");
     }
+    output::remove_whiteouts(&dirs.upper())?;
     sandbox::strip_overlay_xattrs(&dirs.upper())?;
     sandbox::clamp_mtimes(&dirs.upper(), epoch)?;
 

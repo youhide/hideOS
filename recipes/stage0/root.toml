@@ -1,0 +1,38 @@
+# The root stage 1 builds in: a C library, a native toolchain and the tools
+# build scripts expect, all cross-compiled by stage 0. The cross toolchain
+# itself is not here: it runs only on the builder, and stage 1 has no builder.
+[package]
+name = "stage0-root"
+version = "1"
+description = "The stage-1 build root"
+license = "MIT"
+stage = 0
+
+[depends]
+run = [
+    "stage0-filesystem",
+    "stage0-linux-headers",
+    "stage0-glibc",
+    "stage0-libstdcxx",
+    "stage0-m4",
+    "stage0-ncurses",
+    "stage0-bash",
+    "stage0-coreutils",
+    "stage0-diffutils",
+    "stage0-file",
+    "stage0-findutils",
+    "stage0-gawk",
+    "stage0-grep",
+    "stage0-gzip",
+    "stage0-make",
+    "stage0-patch",
+    "stage0-sed",
+    "stage0-tar",
+    "stage0-xz",
+    "stage0-binutils-pass2",
+    "stage0-gcc-pass2",
+]
+
+[build]
+environment = "host"
+script = "true"

@@ -1,0 +1,22 @@
+[package]
+name = "stage1-texinfo"
+version = "7.3"
+description = "Documentation tools, makeinfo for builds (temporary)"
+license = "GPL-3.0-or-later"
+stage = 1
+
+# GPG signature verified against the GNU keyring (Gavin Smith).
+[[source]]
+url = "https://ftp.gnu.org/gnu/texinfo/texinfo-7.3.tar.xz"
+sha256 = "51f74eb0f51cfa9873b85264dfdd5d46e8957ec95b88f0fb762f63d9e164c72e"
+
+[depends]
+build = ["stage0-root", "stage1-etc", "stage1-perl"]
+run = ["stage1-perl"]
+
+[build]
+script = """
+./configure --prefix=/usr
+make -j"$JOBS"
+make install
+"""

@@ -30,28 +30,63 @@ impl std::fmt::Display for Violation {
     }
 }
 
+/// One input layered into a sandbox.
+#[derive(Debug, Clone)]
+pub struct Layer {
+    pub name: String,
+    pub path: PathBuf,
+    pub stage: u8,
+}
+
 /// Walks the upper layer and reports every inherited file the build deleted or
-/// replaced. Directories are not reported: overlay copies a directory up
-/// whenever something is created inside it, and that is the normal case.
-pub fn check_upper(upper: &Path, lowers: &[PathBuf]) -> io::Result<Vec<Violation>> {
+/// replaced — if that file came from a layer of the build's own stage.
+///
+/// Replacing what an *earlier* stage provided is the point of a bootstrap:
+/// stage 1's bash is built in a root where stage 0's bash is `/usr/bin/bash`,
+/// and installs over it. Replacing what the *same* stage provided means two
+/// recipes of one stage both claim a file, and that is still an error.
+///
+/// Directories are not reported: overlay copies a directory up whenever
+/// something is created inside it, and that is the normal case.
+pub fn check_upper(upper: &Path, layers: &[Layer], stage: u8) -> io::Result<Vec<Violation>> {
     let mut violations = Vec::new();
     for (relative, meta) in walk(upper)? {
         let kind = meta.file_type();
         if kind.is_dir() {
             continue;
         }
-        if kind.is_char_device() && meta.rdev() == 0 {
-            violations.push(Violation::Deleted(relative));
+        let same_stage = layers
+            .iter()
+            .filter(|layer| layer.stage == stage)
+            .any(|layer| fs::symlink_metadata(layer.path.join(&relative)).is_ok());
+        if !same_stage {
             continue;
         }
-        let inherited = lowers
-            .iter()
-            .any(|lower| fs::symlink_metadata(lower.join(&relative)).is_ok());
-        if inherited {
+        if is_whiteout(&meta) {
+            violations.push(Violation::Deleted(relative));
+        } else {
             violations.push(Violation::Replaced(relative));
         }
     }
     Ok(violations)
+}
+
+/// Removes the whiteouts left in an upper layer. Once [`check_upper`] has
+/// passed, each one records the deletion of an earlier stage's file, which
+/// mattered inside that build's sandbox and means nothing outside it: the
+/// output never contained the file in the first place.
+pub fn remove_whiteouts(upper: &Path) -> io::Result<()> {
+    for (relative, meta) in walk(upper)? {
+        if is_whiteout(&meta) {
+            fs::remove_file(upper.join(relative))?;
+        }
+    }
+    Ok(())
+}
+
+/// Overlay records a deletion as a character device with device number 0/0.
+fn is_whiteout(meta: &fs::Metadata) -> bool {
+    meta.file_type().is_char_device() && meta.rdev() == 0
 }
 
 /// Files no output may contain, because they are indexes over *every*
@@ -74,8 +109,9 @@ pub fn remove_image_indexes(dir: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(removed)
 }
 
-/// Two layers providing the same non-directory path. In an overlay the upper
-/// one would silently win; here it is an error that names both.
+/// Two layers of the same stage providing the same non-directory path. In an
+/// overlay the upper one would silently win; here it is an error that names
+/// both.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Conflict {
     pub path: PathBuf,
@@ -83,29 +119,39 @@ pub struct Conflict {
     pub second: String,
 }
 
-/// Every path provided by more than one of `layers`, each given as (name,
-/// directory). Directories may be shared; nothing else may.
-pub fn conflicts(layers: &[(String, PathBuf)]) -> io::Result<Vec<Conflict>> {
-    let mut owner: BTreeMap<PathBuf, &str> = BTreeMap::new();
+/// Every path provided by more than one layer of the same stage. Directories
+/// may be shared, and a later stage's file shadows an earlier stage's: see
+/// [`check_upper`] for why.
+pub fn conflicts(layers: &[Layer]) -> io::Result<Vec<Conflict>> {
+    let mut owner: BTreeMap<(u8, PathBuf), &str> = BTreeMap::new();
     let mut found = Vec::new();
-    for (name, dir) in layers {
-        for (relative, meta) in walk(dir)? {
+    for layer in layers {
+        for (relative, meta) in walk(&layer.path)? {
             if meta.is_dir() {
                 continue;
             }
-            match owner.get(&relative) {
+            let key = (layer.stage, relative);
+            match owner.get(&key) {
                 Some(first) => found.push(Conflict {
-                    path: relative,
+                    path: key.1,
                     first: (*first).to_owned(),
-                    second: name.clone(),
+                    second: layer.name.clone(),
                 }),
                 None => {
-                    owner.insert(relative, name);
+                    owner.insert(key, &layer.name);
                 }
             }
         }
     }
     Ok(found)
+}
+
+/// The overlay's lower layers, top first: later stages above earlier ones,
+/// so a later stage's file is the one a build sees. Within a stage the order
+/// does not matter, because [`conflicts`] guarantees no overlap; it is by name
+/// so that it is the same on every run.
+pub fn overlay_order(layers: &mut [Layer]) {
+    layers.sort_by(|a, b| b.stage.cmp(&a.stage).then_with(|| a.name.cmp(&b.name)));
 }
 
 /// Every entry under `root`, as (path relative to root, metadata), not
@@ -155,12 +201,6 @@ mod tests {
             fs::write(&path, relative).unwrap();
             path
         }
-
-        fn dir(&self, relative: &str) -> PathBuf {
-            let path = self.0.join(relative);
-            fs::create_dir_all(&path).unwrap();
-            path
-        }
     }
 
     impl Drop for Scratch {
@@ -169,25 +209,75 @@ mod tests {
         }
     }
 
+    fn layer(s: &Scratch, name: &str, stage: u8) -> Layer {
+        Layer {
+            name: name.to_owned(),
+            path: s.0.join(name),
+            stage,
+        }
+    }
+
     #[test]
     fn new_files_and_shared_directories_are_fine() {
         let s = Scratch::new();
         s.file("lower/usr/lib/libc.so");
         s.file("upper/usr/lib/libz.so");
-        let violations = check_upper(&s.0.join("upper"), &[s.0.join("lower")]).unwrap();
+        let layers = [layer(&s, "lower", 2)];
+        let violations = check_upper(&s.0.join("upper"), &layers, 2).unwrap();
         assert!(violations.is_empty(), "{violations:?}");
     }
 
     #[test]
-    fn replacing_an_inherited_file_is_reported() {
+    fn replacing_a_same_stage_file_is_reported() {
         let s = Scratch::new();
-        s.file("lower/usr/share/info/dir");
-        s.file("upper/usr/share/info/dir");
-        s.file("upper/usr/share/info/zlib.info");
-        let violations = check_upper(&s.0.join("upper"), &[s.0.join("lower")]).unwrap();
+        s.file("lower/usr/share/doc/index");
+        s.file("upper/usr/share/doc/index");
+        s.file("upper/usr/share/doc/zlib");
+        let layers = [layer(&s, "lower", 2)];
+        let violations = check_upper(&s.0.join("upper"), &layers, 2).unwrap();
         assert_eq!(
             violations,
-            [Violation::Replaced(PathBuf::from("usr/share/info/dir"))]
+            [Violation::Replaced(PathBuf::from("usr/share/doc/index"))]
+        );
+    }
+
+    #[test]
+    fn replacing_an_earlier_stage_file_is_the_bootstrap() {
+        let s = Scratch::new();
+        s.file("stage0-bash/usr/bin/bash");
+        s.file("upper/usr/bin/bash");
+        let layers = [layer(&s, "stage0-bash", 0)];
+        let violations = check_upper(&s.0.join("upper"), &layers, 1).unwrap();
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn same_stage_layers_conflict_earlier_stages_are_shadowed() {
+        let s = Scratch::new();
+        s.file("stage0-bash/usr/bin/bash");
+        s.file("stage1-bash/usr/bin/bash");
+        s.file("stage1-gcc/usr/bin/gcc");
+        s.file("stage1-other/usr/bin/gcc");
+        let mut layers = vec![
+            layer(&s, "stage0-bash", 0),
+            layer(&s, "stage1-bash", 1),
+            layer(&s, "stage1-gcc", 1),
+            layer(&s, "stage1-other", 1),
+        ];
+        let found = conflicts(&layers).unwrap();
+        assert_eq!(
+            found,
+            [Conflict {
+                path: PathBuf::from("usr/bin/gcc"),
+                first: "stage1-gcc".to_owned(),
+                second: "stage1-other".to_owned(),
+            }]
+        );
+        overlay_order(&mut layers);
+        let names: Vec<&str> = layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["stage1-bash", "stage1-gcc", "stage1-other", "stage0-bash"]
         );
     }
 
@@ -208,28 +298,5 @@ mod tests {
         );
         assert!(s.0.join("out/usr/share/info/gcc.info").exists());
         assert!(s.0.join("out/usr/share/dir").exists());
-    }
-
-    #[test]
-    fn layers_may_share_directories_but_not_files() {
-        let s = Scratch::new();
-        s.file("a/usr/bin/gcc");
-        s.file("b/usr/bin/ld");
-        s.file("c/usr/bin/gcc");
-        s.dir("c/usr/share");
-        let layers = [
-            ("a".to_owned(), s.0.join("a")),
-            ("b".to_owned(), s.0.join("b")),
-            ("c".to_owned(), s.0.join("c")),
-        ];
-        let found = conflicts(&layers).unwrap();
-        assert_eq!(
-            found,
-            [Conflict {
-                path: PathBuf::from("usr/bin/gcc"),
-                first: "a".to_owned(),
-                second: "c".to_owned(),
-            }]
-        );
     }
 }

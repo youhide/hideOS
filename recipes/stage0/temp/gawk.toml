@@ -1,0 +1,29 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-gawk"
+version = "5.4.1"
+description = "GNU awk (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Arnold Robbins).
+[[source]]
+url = "https://ftp.gnu.org/gnu/gawk/gawk-5.4.1.tar.xz"
+sha256 = "07f6f7342b7febe4313fc2c2542ad93d64fe20ad8717200109f105a826f5fd37"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+# The extensions are not needed to build anything in stage 1.
+sed -i 's/extras//' Makefile.in
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)"
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

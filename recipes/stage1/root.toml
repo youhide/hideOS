@@ -1,0 +1,25 @@
+# The root stage 2 builds in: stage 0's tree and the temporary tools added to
+# it in stage 1.
+[package]
+name = "stage1-root"
+version = "1"
+description = "The stage-2 build root"
+license = "MIT"
+stage = 1
+
+[depends]
+build = ["stage0-root"]
+run = [
+    "stage0-root",
+    "stage1-etc",
+    "stage1-gettext",
+    "stage1-bison",
+    "stage1-perl",
+    "stage1-python",
+    "stage1-texinfo",
+]
+
+[build]
+# Nothing to build. Stage 1 has no host environment, so this runs in a
+# target root, and needs stage0-root's bash for `true`.
+script = "true"

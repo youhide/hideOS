@@ -24,18 +24,26 @@ pub fn fetch(layout: &Layout, entry: &Entry) -> Result<()> {
             continue;
         }
         let partial = path.with_extension("part");
-        eprintln!("  fetch {}", source.url);
-        let status = Command::new("curl")
-            .args(["--fail", "--location", "--silent", "--show-error"])
-            .args(["--retry", "3", "--proto", "=https", "--tlsv1.2"])
-            .arg("--output")
-            .arg(&partial)
-            .arg(&source.url)
-            .status()
-            .context("running curl")?;
-        if !status.success() {
+        let mut fetched = false;
+        for url in mirrors(&source.url) {
+            eprintln!("  fetch {url}");
+            let status = Command::new("curl")
+                .args(["--fail", "--location", "--silent", "--show-error"])
+                .args(["--retry", "2", "--connect-timeout", "20"])
+                .args(["--proto", "=https", "--tlsv1.2"])
+                .arg("--output")
+                .arg(&partial)
+                .arg(&url)
+                .status()
+                .context("running curl")?;
+            if status.success() {
+                fetched = true;
+                break;
+            }
             let _ = fs::remove_file(&partial);
-            bail!("download failed: {}", source.url);
+        }
+        if !fetched {
+            bail!("download failed from every mirror: {}", source.url);
         }
         let actual = sha256_file(&partial)?;
         if actual != source.sha256 {
@@ -49,6 +57,19 @@ pub fn fetch(layout: &Layout, entry: &Entry) -> Result<()> {
         fs::rename(&partial, &path)?;
     }
     Ok(())
+}
+
+/// Where to try downloading `url` from, in order. The recipe's URL first,
+/// then mirrors of the same tree for hosts that have them. Safe because the
+/// digest is checked whatever the source: a mirror can fail to deliver, but
+/// it cannot deliver something else.
+pub fn mirrors(url: &str) -> Vec<String> {
+    let mut urls = vec![url.to_owned()];
+    if let Some(path) = url.strip_prefix("https://ftp.gnu.org/gnu/") {
+        urls.push(format!("https://ftpmirror.gnu.org/gnu/{path}"));
+        urls.push(format!("https://mirrors.kernel.org/gnu/{path}"));
+    }
+    urls
 }
 
 /// Unpacks every source into `src` and applies the recipe's patches. Returns
@@ -145,4 +166,25 @@ fn newest_mtime(dir: &Path) -> io::Result<u64> {
         }
     }
     Ok(newest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gnu_sources_have_mirrors_others_do_not() {
+        assert_eq!(
+            mirrors("https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz"),
+            [
+                "https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz",
+                "https://ftpmirror.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz",
+                "https://mirrors.kernel.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz",
+            ]
+        );
+        assert_eq!(
+            mirrors("https://astron.com/pub/file/file-5.48.tar.gz"),
+            ["https://astron.com/pub/file/file-5.48.tar.gz"]
+        );
+    }
 }

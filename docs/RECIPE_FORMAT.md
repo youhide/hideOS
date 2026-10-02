@@ -72,6 +72,10 @@ sha256 = "..."
 dest = "gmp"
 ```
 
+**Mirrors.** A `https://ftp.gnu.org/gnu/` URL is also tried at
+`ftpmirror.gnu.org` and `mirrors.kernel.org` when the original fails. Write the
+canonical URL; the digest makes any mirror's copy as good as the original.
+
 **Where a hash comes from.** A recipe's `sha256` is written down when the
 recipe is, from a download checked against the upstream signature or
 published checksum where one exists. The commit adding or bumping a source
@@ -132,7 +136,8 @@ Nothing else from the caller's environment is passed through.
 `stage` places a recipe in the bootstrap described in
 [HIDEFORGE.md](HIDEFORGE.md#the-bootstrap). hideforge enforces the ordering:
 
-- a stage-*n* recipe may depend on recipes of stage *n* and *n−1* only;
+- a stage-*n* recipe may depend on recipes of stage *n* and *n−1* only (and
+  sees, through their run dependencies, whatever those were built on);
 - only stage 0 may use `environment = "host"`;
 - only stage 2 may appear in an image.
 

@@ -1,0 +1,28 @@
+# Enough Python to run build scripts (glibc's, Meson's). No pip, no zlib:
+# modules that need libraries not yet built are skipped, and that is fine
+# for this copy.
+[package]
+name = "stage1-python"
+version = "3.14.8"
+description = "Python (temporary)"
+license = "Python-2.0"
+stage = 1
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://www.python.org/ftp/python/3.14.8/Python-3.14.8.tar.xz"
+sha256 = "c2215904f02b175596dc49351585104f4bc20341e1c47378b26a2c274360ce73"
+
+[depends]
+build = ["stage0-root", "stage1-etc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --enable-shared \\
+    --without-ensurepip \\
+    --without-static-libpython
+make -j"$JOBS"
+make install
+"""

@@ -1,0 +1,70 @@
+# GCC, pass 2: a native compiler for $TARGET, cross-compiled. Runs in stage 1,
+# where it builds the final GCC.
+#
+# Unlike Linux From Scratch, this pass does not rebuild libstdc++: it would
+# overwrite the files stage0-libstdcxx installed, and an output may not
+# replace another's. The stage0 libstdc++ was built without thread support,
+# which nothing in stage 1 needs before the final GCC, which builds its own.
+[package]
+name = "stage0-gcc-pass2"
+version = "16.2.0"
+description = "GCC for stage 1, pass 2"
+license = "GPL-3.0-or-later WITH GCC-exception-3.1"
+homepage = "https://gcc.gnu.org"
+stage = 0
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz"
+sha256 = "e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz"
+sha256 = "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+dest = "gmp"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.xz"
+sha256 = "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01"
+dest = "mpfr"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/mpc/mpc-1.4.1.tar.xz"
+sha256 = "91204cd32f164bd3b7c992d4a6a8ce6519511aadab30f78b6982d0bf8d73e931"
+dest = "mpc"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+
+[build]
+environment = "host"
+script = """
+if [ "$ARCH" = x86_64 ]; then
+    sed -e '/m64=/s/lib64/lib/' -i gcc/config/i386/t-linux64
+fi
+# libgcc with POSIX threads, which pass 1 could not have.
+sed '/thread_header =/s/@.*@/gthr-posix.h/' -i libgcc/Makefile.in
+
+mkdir build && cd build
+../configure \\
+    --build="$(../config.guess)" \\
+    --host="$TARGET" \\
+    --target="$TARGET" \\
+    LDFLAGS_FOR_TARGET="-L$PWD/$TARGET/libgcc" \\
+    --prefix=/usr \\
+    --with-build-sysroot="$SYSROOT" \\
+    --enable-default-pie \\
+    --enable-default-ssp \\
+    --disable-nls \\
+    --disable-multilib \\
+    --disable-libatomic \\
+    --disable-libgomp \\
+    --disable-libquadmath \\
+    --disable-libsanitizer \\
+    --disable-libssp \\
+    --disable-libvtv \\
+    --disable-libstdcxx \\
+    --enable-languages=c,c++
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+ln -s gcc "$SYSROOT/usr/bin/cc"
+"""

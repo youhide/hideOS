@@ -60,13 +60,21 @@ packages that forget to honour either. Scratch space — `/build`, `/tmp`,
 
 Two rules keep this honest:
 
-- **A build may not delete or replace a file it inherited.** Overlay records
+- **A build may not delete or replace a file its own stage provided.** Overlay records
   that as a whiteout or a copied-up file in the upper layer. hideforge scans
   the output after the build and fails it if it finds either, naming the path.
   A build that rewrites a dependency's file (an index, a cache, a shared
   `info/dir`) has to stop doing that.
-- **Two outputs may not provide the same path** in one sandbox or one image.
-  The merge fails and names both.
+- **Two outputs of the same stage may not provide the same path** in one
+  sandbox or one image. The merge fails and names both.
+
+Across stages it is the other way round, because replacing the previous
+stage is what a bootstrap is. Stage 1's bash is built in a root where stage
+0's bash is `/usr/bin/bash`, and installs over it. So layers are stacked with
+later stages on top, a later stage's file shadows an earlier stage's, and a
+build may replace or delete what an earlier stage provided. Deleting leaves
+an overlay whiteout, which is dropped from the output: it only ever meant
+something inside that sandbox.
 
 One exception, applied by hideforge rather than by recipes: indexes over
 every package's files — `share/info/dir` — are removed from every output.
@@ -94,15 +102,23 @@ Three stages, after Linux From Scratch. The target triple is
 `<arch>-hideos-linux-gnu` throughout, distinct from the builder's
 `<arch>-linux-gnu`, so a host tool can never be mistaken for a target one.
 
-| Stage | Environment | Builds                                                                   |
-|-------|-------------|--------------------------------------------------------------------------|
-| 0     | `host`      | A cross toolchain in `/tools` (binutils, GCC, Linux headers, glibc), then a minimal set of temporary tools cross-compiled into `/sysroot` |
-| 1     | `target`    | The final toolchain, natively, inside the stage-0 tree                   |
-| 2     | `target`    | Everything in the image, with the stage-1 toolchain and nothing older    |
+| Stage | Environment | Builds                                                                   | LFS        |
+|-------|-------------|--------------------------------------------------------------------------|------------|
+| 0     | `host`      | A cross toolchain in `/tools` (binutils, GCC, Linux headers, glibc), then temporary tools and a native GCC cross-compiled into `/sysroot` | ch. 5–6 |
+| 1     | `target`    | The rest of the temporary tools, inside the stage-0 tree: gettext, bison, Perl, Python, Texinfo | ch. 7 |
+| 2     | `target`    | The system: the final toolchain first, then everything built with it     | ch. 8      |
 
-Stage 0's outputs exist only to build stage 1. Stage 1's outputs exist only
-to build stage 2. An image contains stage-2 outputs and nothing else, and
-`hideforge` refuses to put anything from an earlier stage into one.
+Layers stack later stages on top, so as stage 2 builds its glibc, binutils
+and GCC, every stage-2 build after them uses the final toolchain, and the
+temporary one underneath is shadowed. An image contains stage-2 outputs and
+nothing else, and hideforge refuses to put anything from an earlier stage
+into one.
+
+Why not a third full pass — rebuilding stage 2 with its own compiler, as a
+GCC bootstrap does? Because the question it answers, whether the temporary
+compiler left a mark on the final system, is better answered by the
+reproducibility check: build a stage-2 output twice and compare. Rebuilding
+the whole system to ask it costs hours on every toolchain change.
 
 **What is not bootstrapped from source.** Rust: `rustc` is written in Rust
 and has to start from a published binary. The recipe pins it by SHA-256 like

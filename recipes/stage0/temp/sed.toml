@@ -1,0 +1,27 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-sed"
+version = "4.10"
+description = "Stream editor (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Jim Meyering).
+[[source]]
+url = "https://ftp.gnu.org/gnu/sed/sed-4.10.tar.xz"
+sha256 = "b8e72182b2ec96a3574e2998c47b7aaa64cc20ce000d8e9ac313cc07cecf28c7"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)"
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

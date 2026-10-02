@@ -1,0 +1,31 @@
+[package]
+name = "stage1-perl"
+version = "5.44.0"
+description = "Perl (temporary)"
+license = "GPL-1.0-or-later OR Artistic-1.0-Perl"
+stage = 1
+
+# Checked against the SHA-256 CPAN publishes next to the tarball.
+[[source]]
+url = "https://www.cpan.org/src/5.0/perl-5.44.0.tar.xz"
+sha256 = "505cf43912e9480495c344c70260452e32aa2a73c546a026b3f100053b23ce91"
+
+[depends]
+build = ["stage0-root", "stage1-etc"]
+
+[build]
+script = """
+lib=/usr/lib/perl5/5.44
+sh Configure -des \\
+    -D prefix=/usr \\
+    -D vendorprefix=/usr \\
+    -D useshrplib \\
+    -D privlib="$lib/core_perl" \\
+    -D archlib="$lib/core_perl" \\
+    -D sitelib="$lib/site_perl" \\
+    -D sitearch="$lib/site_perl" \\
+    -D vendorlib="$lib/vendor_perl" \\
+    -D vendorarch="$lib/vendor_perl"
+make -j"$JOBS"
+make install
+"""

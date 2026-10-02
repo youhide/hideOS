@@ -1,0 +1,23 @@
+# Everything stage 0's cross toolchain is, as one name to depend on.
+[package]
+name = "stage0-cross-toolchain"
+version = "1"
+description = "The complete bootstrap cross toolchain"
+license = "MIT"
+stage = 0
+
+[depends]
+run = [
+    "stage0-filesystem",
+    "stage0-binutils",
+    "stage0-gcc",
+    "stage0-linux-headers",
+    "stage0-glibc",
+    "stage0-libstdcxx",
+]
+
+[build]
+# Nothing to build, but a target environment would need a shell from its
+# inputs, and this has none.
+environment = "host"
+script = "true"

@@ -1,0 +1,29 @@
+# The few files in /etc that build tools look up: users and groups, so that
+# `id`, `chown root`, Perl's Configure and test suites find a root user; and
+# hosts, for anything that resolves localhost.
+[package]
+name = "stage1-etc"
+version = "1"
+description = "Minimal /etc for building in stage 1 and 2"
+license = "MIT"
+stage = 1
+
+[depends]
+build = ["stage0-root"]
+
+[build]
+script = """
+cat > /etc/passwd <<'END'
+root:x:0:0:root:/root:/bin/bash
+nobody:x:65534:65534:Unprivileged user:/:/usr/bin/false
+END
+cat > /etc/group <<'END'
+root:x:0:
+tty:x:5:
+nogroup:x:65534:
+END
+cat > /etc/hosts <<'END'
+127.0.0.1 localhost hideforge
+::1       localhost
+END
+"""

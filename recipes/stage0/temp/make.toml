@@ -1,0 +1,27 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-make"
+version = "4.4.1"
+description = "Build automation (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Paul D. Smith).
+[[source]]
+url = "https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz"
+sha256 = "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)"
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

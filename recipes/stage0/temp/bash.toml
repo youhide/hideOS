@@ -1,0 +1,30 @@
+# Temporary tool, cross-compiled for stage 1 to run. The shell every stage-1
+# build script runs in.
+[package]
+name = "stage0-bash"
+version = "5.3"
+description = "Bourne-again shell (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Chet Ramey).
+[[source]]
+url = "https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz"
+sha256 = "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+
+[depends]
+build = ["stage0-cross-toolchain", "stage0-ncurses"]
+run = ["stage0-ncurses"]
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$(sh support/config.guess)" \\
+    --host="$TARGET" \\
+    --without-bash-malloc
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+ln -s bash "$SYSROOT/usr/bin/sh"
+"""

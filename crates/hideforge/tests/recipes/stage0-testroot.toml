@@ -37,10 +37,10 @@ echo scratch > "$HOME/not-in-output"
 
 # The root for the next fixture.
 mkdir -p "$SYSROOT/usr/bin" "$SYSROOT/usr/lib"
-cp /bin/bash /bin/cat /bin/ls /bin/hostname /bin/mkdir "$SYSROOT/usr/bin/"
+cp /bin/bash /bin/cat /bin/ls /bin/hostname /bin/mkdir /bin/rm "$SYSROOT/usr/bin/"
 # One binary per ldd call: given several, ldd prints a "/bin/bash:" header
 # before each, which looks like a path.
-for lib in $(for b in bash cat ls hostname mkdir; do ldd "/bin/$b"; done | grep -o '/[^ ]*' | sort -u); do
+for lib in $(for b in bash cat ls hostname mkdir rm; do ldd "/bin/$b"; done | grep -o '/[^ ]*' | sort -u); do
     mkdir -p "$SYSROOT$(dirname "$lib")"
     cp -L "$lib" "$SYSROOT$lib"
 done

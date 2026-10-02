@@ -1,0 +1,27 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-tar"
+version = "1.35"
+description = "Archiver (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Sergey Poznyakoff).
+[[source]]
+url = "https://ftp.gnu.org/gnu/tar/tar-1.35.tar.xz"
+sha256 = "4d62ff37342ec7aed748535323930c7cf94acf71c3591882b26a7ea50f3edc16"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)"
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

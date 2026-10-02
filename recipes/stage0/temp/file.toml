@@ -1,0 +1,32 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-file"
+version = "5.48"
+description = "File type identification (temporary, for stage 1)"
+license = "BSD-2-Clause"
+stage = 0
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://astron.com/pub/file/file-5.48.tar.gz"
+sha256 = "ed14656883b23a364b4057c05595d93252da9bc473d30106519519d0da141283"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+
+[build]
+environment = "host"
+script = """
+# Compiling the magic database needs a `file` of the same version that runs
+# on the builder.
+mkdir build-native
+pushd build-native
+../configure --disable-bzlib --disable-libseccomp --disable-xzlib --disable-zlib
+make -j"$JOBS"
+popd
+
+./configure --prefix=/usr --host="$TARGET" --build="$(./config.guess)"
+make -j"$JOBS" FILE_COMPILE="$PWD/build-native/src/file"
+make DESTDIR="$SYSROOT" install
+rm -f "$SYSROOT/usr/lib/libmagic.la"
+"""

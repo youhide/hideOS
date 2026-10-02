@@ -1,0 +1,28 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-findutils"
+version = "4.11.0"
+description = "File finding utilities (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (James Youngman).
+[[source]]
+url = "https://ftp.gnu.org/gnu/findutils/findutils-4.11.0.tar.xz"
+sha256 = "bfd19cb06cc71f3352d567e90284d8cdac02ac89774bbeadf0b533b0c11432fd"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)" \\
+    --localstatedir=/var/lib/locate
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

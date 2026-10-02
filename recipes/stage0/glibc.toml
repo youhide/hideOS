@@ -1,0 +1,49 @@
+# glibc, cross-compiled into the sysroot with the pass-1 compiler. This copy
+# exists to build stage 1; stage 1 builds the glibc that ships.
+[package]
+name = "stage0-glibc"
+version = "2.44"
+description = "GNU C library for the bootstrap sysroot"
+license = "LGPL-2.1-or-later"
+homepage = "https://www.gnu.org/software/libc/"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Andreas K. Huettel).
+[[source]]
+url = "https://ftp.gnu.org/gnu/glibc/glibc-2.44.tar.xz"
+sha256 = "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667"
+
+[depends]
+build = ["stage0-gcc", "stage0-linux-headers", "stage0-filesystem"]
+# glibc's headers include the kernel's (<bits/local_lim.h> includes
+# <linux/limits.h>), so compiling against glibc needs both.
+run = ["stage0-linux-headers", "stage0-filesystem"]
+
+[build]
+environment = "host"
+script = """
+mkdir build && cd build
+# sbin is merged into bin.
+echo "rootsbindir=/usr/bin" > configparms
+echo "sbindir=/usr/bin" >> configparms
+../configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(../scripts/config.guess)" \\
+    --disable-nscd \\
+    --enable-kernel=6.6 \\
+    --with-headers="$SYSROOT/usr/include" \\
+    libc_cv_slibdir=/usr/lib
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+
+# ldd hardcodes the loader's path under /usr; in the sysroot it is found
+# through /lib64 (x86_64) or /lib (aarch64).
+sed '/RTLDLIST=/s@/usr@@g' -i "$SYSROOT/usr/bin/ldd"
+
+# The toolchain works end to end: compiles, links against this glibc, and
+# asks for the right interpreter.
+echo 'int main(void) { return 0; }' > /tmp/probe.c
+"$TARGET-gcc" /tmp/probe.c -o /tmp/probe
+readelf -l /tmp/probe | grep -q 'Requesting program interpreter: /lib'
+"""

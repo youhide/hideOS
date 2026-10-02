@@ -1,0 +1,32 @@
+# Cross binutils, pass 1: an assembler and linker that run on the builder and
+# produce code for $TARGET. Lives in $SYSROOT/tools and is used only by the
+# rest of stage 0.
+[package]
+name = "stage0-binutils"
+version = "2.47"
+description = "Cross binutils for the bootstrap, pass 1"
+license = "GPL-3.0-or-later"
+homepage = "https://www.gnu.org/software/binutils/"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Nick Clifton).
+[[source]]
+url = "https://ftp.gnu.org/gnu/binutils/binutils-2.47.tar.xz"
+sha256 = "154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff"
+
+[build]
+environment = "host"
+script = """
+mkdir build && cd build
+../configure \\
+    --prefix="$SYSROOT/tools" \\
+    --with-sysroot="$SYSROOT" \\
+    --target="$TARGET" \\
+    --disable-nls \\
+    --enable-gprofng=no \\
+    --disable-werror \\
+    --enable-new-dtags \\
+    --enable-default-hash-style=gnu
+make -j"$JOBS"
+make install
+"""

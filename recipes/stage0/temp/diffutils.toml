@@ -1,0 +1,28 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-diffutils"
+version = "3.12"
+description = "File comparison utilities (temporary, for stage 1)"
+license = "GPL-3.0-or-later"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Jim Meyering).
+[[source]]
+url = "https://ftp.gnu.org/gnu/diffutils/diffutils-3.12.tar.xz"
+sha256 = "7c8b7f9fc8609141fdea9cece85249d308624391ff61dedaf528fcb337727dfd"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)" \\
+    gl_cv_func_strcasecmp_works=y
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+"""

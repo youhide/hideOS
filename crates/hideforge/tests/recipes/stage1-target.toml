@@ -21,4 +21,8 @@ if [ -e /sysroot ]; then echo "FAIL: /sysroot exists in a target build"; exit 1;
 echo scratch > /tmp/not-in-output
 mkdir -p /usr/share/selftest
 echo "made in stage 1" > /usr/share/selftest/result
+
+# Replacing and deleting what stage 0 provided is the bootstrap, and allowed.
+echo "replaced in stage 1" > /usr/lib/marker
+rm /usr/bin/ls
 """

@@ -1,0 +1,49 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-ncurses"
+version = "6.6"
+description = "Terminal handling library (temporary, for stage 1)"
+license = "MIT"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Thomas E. Dickey).
+[[source]]
+url = "https://ftp.gnu.org/gnu/ncurses/ncurses-6.6.tar.gz"
+sha256 = "355b4cbbed880b0381a04c46617b7656e362585d52e9cf84a67e2009b749ff11"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+
+[build]
+environment = "host"
+script = """
+# Installing the terminfo database runs tic, which has to run on the builder:
+# build one for the builder first, in scratch space, not in the output.
+mkdir build-tic
+pushd build-tic
+../configure --prefix="$HOME/tic" AR=gcc-ar
+make -C include
+make -C progs tic
+install -D progs/tic "$HOME/tic/bin/tic"
+popd
+export PATH="$HOME/tic/bin:$PATH"
+
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(./config.guess)" \\
+    --mandir=/usr/share/man \\
+    --with-manpage-format=normal \\
+    --with-shared \\
+    --without-normal \\
+    --with-cxx-shared \\
+    --without-debug \\
+    --without-ada \\
+    --disable-stripping \\
+    AWK=gawk
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" TIC_PATH="$HOME/tic/bin/tic" install
+# Programs that ask for plain ncurses get the wide-character build.
+ln -s libncursesw.so "$SYSROOT/usr/lib/libncurses.so"
+sed -e 's/^#if.*XOPEN.*$/#if 1/' -i "$SYSROOT/usr/include/curses.h"
+"""

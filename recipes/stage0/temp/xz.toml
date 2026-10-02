@@ -1,0 +1,30 @@
+# Temporary tool, cross-compiled for stage 1 to run.
+[package]
+name = "stage0-xz"
+version = "5.8.4"
+description = "XZ compression (temporary, for stage 1)"
+license = "0BSD AND GPL-2.0-or-later"
+stage = 0
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://github.com/tukaani-project/xz/releases/download/v5.8.4/xz-5.8.4.tar.xz"
+sha256 = "4ce24038fd4221e0d13bc1a2de7a4db56e90b92b3bf75321f6c14be73f65de4b"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+run = []
+
+[build]
+environment = "host"
+script = """
+./configure \\
+    --prefix=/usr \\
+    --host="$TARGET" \\
+    --build="$(build-aux/config.guess)" \\
+    --disable-static \\
+    --docdir=/usr/share/doc/xz-5.8.4
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+rm -f "$SYSROOT/usr/lib/liblzma.la"
+"""

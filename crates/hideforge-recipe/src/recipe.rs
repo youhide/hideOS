@@ -272,6 +272,15 @@ impl Recipe {
             ));
         }
 
+        if self.build.environment == Environment::Target && self.depends.build.is_empty() {
+            return Err(invalid(
+                "depends.build",
+                "is empty, so a target build's root is empty too: no shell to run the script \
+                 in. Depend on the root of the stage before, or build in `host` (stage 0)"
+                    .to_owned(),
+            ));
+        }
+
         for dependency in self.all_dependencies() {
             if dependency == package.name {
                 return Err(invalid(
@@ -449,8 +458,14 @@ script = "./configure --prefix=/usr && make -j$JOBS && make install"
     }
 
     #[test]
+    fn a_target_build_needs_something_to_run_in() {
+        let text = ZLIB.replace("build = [\"stage1-toolchain\"]", "");
+        assert_eq!(field_of(parse(&text).unwrap_err()), "depends.build");
+    }
+
+    #[test]
     fn a_recipe_cannot_depend_on_itself() {
-        let text = ZLIB.replace("build = [\"stage1-toolchain\"]", "run = [\"zlib\"]");
+        let text = ZLIB.replace("[depends]", "[depends]\nrun = [\"zlib\"]");
         assert_eq!(field_of(parse(&text).unwrap_err()), "depends");
     }
 }

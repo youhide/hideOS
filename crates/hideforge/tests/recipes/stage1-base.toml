@@ -1,0 +1,14 @@
+# A stage-1 file for stage1-replaces to collide with.
+[package]
+name = "stage1-base"
+version = "1"
+description = "Sandbox self-test: a stage-1 output to depend on"
+license = "MIT"
+stage = 1
+
+[depends]
+build = ["stage0-testroot"]
+run = ["stage0-testroot"]
+
+[build]
+script = "echo base > /usr/lib/stage1-marker"

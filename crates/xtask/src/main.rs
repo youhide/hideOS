@@ -443,17 +443,23 @@ fail() { echo "FAIL: $*"; exit 1; }
 
 $F build stage1-target || fail "the host and target fixtures should build"
 out=$(ls -d $W/store/*-stage1-target-1)
-[ "$(cd "$out" && find . -mindepth 1 | sort | tr '
-' ' ')" = "./usr ./usr/share ./usr/share/selftest ./usr/share/selftest/result " ]     || fail "stage1-target's output should be exactly the file it made: $(cd "$out" && find .)"
+# usr/bin is there, empty: overlay copied the directory up when ls was
+# deleted from it, and the whiteout recording that is dropped.
+listing=$(cd "$out" && find . -mindepth 1 | sort | tr '\n' ' ')
+[ "$listing" = "./usr ./usr/bin ./usr/lib ./usr/lib/marker ./usr/share ./usr/share/selftest ./usr/share/selftest/result " ] \
+    || fail "stage1-target's output should be exactly what it made: $listing"
+[ "$(cat "$out/usr/lib/marker")" = "replaced in stage 1" ] || fail "stage 1 should replace stage 0's file"
 echo "ok    host build: no network, read-only builder, hidden /work and /src"
 echo "ok    target build: pivoted root, inputs visible, builder gone"
 echo "ok    output is exactly what the build created"
+echo "ok    a later stage replaces and deletes an earlier stage's files"
 
 $F build stage1-target | grep -q cached || fail "a second build should be cached"
 echo "ok    unchanged inputs are not rebuilt"
 
-$F build stage1-replaces 2>&1 | grep -q "replaced inherited /usr/lib/marker"     || fail "replacing an inherited file should be refused, naming it"
-echo "ok    replacing an inherited file is refused"
+$F build stage1-replaces 2>&1 | grep -q "replaced inherited /usr/lib/stage1-marker" \
+    || fail "replacing a same-stage file should be refused, naming it"
+echo "ok    replacing a file from the same stage is refused"
 
 $F build stage1-fails 2>&1 | grep -q "exit status: 3" || fail "the script's exit status should be reported"
 ls -d $W/store/*-stage1-fails-1 >/dev/null 2>&1 && fail "a failed build should leave no store path"

@@ -1,0 +1,24 @@
+# The top of the hideOS tree: /usr holds everything, and the old top-level
+# directories are symlinks into it. sbin is merged into bin: the split between
+# "system" and "user" binaries stopped meaning anything once both are on
+# everyone's PATH.
+[package]
+name = "stage0-filesystem"
+version = "1"
+description = "Merged-/usr directory layout for the bootstrap sysroot"
+license = "MIT"
+stage = 0
+
+[build]
+environment = "host"
+script = """
+mkdir -p "$SYSROOT/usr/bin" "$SYSROOT/usr/lib" "$SYSROOT/usr/include"
+ln -s usr/bin "$SYSROOT/bin"
+ln -s usr/bin "$SYSROOT/sbin"
+ln -s bin "$SYSROOT/usr/sbin"
+ln -s usr/lib "$SYSROOT/lib"
+# The ELF interpreter path gcc writes into x86_64 binaries is
+# /lib64/ld-linux-x86-64.so.2; glibc installs it in /usr/lib.
+if [ "$ARCH" = x86_64 ]; then ln -s usr/lib "$SYSROOT/lib64"; fi
+mkdir -p "$SYSROOT/etc" "$SYSROOT/var" "$SYSROOT/tmp"
+"""

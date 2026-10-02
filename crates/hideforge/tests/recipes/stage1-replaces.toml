@@ -1,13 +1,13 @@
-# Must fail: rewrites a file its input provides.
+# Must fail: rewrites a file another stage-1 recipe provides.
 [package]
 name = "stage1-replaces"
 version = "1"
-description = "Sandbox self-test: replacing an inherited file is refused"
+description = "Sandbox self-test: replacing a same-stage file is refused"
 license = "MIT"
 stage = 1
 
 [depends]
-build = ["stage0-testroot"]
+build = ["stage1-base"]
 
 [build]
-script = "echo changed > /usr/lib/marker"
+script = "echo changed > /usr/lib/stage1-marker"

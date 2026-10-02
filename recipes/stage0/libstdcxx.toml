@@ -1,0 +1,38 @@
+# libstdc++ for the cross compiler, which pass 1 could not build without a
+# libc. From the GCC source.
+[package]
+name = "stage0-libstdcxx"
+version = "16.2.0"
+description = "C++ standard library for the bootstrap sysroot"
+license = "GPL-3.0-or-later WITH GCC-exception-3.1"
+homepage = "https://gcc.gnu.org"
+stage = 0
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz"
+sha256 = "e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e"
+
+[depends]
+build = ["stage0-gcc", "stage0-glibc"]
+
+[build]
+environment = "host"
+script = """
+mkdir build && cd build
+../libstdc++-v3/configure \\
+    --host="$TARGET" \\
+    --build="$(../config.guess)" \\
+    --prefix=/usr \\
+    --disable-multilib \\
+    --disable-nls \\
+    --disable-libstdcxx-pch \\
+    --with-gxx-include-dir="/tools/$TARGET/include/c++/16.2.0"
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+# libtool archives only ever cause trouble across a sysroot.
+rm -f "$SYSROOT"/usr/lib/lib{stdc++,stdc++exp,stdc++fs,supc++}.la
+
+# C++ works end to end.
+printf '#include <string>\\nint main() { std::string s("ok"); return s.size() == 2 ? 0 : 1; }\\n' > /tmp/probe.cc
+"$TARGET-g++" /tmp/probe.cc -o /tmp/probe
+"""

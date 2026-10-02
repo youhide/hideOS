@@ -1,0 +1,49 @@
+# binutils, pass 2: native to $TARGET, cross-compiled. Runs in stage 1, where
+# it builds the final toolchain.
+[package]
+name = "stage0-binutils-pass2"
+version = "2.47"
+description = "binutils for stage 1, pass 2"
+license = "GPL-3.0-or-later"
+homepage = "https://www.gnu.org/software/binutils/"
+stage = 0
+
+# GPG signature verified against the GNU keyring (Nick Clifton).
+[[source]]
+url = "https://ftp.gnu.org/gnu/binutils/binutils-2.47.tar.xz"
+sha256 = "154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff"
+
+[depends]
+build = ["stage0-cross-toolchain"]
+
+[build]
+environment = "host"
+script = """
+# libtool, relinking at install time with a sysroot, adds the *installed*
+# library directory without the sysroot prefix, and so links against the
+# builder's libraries in /usr/lib. Linux From Scratch removes the stray
+# $add_dir at a fixed line number; this finds the line by content, the second
+# of two, and fails if libtool ever stops looking like that.
+awk '
+    /add_dir="\\$add_dir -L\\$inst_prefix_dir\\$libdir"/ { n++; if (n == 2) { sub(/\\$add_dir /, ""); fixed++ } }
+    { print }
+    END { if (fixed != 1) exit 1 }
+' ltmain.sh > ltmain.sh.new
+mv ltmain.sh.new ltmain.sh
+
+mkdir build && cd build
+../configure \\
+    --prefix=/usr \\
+    --build="$(../config.guess)" \\
+    --host="$TARGET" \\
+    --disable-nls \\
+    --enable-shared \\
+    --enable-gprofng=no \\
+    --disable-werror \\
+    --enable-64-bit-bfd \\
+    --enable-new-dtags \\
+    --enable-default-hash-style=gnu
+make -j"$JOBS"
+make DESTDIR="$SYSROOT" install
+rm -f "$SYSROOT"/usr/lib/lib{bfd,ctf,ctf-nobfd,opcodes,sframe}.{a,la}
+"""
