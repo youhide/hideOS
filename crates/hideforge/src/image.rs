@@ -298,6 +298,10 @@ pub struct PayloadParts<'a> {
     pub kernel: &'a str,
     pub initrd: &'a str,
     pub arch: hideforge_recipe::Arch,
+    /// A directory with `db.key` and `db.crt`: the key the firmware's db
+    /// trusts. Every EFI binary on the ESP is signed with it. `None`
+    /// leaves them unsigned, for firmware without Secure Boot.
+    pub sign: Option<&'a Path>,
 }
 
 /// The system as `hide install` takes it, archived as `payload.tar`:
@@ -423,6 +427,25 @@ fn write_payload(
             .join(loader.file_name().unwrap_or_default()),
     )?;
     fs::write(esp.join("loader/loader.conf"), "timeout 3\n")?;
+
+    // Signed last, once nothing on the ESP will change. The UKI is the one
+    // that matters: its command line carries the image's digest, so the
+    // signature is what makes the seal reach the firmware. systemd-boot is
+    // signed because the firmware will not start it otherwise.
+    match parts.sign {
+        Some(keys) => {
+            for file in [
+                esp.join("EFI/Linux").join(&uki_name),
+                esp.join("EFI/BOOT").join(boot_efi),
+                esp.join("EFI/systemd")
+                    .join(loader.file_name().unwrap_or_default()),
+            ] {
+                sign_efi(keys, &file)?;
+            }
+            println!("  signed  with {}", keys.join("db.crt").display());
+        }
+        None => println!("  signed  no: EFI binaries left unsigned"),
+    }
     fs::copy(
         esp.join("EFI/Linux").join(&uki_name),
         output.join(&uki_name),
@@ -448,6 +471,30 @@ fn write_payload(
     );
     println!("  uki     {}", output.join(&uki_name).display());
     Ok(())
+}
+
+/// Signs an EFI binary in place with `keys`/db.key, then checks the
+/// signature against `keys`/db.crt, so that a key and certificate that do
+/// not belong together fail here rather than at the firmware.
+#[cfg(target_os = "linux")]
+fn sign_efi(keys: &Path, file: &Path) -> Result<()> {
+    let signed = file.with_extension("signed");
+    run(Command::new("sbsign")
+        .arg("--key")
+        .arg(keys.join("db.key"))
+        .arg("--cert")
+        .arg(keys.join("db.crt"))
+        .arg("--output")
+        .arg(&signed)
+        .arg(file))
+    .with_context(|| format!("signing {}", file.display()))?;
+    fs::rename(&signed, file)?;
+    run(Command::new("sbverify")
+        .arg("--cert")
+        .arg(keys.join("db.crt"))
+        .arg(file)
+        .stdout(std::process::Stdio::null()))
+    .with_context(|| format!("verifying the signature of {}", file.display()))
 }
 
 /// Where the builder's systemd-boot package puts its EFI binaries. The stub

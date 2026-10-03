@@ -74,17 +74,19 @@ fn usage() -> &'static str {
                                   into target/images
     install [--arch ARCH] [--edition E]
                                   install it on target/images/.../disk.raw
-    boot [--arch ARCH] [--edition E] [--test] [--disk]
+    boot [--arch ARCH] [--edition E] [--test] [--disk] [--secure-boot]
                                   boot it in QEMU; --test waits for the
                                   banner; --disk boots disk.raw through UEFI
-                                  (Workstation always does)
+                                  (Workstation always does); --secure-boot
+                                  with firmware that enforces signatures
     seal-test [--arch ARCH]       install Minimal on a scratch disk and try to
-                                  break the seal: write /usr, tamper with an
-                                  object, swap the image
+                                  break the seal, under Secure Boot: write
+                                  /usr, tamper with an object, swap the
+                                  image, change the kernel image
     screenshot [--arch ARCH] [--edition E] [--login]
                                   boot it and save a PNG of the screen;
                                   --login logs in at the greeter first
-    publish-site                  push site/ and the screenshot to gh-pages
+    publish-site                  push site/ and the screenshots to gh-pages
 "
 }
 
@@ -564,6 +566,7 @@ fn image(args: &[String]) -> Result<(), String> {
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
     let root = workspace_root()?;
     let output = format!("/src/target/images/{}-{}", edition.name, arch.name);
+    run(builder_command(&runtime, &root, false).args(["sh", "-c", DEV_KEYS_SCRIPT]))?;
     run(builder_command(&runtime, &root, false)
         .args([
             "cargo",
@@ -582,7 +585,7 @@ fn image(args: &[String]) -> Result<(), String> {
             "--kernel",
             "linux",
         ])
-        .args(["--payload", "--initrd", "hidestage"])
+        .args(["--payload", "--initrd", "hidestage", "--sign", DEV_KEYS])
         .args(if edition.ram {
             &[][..]
         } else {
@@ -600,8 +603,18 @@ const BOOT_MARKER: &str = "hideOS: booted on";
 /// accelerator, no network, and `-no-reboot`, so that a guest rebooting —
 /// after a panic, or hidestage giving up — ends the run instead of looping.
 fn qemu(arch: Arch, edition: Edition) -> Command {
+    qemu_with(arch, edition, false)
+}
+
+/// `qemu`, for firmware that needs System Management Mode: x86 Secure Boot
+/// keeps its variable store there. macOS's hypervisor has no SMM, so there
+/// the guest runs on QEMU's own CPU emulation, slower; KVM has SMM.
+fn qemu_with(arch: Arch, edition: Edition, smm: bool) -> Command {
     let mut command = Command::new(arch.qemu);
-    for accel in accelerators(arch) {
+    for accel in accelerators(arch)
+        .into_iter()
+        .filter(|a| !(smm && *a == "hvf"))
+    {
         command.args(["-accel", accel]);
     }
     command.args(arch.machine).args([
@@ -804,13 +817,49 @@ fn without_kernel_messages(serial: &str) -> String {
 
 /// A writable copy of the firmware's variable store, and the two pflash
 /// drives that give QEMU the firmware.
-fn uefi_firmware(arch: Arch, command: &mut Command, dir: &Path) -> Result<(), String> {
-    let (code, vars_template) = find_firmware(arch).ok_or_else(|| {
-        format!(
-            "no {} UEFI firmware found; `cargo xtask doctor` says where it was looked for",
-            arch.name
+/// QEMU with UEFI firmware, to boot a disk. With `secure_boot`, the
+/// firmware enforces signatures with the development key enrolled.
+fn disk_qemu(
+    arch: Arch,
+    edition: Edition,
+    dir: &Path,
+    secure_boot: bool,
+) -> Result<Command, String> {
+    let secure = if secure_boot {
+        Some(
+            secure_firmware(arch)?
+                .ok_or_else(|| format!("no Secure Boot firmware for {} yet", arch.name))?,
         )
-    })?;
+    } else {
+        None
+    };
+    let mut command = qemu_with(arch, edition, secure.is_some());
+    uefi_firmware(arch, &mut command, dir, secure)?;
+    Ok(command)
+}
+
+fn uefi_firmware(
+    arch: Arch,
+    command: &mut Command,
+    dir: &Path,
+    secure: Option<(PathBuf, PathBuf)>,
+) -> Result<(), String> {
+    let (code, vars_template) = match secure {
+        Some(firmware) => {
+            // Secure Boot on x86 is enforced from SMM, where the variable
+            // store is out of the OS's reach.
+            command
+                .args(["-machine", "smm=on"])
+                .args(["-global", "driver=cfi.pflash01,property=secure,value=on"]);
+            firmware
+        }
+        None => find_firmware(arch).ok_or_else(|| {
+            format!(
+                "no {} UEFI firmware found; `cargo xtask doctor` says where it was looked for",
+                arch.name
+            )
+        })?,
+    };
     let vars = dir.join("efivars.fd");
     fs::copy(&vars_template, &vars).map_err(|e| format!("copying the variable store: {e}"))?;
     command
@@ -827,14 +876,54 @@ fn uefi_firmware(arch: Arch, command: &mut Command, dir: &Path) -> Result<(), St
     Ok(())
 }
 
+/// Firmware with Secure Boot on and the development key enrolled: Debian's
+/// "snakeoil" OVMF, whose key — private half included, so that anyone can
+/// sign for it — is the one `image` signs with. Copied out of the builder
+/// once. It proves the mechanism, not ownership: see ARCHITECTURE.md,
+/// "Security". `None` where there is none yet (aarch64).
+fn secure_firmware(arch: Arch) -> Result<Option<(PathBuf, PathBuf)>, String> {
+    if arch.name != "x86_64" {
+        return Ok(None);
+    }
+    let root = workspace_root()?;
+    let dir = root.join("target").join("firmware");
+    let code = dir.join("OVMF_CODE_4M.secboot.fd");
+    let vars = dir.join("OVMF_VARS_4M.snakeoil.fd");
+    if !code.is_file() || !vars.is_file() {
+        let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+        run(builder_command(&runtime, &root, false).args([
+            "sh",
+            "-c",
+            "mkdir -p /src/target/firmware && cp /usr/share/OVMF/OVMF_CODE_4M.secboot.fd \
+             /usr/share/OVMF/OVMF_VARS_4M.snakeoil.fd /src/target/firmware/",
+        ]))?;
+    }
+    Ok(Some((code, vars)))
+}
+
+/// Where the development signing key lives in the work volume, and how it
+/// is made: the snakeoil key, with the passphrase Debian publishes removed
+/// so sbsign can use it unattended.
+const DEV_KEYS: &str = "/work/keys/dev";
+const DEV_KEYS_SCRIPT: &str = "test -f /work/keys/dev/db.key || { \
+    mkdir -p /work/keys/dev && \
+    openssl rsa -in /usr/share/ovmf/PkKek-1-snakeoil.key -passin pass:snakeoil \
+        -out /work/keys/dev/db.key 2>/dev/null && \
+    cp /usr/share/ovmf/PkKek-1-snakeoil.pem /work/keys/dev/db.crt; }";
+
 fn boot(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let edition = find_edition(args)?;
     let test = args.iter().any(|a| a == "--test");
-    let from_disk = args.iter().any(|a| a == "--disk") || !edition.ram;
+    let secure_boot = args.iter().any(|a| a == "--secure-boot");
+    let from_disk = args.iter().any(|a| a == "--disk") || !edition.ram || secure_boot;
     let dir = image_dir(edition, arch)?;
 
-    let mut command = qemu(arch, edition);
+    let mut command = if from_disk {
+        disk_qemu(arch, edition, &dir, secure_boot)?
+    } else {
+        qemu(arch, edition)
+    };
     if from_disk {
         // The real chain: firmware, systemd-boot, the UKI, hidestage
         // checking the seal, oxinit.
@@ -847,7 +936,6 @@ fn boot(args: &[String]) -> Result<(), String> {
                 edition.name
             ));
         }
-        uefi_firmware(arch, &mut command, &dir)?;
         command
             .arg("-drive")
             .arg(format!("if=virtio,format=raw,file={}", disk.display()));
@@ -927,12 +1015,37 @@ struct Guest {
 }
 
 impl Guest {
+    /// The disk, through firmware that enforces Secure Boot.
     fn boot(arch: Arch, dir: &Path, disk: &Path) -> Result<Guest, String> {
-        let mut command = qemu(arch, MINIMAL);
-        uefi_firmware(arch, &mut command, dir)?;
+        let mut command = disk_qemu(arch, MINIMAL, dir, true)?;
         command
             .arg("-drive")
-            .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+            .arg(format!("if=virtio,format=raw,file={}", disk.display()));
+        Guest::spawn(arch, command)
+    }
+
+    /// Minimal from RAM, with the disk attached as /dev/vda and nothing on
+    /// it running: what an attacker with the disk in another machine has.
+    fn boot_beside(arch: Arch, disk: &Path) -> Result<Guest, String> {
+        let (kernel, initrd) = ram_image(arch, &image_dir(MINIMAL, arch)?)?;
+        let mut command = qemu(arch, MINIMAL);
+        command
+            .arg("-kernel")
+            .arg(kernel)
+            .arg("-initrd")
+            .arg(initrd)
+            .arg("-append")
+            .arg(format!(
+                "console={} rdinit=/usr/bin/oxinit panic=-1",
+                arch.console
+            ))
+            .arg("-drive")
+            .arg(format!("if=virtio,format=raw,file={}", disk.display()));
+        Guest::spawn(arch, command)
+    }
+
+    fn spawn(arch: Arch, mut command: Command) -> Result<Guest, String> {
+        command
             .args(["-display", "none", "-monitor", "none", "-serial", "stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -985,6 +1098,18 @@ impl Guest {
             .write_all(format!("{line}\n").as_bytes())
             .and_then(|()| self.stdin.flush())
             .map_err(|e| format!("typing at the guest: {e}"))
+    }
+
+    /// Waits for the shell to read what is typed, which it does only once
+    /// it has started; until then, typed lines may be lost.
+    fn shell(&mut self) -> Result<(), String> {
+        for _ in 0..10 {
+            self.type_line("unsetopt zle; PS1=''")?;
+            if self.run("print ready", Duration::from_secs(5)).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(format!("the shell never answered:\n{}", self.output()))
     }
 
     /// Runs `command` at the shell and returns what it printed between two
@@ -1046,7 +1171,8 @@ fn seal_test(args: &[String]) -> Result<(), String> {
             failures.push(name.to_owned());
         }
     };
-    let boot_timeout = arch.timeout.max(Duration::from_secs(120));
+    // Under Secure Boot the guest runs on emulated CPUs: see `qemu_with`.
+    let boot_timeout = arch.timeout.max(Duration::from_secs(300));
     let minute = Duration::from_secs(60);
 
     println!("boot 1: attacks from the running system");
@@ -1060,19 +1186,12 @@ fn seal_test(args: &[String]) -> Result<(), String> {
     if !booted {
         return Err(format!("the disk did not boot:\n{}", guest.output()));
     }
-    // The shell reads its input only once it has started; until it answers,
-    // what is typed may be lost. Ask until it does.
-    let mut ready = false;
-    for _ in 0..10 {
-        guest.type_line("unsetopt zle; PS1=''")?;
-        if guest.run("print ready", Duration::from_secs(5)).is_ok() {
-            ready = true;
-            break;
-        }
-    }
-    if !ready {
-        return Err(format!("the shell never answered:\n{}", guest.output()));
-    }
+    guest.shell()?;
+    check(
+        "the firmware enforced Secure Boot",
+        guest.output().contains("hidestage: secure boot on"),
+        "hidestage did not report `secure boot on`",
+    );
 
     let out = guest.run("touch /usr/bin/intruder; print status=$?", minute)?;
     check(
@@ -1133,6 +1252,40 @@ fn seal_test(args: &[String]) -> Result<(), String> {
         "hidestage refuses the swapped image",
         refused && !guest.output().contains("reached target default"),
         &without_kernel_messages(&guest.output()),
+    );
+    drop(guest);
+
+    // One byte of the UKI changed, from a system booted beside the disk:
+    // what the seal cannot see, because it is the UKI that carries it. The
+    // firmware has to refuse it before anything in it runs.
+    println!("boot 3: the kernel image changed, from another system");
+    let mut guest = Guest::boot_beside(arch, &disk)?;
+    if !guest.wait_for("reached target default", boot_timeout) {
+        return Err(format!(
+            "Minimal did not boot from RAM:\n{}",
+            guest.output()
+        ));
+    }
+    guest.shell()?;
+    let out = guest.run(
+        "mount /dev/vda1 /mnt && uki=(/mnt/EFI/Linux/*.efi) && \
+         size=$(stat -c %s $uki[1]) && print -n X | dd of=$uki[1] bs=1 \
+         seek=$((size / 2)) conv=notrunc status=none && umount /mnt && print changed",
+        minute,
+    )?;
+    check("the UKI can be changed", out.contains("changed"), &out);
+    guest.type_line("poweroff")?;
+    let _ = guest.wait_for("reboot: Power down", minute);
+    drop(guest);
+
+    println!("boot 4: the changed kernel image");
+    let guest = Guest::boot(arch, &dir, &disk)?;
+    let refused = guest.wait_for("Security Violation", boot_timeout)
+        || guest.wait_for("Access Denied", Duration::from_secs(1));
+    check(
+        "the firmware refuses the changed UKI",
+        refused && !guest.output().contains("hidestage: starting"),
+        &guest.output(),
     );
     drop(guest);
     let _ = fs::remove_file(&disk);
@@ -1312,8 +1465,7 @@ fn desktop_screenshot(arch: Arch, edition: Edition, login: bool) -> Result<(), S
     let _ = fs::remove_file(&png);
     let log = dir.join("serial.log");
 
-    let mut command = qemu(arch, edition);
-    uefi_firmware(arch, &mut command, &dir)?;
+    let mut command = disk_qemu(arch, edition, &dir, false)?;
     command
         .arg("-drive")
         .arg(format!("if=virtio,format=raw,file={}", disk.display()))
@@ -1378,21 +1530,12 @@ fn desktop_screenshot(arch: Arch, edition: Edition, login: bool) -> Result<(), S
 /// each naming the main commit it came from.
 fn publish_site() -> Result<(), String> {
     let root = workspace_root()?;
-    let screenshot = root
-        .join("target/images")
-        .join(format!("{}-x86_64", MINIMAL.name))
-        .join("screenshot.png");
-    // Without a screenshot the page still publishes, and shows the image's
-    // description in its place until the next publish after one is taken.
-    if !screenshot.is_file() {
-        println!(
-            "note: no {}; publishing without it (run `cargo xtask screenshot`)",
-            screenshot.display()
-        );
-    }
+    // Everything in site/, and the console's picture from docs/images: the
+    // pictures that were looked at and committed, not whatever the last
+    // local run left in target/.
     let script = r#"
 set -eu
-root="$1"; shot="$2"
+root="$1"
 source_commit=$(git -C "$root" rev-parse --short HEAD)
 tree=$(mktemp -d)
 trap 'git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1 || true' EXIT
@@ -1404,11 +1547,8 @@ else
     git -C "$tree" checkout -q --orphan gh-pages
 fi
 git -C "$tree" rm -rqf --ignore-unmatch . >/dev/null
-cp "$root/site/index.html" "$tree/index.html"
-if [ -f "$shot" ]; then cp "$shot" "$tree/screenshot.png"; fi
-# The desktop's picture is the one in the repository: taking it means
-# building the Workstation, which is most of a day.
-cp "$root/docs/images/workstation-desktop.png" "$tree/desktop.png"
+cp -R "$root/site/." "$tree/"
+cp "$root/docs/images/minimal-console.png" "$tree/screenshot.png"
 # Plain files, not a Jekyll site.
 touch "$tree/.nojekyll"
 git -C "$tree" add -A
@@ -1422,8 +1562,7 @@ echo "published from $source_commit"
 "#;
     run(Command::new("sh")
         .args(["-c", script, "publish-site"])
-        .arg(&root)
-        .arg(&screenshot))
+        .arg(&root))
 }
 
 /// The QEMU key name that types `c` on a US keyboard.

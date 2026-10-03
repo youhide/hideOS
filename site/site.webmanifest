@@ -1,0 +1,14 @@
+{
+  "name": "hideOS",
+  "short_name": "hideOS",
+  "description": "A sealed Linux workstation built from source, around COSMIC.",
+  "start_url": "/hideOS/",
+  "display": "browser",
+  "background_color": "#282a36",
+  "theme_color": "#282a36",
+  "icons": [
+    { "src": "favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "favicon-32x32.png", "type": "image/png", "sizes": "32x32" },
+    { "src": "apple-touch-icon.png", "type": "image/png", "sizes": "180x180" }
+  ]
+}

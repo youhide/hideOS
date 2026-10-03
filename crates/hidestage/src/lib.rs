@@ -119,6 +119,21 @@ pub fn partition_named<'a>(uevent: &'a str, label: &str) -> Option<&'a str> {
     }
 }
 
+/// The `SecureBoot` EFI variable, as efivarfs presents it: four bytes of
+/// attributes, then the value — 1 when the firmware enforces signatures.
+pub const SECURE_BOOT_VARIABLE: &str =
+    "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c";
+
+/// Whether Secure Boot is on, from the variable's contents. `None` for
+/// anything that is not a one-byte boolean after the attributes.
+pub fn secure_boot(variable: &[u8]) -> Option<bool> {
+    match variable.get(4..) {
+        Some([0]) => Some(false),
+        Some([1]) => Some(true),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +199,14 @@ mod tests {
             partition_named("DEVNAME=vda\nDEVTYPE=disk\n", "hideos-root"),
             None
         );
+    }
+
+    #[test]
+    fn secure_boot_is_the_byte_after_the_attributes() {
+        assert_eq!(secure_boot(&[6, 0, 0, 0, 1]), Some(true));
+        assert_eq!(secure_boot(&[6, 0, 0, 0, 0]), Some(false));
+        assert_eq!(secure_boot(&[6, 0, 0, 0]), None);
+        assert_eq!(secure_boot(&[6, 0, 0, 0, 2]), None);
+        assert_eq!(secure_boot(&[6, 0, 0, 0, 1, 0]), None);
     }
 }

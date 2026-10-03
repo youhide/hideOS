@@ -16,7 +16,8 @@
 //!                         also writes what hide install installs: the
 //!                         composefs repository, the UKI, the ESP;
 //!                         --no-initramfs skips the initramfs, for images
-//!                         that boot only from a disk
+//!                         that boot only from a disk; --sign DIR signs
+//!                         the ESP's EFI binaries with DIR/db.key
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -196,7 +197,7 @@ fn run(args: &[String]) -> Result<i32> {
         }
         "image" => {
             let usage = "usage: hideforge image NAME --output DIR --kernel NAME \
-                         [--payload --initrd NAME] [--no-initramfs]";
+                         [--payload --initrd NAME [--sign DIR]] [--no-initramfs]";
             let [name] = names.as_slice() else {
                 bail!("{usage}");
             };
@@ -209,6 +210,7 @@ fn run(args: &[String]) -> Result<i32> {
                     kernel,
                     initrd,
                     arch: options.arch,
+                    sign: parsed.value("--sign").map(std::path::Path::new),
                 }),
                 (true, _, _) => bail!("--payload needs --kernel and --initrd\n{usage}"),
             };
@@ -257,7 +259,7 @@ impl Args {
 }
 
 /// Options that take a value. Everything else starting with `--` is a flag.
-const VALUE_OPTIONS: &[&str] = &["--output", "--kernel", "--initrd"];
+const VALUE_OPTIONS: &[&str] = &["--output", "--kernel", "--initrd", "--sign"];
 
 fn parse_args(args: &[String]) -> Result<Args> {
     let mut parsed = Args {

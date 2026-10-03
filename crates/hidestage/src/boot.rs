@@ -75,6 +75,7 @@ fn io(what: impl Into<String>) -> impl FnOnce(std::io::Error) -> BootError {
 pub fn run() -> Result<Infallible, BootError> {
     mount_pseudo_filesystems()?;
     say("hidestage: starting");
+    say(&format!("hidestage: secure boot {}", secure_boot_state()));
 
     let cmdline = fs::read_to_string("/proc/cmdline").map_err(io("reading /proc/cmdline"))?;
     let config = Config::from_cmdline(&cmdline)?;
@@ -141,6 +142,30 @@ fn mount_pseudo_filesystems() -> Result<(), BootError> {
         mount(source, target, fstype, flags, None).map_err(os(format!("mounting {target}")))?;
     }
     Ok(())
+}
+
+/// "on", "off" or "unknown", for the console: whether the firmware checked
+/// the signature of the UKI this is running from. Only reported; the seal
+/// does not depend on it, and a machine without EFI variables still boots.
+fn secure_boot_state() -> &'static str {
+    let efivars = "/sys/firmware/efi/efivars";
+    if Path::new("/sys/firmware/efi").is_dir() {
+        let _ = mount(
+            "efivarfs",
+            efivars,
+            "efivarfs",
+            MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC | MountFlags::RDONLY,
+            None,
+        );
+    }
+    match fs::read(hidestage::SECURE_BOOT_VARIABLE)
+        .ok()
+        .and_then(|v| hidestage::secure_boot(&v))
+    {
+        Some(true) => "on",
+        Some(false) => "off",
+        None => "unknown",
+    }
 }
 
 /// Polls sysfs for the partition named `label`, the way a person would wait
