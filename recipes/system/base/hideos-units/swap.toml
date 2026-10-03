@@ -1,0 +1,8 @@
+# The swap file on, and hibernation pointed at it. See `hide swap`.
+[unit]
+description = "Swap and hibernation"
+after       = ["setup"]
+
+[service]
+type = "oneshot"
+exec = "/usr/bin/hide swap"

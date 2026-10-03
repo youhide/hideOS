@@ -2,6 +2,15 @@
 # Machine-wide changes go in /etc/zsh/zshrc.local; yours go in ~/.zshrc,
 # which is read after this and wins.
 
+# The console's shell is started by oxinit, not by a login program, so no
+# one set HOME: the user's own, from the password database — root's is
+# /var/root, which is writable; / is not.
+if [[ -z $HOME || $HOME == / ]]; then
+    zmodload zsh/parameter
+    export HOME=${userdirs[$USERNAME]:-/var/root}
+    cd
+fi
+
 HISTFILE=$HOME/.zsh_history
 HISTSIZE=50000
 SAVEHIST=50000

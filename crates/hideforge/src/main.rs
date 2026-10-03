@@ -20,7 +20,10 @@
 //!                         the ESP's EFI binaries with DIR/db.key;
 //!                         --image-version N goes into os-release and the
 //!                         UKI's name; --cmdline TEXT is appended to the
-//!                         UKI's command line
+//!                         UKI's command line; --boot-manager NAME puts that
+//!                         recipe's boot manager (hideBoot) on the ESP
+//!                         instead of systemd-boot; --installer also writes
+//!                         the installer's UKI
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -216,12 +219,15 @@ fn run(args: &[String]) -> Result<i32> {
                     arch: options.arch,
                     sign: parsed.value("--sign").map(std::path::Path::new),
                     cmdline: parsed.value("--cmdline"),
+                    installer: flag("--installer"),
+                    boot_manager: parsed.value("--boot-manager"),
                 }),
                 (true, _, _) => bail!("--payload needs --kernel and --initrd\n{usage}"),
             };
             let mut wanted = vec![*name];
             wanted.extend(kernel);
             wanted.extend(initrd);
+            wanted.extend(parsed.value("--boot-manager"));
             let targets = set.with_run_closure(&wanted)?;
             let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
             let hashes = set.input_hashes(&targets, &context)?;
@@ -277,6 +283,7 @@ const VALUE_OPTIONS: &[&str] = &[
     "--sign",
     "--image-version",
     "--cmdline",
+    "--boot-manager",
 ];
 
 fn parse_args(args: &[String]) -> Result<Args> {

@@ -14,6 +14,13 @@ publish.workspace = true
 [dependencies]
 thiserror.workspace = true
 
+# The encrypted root: LUKS2 and TPM2, in Rust, so that nothing in C runs in
+# the initrd. Linux only; see crates/hidecrypt.
+[target.'cfg(target_os = "linux")'.dependencies.hidecrypt]
+workspace = true
+[target.'cfg(target_os = "linux")'.dependencies.zeroize]
+version = "1"
+
 [target.'cfg(target_os = "linux")'.dependencies]
-rustix = { workspace = true, features = ["fs", "mount", "process", "system", "thread"] }
+rustix = { workspace = true, features = ["fs", "mount", "process", "system", "thread", "termios"] }
 composefs-ioctls = "0.9.3"

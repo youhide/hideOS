@@ -1,7 +1,9 @@
 [unit]
 description = "Device manager"
-after       = ["setup"]
+requires    = ["oxlogd"]
+after       = ["setup", "oxlogd"]
 
 [service]
 exec    = "/usr/bin/udevd"
 restart = "on-failure"
+output  = "log"

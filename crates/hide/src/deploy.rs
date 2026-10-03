@@ -176,6 +176,8 @@ fn collect(kept: &[Uki]) -> Result<()> {
         !roots.is_empty(),
         "no image of a kept deployment found; not collecting anything"
     );
+    // The extensions' images too: they are merged over these deployments.
+    roots.extend(crate::ext::images());
     let repo = Repository::<Sha256HashValue>::open_path(rustix::fs::CWD, STORE)
         .map_err(|e| anyhow::anyhow!("opening the store: {e}"))?;
     let roots: Vec<&str> = roots.iter().map(String::as_str).collect();
@@ -255,6 +257,8 @@ pub fn status() -> Result<()> {
             notes.join(", ")
         );
     }
+    println!();
+    println!("disk: {}", crate::crypt::describe());
     Ok(())
 }
 
@@ -467,12 +471,12 @@ fn merge_etc(
 }
 
 /// The ESP, mounted for as long as this value lives.
-struct Esp {
+pub(crate) struct Esp {
     mounted: bool,
 }
 
 impl Esp {
-    fn mount() -> Result<Esp> {
+    pub(crate) fn mount() -> Result<Esp> {
         let device = partition(ESP_NAME)?;
         fs::create_dir_all(ESP_MOUNT)?;
         mount(
@@ -486,11 +490,11 @@ impl Esp {
         Ok(Esp { mounted: true })
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         Path::new(ESP_MOUNT)
     }
 
-    fn unmount(mut self) -> Result<()> {
+    pub(crate) fn unmount(mut self) -> Result<()> {
         sync();
         unmount(ESP_MOUNT, UnmountFlags::empty()).context("unmounting the ESP")?;
         self.mounted = false;
@@ -592,7 +596,7 @@ fn copy_synced(from: &Path, to: &Path) -> Result<()> {
 /// be empty — which is what a cut right after a plain rename left, a
 /// zero-length UKI the firmware could not boot. So the file is synced under
 /// its new name, then its directory, then the whole filesystem.
-fn rename_durably(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn rename_durably(from: &Path, to: &Path) -> Result<()> {
     fs::rename(from, to)?;
     fs::File::open(to)?.sync_all()?;
     if let Some(dir) = to.parent() {

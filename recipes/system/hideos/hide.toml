@@ -9,8 +9,9 @@ homepage = "https://github.com/youhide/hideOS"
 [depends]
 build = ["toolchain", "stage1-rust"]
 # install partitions with sfdisk and makes filesystems with mkfs.btrfs and
-# mkfs.vfat.
-run = ["glibc", "gcc", "util-linux", "btrfs-progs", "dosfstools"]
+# mkfs.vfat; it encrypts the root with cryptsetup, and reads the volume key
+# back with dmsetup when sealing it to the TPM.
+run = ["glibc", "gcc", "util-linux", "btrfs-progs", "dosfstools", "cryptsetup", "lvm2"]
 
 [build]
 workspace = true

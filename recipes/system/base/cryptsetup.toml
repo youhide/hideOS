@@ -1,0 +1,35 @@
+# LUKS2: `hide install` formats the root with cryptsetup. Opening it at
+# boot is hidestage's own code (crates/hidecrypt), so none of this is in
+# the initrd.
+[package]
+name = "cryptsetup"
+version = "2.8.8"
+description = "Disk encryption setup for dm-crypt and LUKS"
+license = "GPL-2.0-or-later"
+homepage = "https://gitlab.com/cryptsetup/cryptsetup"
+
+# Checked against sha256sums.asc on kernel.org.
+[[source]]
+url = "https://cdn.kernel.org/pub/linux/utils/cryptsetup/v2.8/cryptsetup-2.8.8.tar.xz"
+sha256 = "3acfa685f2dd7fcc832e0b77bc7093aa7da554a51ce8dafbb4138eaa854eee35"
+
+[depends]
+build = ["toolchain", "util-linux", "lvm2", "json-c", "popt", "openssl"]
+run = ["glibc", "util-linux", "lvm2", "json-c", "popt", "openssl"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sbindir=/usr/bin \\
+    --disable-static \\
+    --disable-asciidoc \\
+    --disable-ssh-token \\
+    --disable-selinux \\
+    --disable-udev \\
+    --disable-nls \\
+    --with-crypto_backend=openssl
+make -j"$JOBS"
+make install
+"""

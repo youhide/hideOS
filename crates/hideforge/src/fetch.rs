@@ -113,7 +113,9 @@ pub fn prepare(
     }
 
     for patch in &entry.recipe.build.patches {
-        let file = entry.files_dir.join(patch);
+        // Absolute: patch runs inside the source tree, and the recipe's
+        // directory is named relative to where hideforge was started.
+        let file = std::path::absolute(entry.files_dir.join(patch))?;
         eprintln!("  patch {patch}");
         let status = Command::new("patch")
             .args(["--strip=1", "--forward", "--batch", "--input"])

@@ -1,0 +1,33 @@
+# Rust's standard library for UEFI, upstream's build, next to stage1-rust's
+# compiler: what hideBoot, a UEFI application, is compiled against. A recipe
+# of its own so that adding it changes no other Rust recipe's inputs.
+[package]
+name = "stage1-rust-uefi"
+version = "1.99.0"
+description = "Rust standard library for UEFI targets, upstream binaries (temporary)"
+license = "MIT OR Apache-2.0"
+homepage = "https://www.rust-lang.org"
+stage = 1
+
+# Checked against the SHA-256 static.rust-lang.org publishes.
+[[source]]
+url = "https://static.rust-lang.org/dist/rust-std-1.99.0-x86_64-unknown-uefi.tar.xz"
+sha256 = "869960f56f3f4bffa16507b1787e1e17a7260e006b5cce3c3567c726e73076a2"
+dest = "rust-std"
+arch = "x86_64"
+
+[[source]]
+url = "https://static.rust-lang.org/dist/rust-std-1.99.0-aarch64-unknown-uefi.tar.xz"
+sha256 = "65e4ebeb3c8448fe6aa3a7836ec8a2febc0a939cc6bc193b6d9d7462f0a22461"
+dest = "rust-std"
+arch = "aarch64"
+
+[depends]
+build = ["stage0-root", "stage1-etc"]
+run = ["stage1-rust"]
+
+[build]
+script = """
+sh rust-std/install.sh --prefix=/usr --disable-ldconfig
+rm -f /usr/lib/rustlib/{install.log,uninstall.sh,manifest-*,components,rust-installer-version}
+"""

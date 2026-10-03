@@ -1,0 +1,5 @@
+# su (sudo-rs's): root needs no password, anyone else the target's.
+auth      sufficient  pam_rootok.so
+auth      required    pam_unix.so
+account   required    pam_unix.so
+session   required    pam_unix.so

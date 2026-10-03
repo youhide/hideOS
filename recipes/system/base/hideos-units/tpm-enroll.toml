@@ -1,0 +1,9 @@
+# Seals the encrypted root's key to the TPM at the first boot that has one.
+# See `hide tpm-enroll`.
+[unit]
+description = "Seal the disk key to the TPM"
+after       = ["setup"]
+
+[service]
+type = "oneshot"
+exec = "/usr/bin/hide tpm-enroll --if-missing"

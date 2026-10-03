@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/hide",
+    "crates/hidecrypt",
     "crates/hideforge",
     "crates/hideforge-recipe",
     "crates/hidestage",
@@ -20,6 +21,7 @@ publish = false
 
 [workspace.dependencies]
 hideforge-recipe = { path = "crates/hideforge-recipe" }
+hidecrypt = { path = "crates/hidecrypt" }
 
 anyhow = "1"
 # basic-toml over toml, as in oxinit: serde and nothing else. Recipes need no

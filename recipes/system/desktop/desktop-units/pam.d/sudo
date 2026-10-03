@@ -1,0 +1,4 @@
+# sudo-rs: the user's own password.
+auth      required  pam_unix.so
+account   required  pam_unix.so
+session   required  pam_unix.so

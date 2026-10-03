@@ -153,9 +153,43 @@ pub fn secure_boot(variable: &[u8]) -> Option<bool> {
     }
 }
 
+/// Where a hibernated system's image is: `hide swap` writes the swap file's
+/// offset on the root partition here, as decimal text, at every boot. The
+/// kernel command line cannot carry it — it is signed, and the same for
+/// every machine — so the firmware's variable store does. hideOS's own
+/// vendor GUID.
+pub const RESUME_VARIABLE: &str =
+    "/sys/firmware/efi/efivars/HideosResume-5e1f0c4a-7d2b-4b8e-9a63-1c4d2f8e0b75";
+
+/// The swap file's offset, in pages, from the variable's contents: four
+/// bytes of attributes, then decimal digits. `None` for anything else.
+pub fn resume_offset(variable: &[u8]) -> Option<u64> {
+    let text = std::str::from_utf8(variable.get(4..)?).ok()?;
+    let text = text.trim_end_matches(['\n', '\0']);
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    text.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_resume_offset_is_decimal_after_the_attributes() {
+        assert_eq!(resume_offset(b"\x07\x00\x00\x00533760"), Some(533760));
+        assert_eq!(resume_offset(b"\x07\x00\x00\x00533760\n"), Some(533760));
+        for bad in [
+            &b""[..],
+            b"\x07\0\0",
+            b"\x07\x00\x00\x00",
+            b"\x07\x00\x00\x00-1",
+            b"\x07\x00\x00\x0012a",
+        ] {
+            assert_eq!(resume_offset(bad), None, "{bad:?}");
+        }
+    }
 
     const DIGEST: &str = "d601ed782b132ffcf9b054d01006ba6e426b57ba5262847081def2fbd12f8ce9";
 

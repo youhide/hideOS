@@ -42,6 +42,11 @@ fn main() -> ExitCode {
         Some("boot") => boot(args.get(1..).unwrap_or_default()),
         Some("seal-test") => seal_test(args.get(1..).unwrap_or_default()),
         Some("update-test") => update_test(args.get(1..).unwrap_or_default()),
+        Some("net-test") => net_test(args.get(1..).unwrap_or_default()),
+        Some("power-test") => power_test(args.get(1..).unwrap_or_default()),
+        Some("crypt-test") => crypt_test(args.get(1..).unwrap_or_default()),
+        Some("installer") => installer(args.get(1..).unwrap_or_default()).map(|_| ()),
+        Some("installer-test") => installer_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
         Some("publish-site") => publish_site(),
         Some("help" | "--help" | "-h") | None => {
@@ -89,6 +94,18 @@ fn usage() -> &'static str {
                                   good update, a bad one that has to roll
                                   back by itself, and a power cut after each
                                   step of an update
+    net-test [--arch ARCH]        install Minimal and check that its network
+                                  comes up: DHCP, DNS, iwd, logs
+    power-test [--arch ARCH]      install Minimal, suspend it and wake it,
+                                  hibernate it and resume it
+    installer [--arch ARCH] [--edition E]
+                                  an installer medium: a disk image with the
+                                  installer and E's payload, for a USB stick
+    installer-test [--arch ARCH]  boot the installer beside an empty disk,
+                                  answer it, and boot what it installed
+    crypt-test [--arch ARCH]      install Minimal encrypted, and open it by
+                                  passphrase, by TPM, and by passphrase again
+                                  when the boot chain changes (needs swtpm)
     screenshot [--arch ARCH] [--edition E] [--login]
                                   boot it and save a PNG of the screen;
                                   --login logs in at the greeter first
@@ -610,6 +627,12 @@ fn build_image(
         output = format!("{output}/{sub}");
     }
     let version = version.to_string();
+    // The serial console last, so that it is /dev/console and the tests
+    // can read and type: production images keep the screen there.
+    let cmdline = match cmdline {
+        Some(extra) => format!("console={} {extra}", arch.console),
+        None => format!("console={}", arch.console),
+    };
     run(builder_command(&runtime, &root, false).args(["sh", "-c", DEV_KEYS_SCRIPT]))?;
     run(builder_command(&runtime, &root, false)
         .args([
@@ -631,9 +654,10 @@ fn build_image(
         ])
         .args(["--payload", "--initrd", "hidestage", "--sign", DEV_KEYS])
         .args(["--image-version", &version])
-        .args(cmdline.into_iter().flat_map(|c| ["--cmdline", c]))
+        .args(["--cmdline", &cmdline])
+        // Minimal, which runs from memory, is also the installer.
         .args(if edition.ram {
-            &[][..]
+            &["--installer"][..]
         } else {
             &["--no-initramfs"][..]
         })
@@ -661,6 +685,8 @@ fn qemu_with(arch: Arch, edition: Edition, smm: bool) -> Command {
     // -no-reboot turns the reset into QEMU exiting, as for a panic.
     if arch.name == "x86_64" {
         command.args(["-device", "i6300esb"]);
+        // Suspend to RAM, which q35 hides by default.
+        command.args(["-global", "ICH9-LPC.disable_s3=0"]);
     }
     for accel in accelerators(arch)
         .into_iter()
@@ -674,8 +700,11 @@ fn qemu_with(arch: Arch, edition: Edition, smm: bool) -> Command {
         "-smp",
         "2",
         "-no-reboot",
+        // QEMU's user-mode network: DHCP and DNS from QEMU itself, and
+        // the host's connection behind them. What NetworkManager meets on
+        // a wired port.
         "-nic",
-        "none",
+        "user,model=virtio-net-pci",
     ]);
     command
 }
@@ -720,6 +749,19 @@ fn install(args: &[String]) -> Result<(), String> {
 
 /// Installs `edition` on a new disk image at `disk`.
 fn install_disk(arch: Arch, edition: Edition, disk: &Path) -> Result<(), String> {
+    install_disk_with(arch, edition, disk, "")
+}
+
+/// A new disk is a new machine: its firmware starts with the template's
+/// variables, not with what the last test's boots left.
+fn fresh_firmware_variables(dir: &Path) {
+    for name in ["efivars.fd", "efivars-secure.fd"] {
+        let _ = fs::remove_file(dir.join(name));
+    }
+}
+
+/// `install_disk`, with more arguments for `hide install`.
+fn install_disk_with(arch: Arch, edition: Edition, disk: &Path, extra: &str) -> Result<(), String> {
     let dir = image_dir(edition, arch)?;
     // Every edition is installed by Minimal, as on a real machine.
     let (kernel, initrd) = ram_image(arch, &image_dir(MINIMAL, arch)?)?;
@@ -736,6 +778,10 @@ fn install_disk(arch: Arch, edition: Edition, disk: &Path) -> Result<(), String>
     fs::File::create(disk)
         .and_then(|f| f.set_len(DISK_SIZE))
         .map_err(|e| format!("creating {}: {e}", disk.display()))?;
+    fresh_firmware_variables(&image_dir(MINIMAL, arch)?);
+    if edition.name != MINIMAL.name {
+        fresh_firmware_variables(&dir);
+    }
 
     let log = dir.join("install.log");
     let _ = fs::remove_file(&log);
@@ -751,7 +797,7 @@ fn install_disk(arch: Arch, edition: Edition, disk: &Path) -> Result<(), String>
         .arg(format!(
             "console={} rdinit=/usr/bin/hide panic=-1 -- \
              install --payload /dev/vdb --disk /dev/vda --poweroff \
-             --user {DEV_USER} --password {DEV_USER}",
+             --user {DEV_USER} --password {DEV_USER} {extra}",
             arch.console
         ))
         .arg("-drive")
@@ -895,6 +941,7 @@ fn uefi_firmware(
     dir: &Path,
     secure: Option<(PathBuf, PathBuf)>,
 ) -> Result<(), String> {
+    let secure_boot = secure.is_some();
     let (code, vars_template) = match secure {
         Some(firmware) => {
             // Secure Boot on x86 is enforced from SMM, where the variable
@@ -911,8 +958,18 @@ fn uefi_firmware(
             )
         })?,
     };
-    let vars = dir.join("efivars.fd");
-    fs::copy(&vars_template, &vars).map_err(|e| format!("copying the variable store: {e}"))?;
+    // The machine's NVRAM: kept from boot to boot, as a real one keeps it —
+    // hibernation and the boot loader leave variables for the next boot.
+    // One per firmware, and a fresh one for each installed disk; see
+    // `fresh_firmware_variables`.
+    let vars = dir.join(if secure_boot {
+        "efivars-secure.fd"
+    } else {
+        "efivars.fd"
+    });
+    if !vars.exists() {
+        fs::copy(&vars_template, &vars).map_err(|e| format!("copying the variable store: {e}"))?;
+    }
     command
         .arg("-drive")
         .arg(format!(
@@ -1063,12 +1120,87 @@ struct Guest {
     child: std::process::Child,
     stdin: std::process::ChildStdin,
     output: std::sync::Arc<std::sync::Mutex<String>>,
+    /// The software TPM this guest has, stopped with it.
+    tpm: Option<Swtpm>,
+}
+
+/// A software TPM for one boot, its state in a directory, so that the next
+/// boot with the same directory meets the same TPM: the same seeds, so the
+/// same storage key. swtpm runs on the host — QEMU takes the TPM's data
+/// channel as a descriptor over a Unix socket.
+struct Swtpm {
+    child: std::process::Child,
+    socket: PathBuf,
+}
+
+impl Swtpm {
+    fn start(state: &Path) -> Result<Swtpm, String> {
+        fs::create_dir_all(state).map_err(|e| format!("creating {}: {e}", state.display()))?;
+        // macOS limits a socket's path to 104 bytes; the image directory
+        // may be longer, and may have spaces.
+        let socket = env::temp_dir().join(format!("hideos-swtpm-{}.sock", std::process::id()));
+        let _ = fs::remove_file(&socket);
+        let child = Command::new("swtpm")
+            .args(["socket", "--tpm2", "--flags", "startup-clear", "--tpmstate"])
+            .arg(format!("dir={}", state.display()))
+            .arg("--ctrl")
+            .arg(format!("type=unixio,path={}", socket.display()))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("could not start swtpm (brew install swtpm): {e}"))?;
+        let started = Instant::now();
+        while !socket.exists() {
+            if started.elapsed() > Duration::from_secs(10) {
+                return Err("swtpm did not open its socket".into());
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        Ok(Swtpm { child, socket })
+    }
+
+    fn attach(&self, command: &mut Command) {
+        command
+            .arg("-chardev")
+            .arg(format!("socket,id=chrtpm,path={}", self.socket.display()))
+            .args(["-tpmdev", "emulator,id=tpm0,chardev=chrtpm"])
+            .args(["-device", "tpm-tis,tpmdev=tpm0"]);
+    }
+}
+
+impl Drop for Swtpm {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = fs::remove_file(&self.socket);
+    }
 }
 
 impl Guest {
     /// The disk, through firmware that enforces Secure Boot.
     fn boot(arch: Arch, dir: &Path, disk: &Path) -> Result<Guest, String> {
         Guest::boot_with(arch, dir, disk, true, None)
+    }
+
+    /// The disk, with a software TPM whose state is in `tpm` when given.
+    fn boot_tpm(
+        arch: Arch,
+        dir: &Path,
+        disk: &Path,
+        secure_boot: bool,
+        tpm: Option<&Path>,
+    ) -> Result<Guest, String> {
+        let mut command = disk_qemu(arch, MINIMAL, dir, secure_boot)?;
+        command
+            .arg("-drive")
+            .arg(format!("if=virtio,format=raw,file={}", disk.display()));
+        let swtpm = tpm.map(Swtpm::start).transpose()?;
+        if let Some(swtpm) = &swtpm {
+            swtpm.attach(&mut command);
+        }
+        let mut guest = Guest::spawn(arch, command)?;
+        guest.tpm = swtpm;
+        Ok(guest)
     }
 
     /// The disk, with or without Secure Boot, and optionally a second disk,
@@ -1148,6 +1280,7 @@ impl Guest {
             child,
             stdin,
             output,
+            tpm: None,
         })
     }
 
@@ -1233,6 +1366,450 @@ impl Drop for Guest {
 /// The attacks H2's seal has to stop, on a disk of their own: see ROADMAP,
 /// "H2 — The seal". Each one is something root on the running system can
 /// do; the seal is what makes the next read, or the next boot, notice.
+/// Networking on an installed Minimal: NetworkManager brings the wired
+/// port up by itself, with DHCP and DNS, and the daemons log to oxlogd.
+fn net_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
+    let disk = dir.join("net-test.raw");
+    install_disk(arch, MINIMAL, &disk)?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+
+    let mut guest = Guest::boot_with(arch, &dir, &disk, false, None)?;
+    if !guest.wait_for("reached target default", arch.timeout) {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    let out = guest.run(
+        "for i in {1..60}; do [[ $(nmcli -c no -t -f STATE general) == connected ]] && break; \
+         sleep 1; done; nmcli -c no -t -f STATE general; nmcli -c no -t -f TYPE,STATE device",
+        Duration::from_secs(90),
+    )?;
+    check(
+        "NetworkManager connects the wired port by itself",
+        out.lines().any(|l| l.trim() == "connected") && out.contains("ethernet:connected"),
+        &out,
+    );
+    let out = guest.run("cat /etc/resolv.conf", minute)?;
+    check(
+        "it writes /etc/resolv.conf with the DHCP server's DNS",
+        out.contains("nameserver 10.0.2.3"),
+        &out,
+    );
+    let out = guest.run("getent ahosts github.com | head -1", minute)?;
+    check(
+        "names resolve",
+        out.split_whitespace()
+            .next()
+            .is_some_and(|a| a.parse::<std::net::IpAddr>().is_ok()),
+        &out,
+    );
+    let out = guest.run("iwctl device list >/dev/null; print iwctl=$?", minute)?;
+    check("iwd answers on the bus", out.contains("iwctl=0"), &out);
+    // The console up to here, before the log is printed on it.
+    let console = without_kernel_messages(&guest.output());
+    let out = guest.run("oxctl logs networkmanager | tail -3", minute)?;
+    check(
+        "NetworkManager logs to oxlogd, not the console",
+        out.contains("<info>") && !console.contains("<info>"),
+        &out,
+    );
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    if failures.is_empty() {
+        println!("{}: the network comes up", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
+/// Suspend and hibernation on an installed Minimal: the RTC wakes it from
+/// suspend; after hibernation QEMU exits, starts again, and the same
+/// session is back — with what it had in /tmp, which is memory only.
+fn power_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
+    let disk = dir.join("power-test.raw");
+    install_disk(arch, MINIMAL, &disk)?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+
+    let mut guest = Guest::boot_with(arch, &dir, &disk, false, None)?;
+    if !guest.wait_for("reached target default", arch.timeout) {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    let out = guest.run(
+        "swapon --show=NAME --noheadings; print resume=$(cat /sys/power/resume)",
+        minute,
+    )?;
+    check(
+        "the swap file is on, and the kernel knows where to hibernate",
+        out.contains("/swap/swapfile") && !out.contains("resume=0:0"),
+        &out,
+    );
+
+    let out = guest.run(
+        "rtcwake -m mem -s 5 >/dev/null; print rtcwake=$?; dmesg | grep -c 'PM: suspend exit'",
+        minute,
+    )?;
+    check(
+        "it suspends, and the clock wakes it",
+        out.contains("rtcwake=0") && out.lines().any(|l| l.trim() == "1"),
+        &out,
+    );
+
+    let marker = format!("hibernated-{}", std::process::id());
+    guest.run(&format!("print {marker} > /tmp/marker; sync"), minute)?;
+    // shutdown, not platform: QEMU's firmware has no S4 to enter.
+    guest.type_line("print shutdown > /sys/power/disk; print disk > /sys/power/state")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < Duration::from_secs(300) {
+        thread::sleep(Duration::from_millis(300));
+    }
+    check(
+        "it hibernates and powers off",
+        guest.exited(),
+        &guest.output(),
+    );
+    drop(guest);
+
+    let mut guest = Guest::boot_with(arch, &dir, &disk, false, None)?;
+    let resumed = guest.wait_for("looking for a hibernated system", arch.timeout);
+    // The session that hibernated: its shell, its /tmp. A fresh boot
+    // would have neither, and would say `seal ok`.
+    let out = if resumed {
+        thread::sleep(Duration::from_secs(5));
+        guest.run("cat /tmp/marker", minute).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    check(
+        "it resumes the same session, not a new boot",
+        out.contains(&marker) && !guest.output().contains("seal ok"),
+        &format!("{out}\n{}", guest.output()),
+    );
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    if failures.is_empty() {
+        println!("{}: suspend and hibernation work", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
+/// Lays out an installer medium in the builder: GPT, an ESP with the boot
+/// manager and the installer's UKI, and the payload, raw, in a partition
+/// named hideos-payload — a tar archive is read as it is, and a FAT file
+/// could not hold a payload over 4 GiB.
+const INSTALLER_SCRIPT: &str = r#"set -eu
+out=$1; uki=$2; manager=$3; payload=$4; boot=$5
+mib() { echo $(( ($(stat -c %s "$1") + 1048575) / 1048576 )); }
+esp_mib=$(( $(mib "$uki") + $(mib "$manager") + 64 ))
+payload_mib=$(( $(mib "$payload") + 1 ))
+rm -f "$out"
+truncate -s $(( 1 + esp_mib + payload_mib + 1 ))M "$out"
+sgdisk --clear     --new=1:1M:+${esp_mib}M --typecode=1:ef00 --change-name=1:hideos-installer     --new=2:0:+${payload_mib}M --typecode=2:8300 --change-name=2:hideos-payload     "$out" >/dev/null
+esp=$(mktemp -u)
+mkfs.vfat -C -F 32 -n HIDEOS "$esp" $(( esp_mib * 1024 )) >/dev/null
+mmd -i "$esp" ::EFI ::EFI/BOOT ::EFI/Linux ::loader
+mcopy -i "$esp" "$manager" "::EFI/BOOT/$boot"
+mcopy -i "$esp" "$uki" ::EFI/Linux/hideos-installer.efi
+printf 'timeout 0
+' > "$esp.conf"
+mcopy -i "$esp" "$esp.conf" ::loader/loader.conf
+dd if="$esp" of="$out" bs=1M seek=1 conv=notrunc status=none
+dd if="$payload" of="$out" bs=1M seek=$(( 1 + esp_mib )) conv=notrunc status=none
+rm -f "$esp" "$esp.conf"
+"#;
+
+/// Builds an installer medium for `--edition` (Minimal by default): the
+/// installer is always Minimal's.
+fn installer(args: &[String]) -> Result<PathBuf, String> {
+    let arch = find_arch(args)?;
+    let edition = find_edition(args)?;
+    let version = image_version()?;
+    build_image(arch, MINIMAL, version, "", None)?;
+    if edition.name != MINIMAL.name {
+        build_image(arch, edition, version, "", None)?;
+    }
+    let minimal = image_dir(MINIMAL, arch)?;
+    let payload = image_dir(edition, arch)?.join("payload.tar");
+    let out = workspace_root()?
+        .join("target/images")
+        .join(format!("installer-{}-{}.img", edition.name, arch.name));
+    let in_builder = |path: &Path| -> Result<String, String> {
+        let root = workspace_root()?;
+        let relative = path
+            .strip_prefix(&root)
+            .map_err(|_| format!("{} is outside the workspace", path.display()))?;
+        Ok(format!("/src/{}", relative.display()))
+    };
+    let boot = if arch.name == "aarch64" {
+        "BOOTAA64.EFI"
+    } else {
+        "BOOTX64.EFI"
+    };
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    run(builder_command(&runtime, &workspace_root()?, false)
+        .args(["sh", "-c", INSTALLER_SCRIPT, "installer"])
+        .arg(in_builder(&out)?)
+        .arg(in_builder(&minimal.join("installer.efi"))?)
+        .arg(in_builder(&minimal.join("bootmanager.efi"))?)
+        .arg(in_builder(&payload)?)
+        .arg(boot))?;
+    println!("  medium  {}", out.display());
+    Ok(out)
+}
+
+/// The installer, driven as a person would: answers typed on its console.
+/// Then the disk it made boots, opened with the recovery key it showed.
+fn installer_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let medium = installer(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    let disk = dir.join("installer-test.raw");
+    let _ = fs::remove_file(&disk);
+    fresh_firmware_variables(&dir);
+    fs::File::create(&disk)
+        .and_then(|f| f.set_len(DISK_SIZE))
+        .map_err(|e| format!("creating {}: {e}", disk.display()))?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let boot_timeout = arch.timeout.max(Duration::from_secs(300));
+
+    // The empty disk first, so that it is the one the installer lists; the
+    // firmware finds nothing to boot on it and boots the medium.
+    let mut command = disk_qemu(arch, MINIMAL, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .arg("-drive")
+        .arg(format!(
+            "if=virtio,format=raw,readonly=on,file={}",
+            medium.display()
+        ));
+    let mut guest = Guest::spawn(arch, command)?;
+    let answer = |guest: &mut Guest, prompt: &str, text: &str| -> Result<bool, String> {
+        if !guest.wait_for(prompt, boot_timeout) {
+            return Ok(false);
+        }
+        guest.type_line(text)?;
+        // Past the prompt before the next is looked for: two prompts can
+        // share their beginning.
+        thread::sleep(Duration::from_millis(500));
+        Ok(true)
+    };
+    let mut asked = true;
+    for (prompt, text) in [
+        ("Install on which disk?", "1"),
+        ("Type `erase` to continue", "erase"),
+        ("Encrypt the disk?", "y"),
+        ("Disk passphrase: ", DEV_DISK_PASSPHRASE),
+        ("Disk passphrase, again: ", DEV_DISK_PASSPHRASE),
+        ("Your login name: ", DEV_USER),
+        ("Your password: ", DEV_USER),
+        ("Your password, again: ", DEV_USER),
+    ] {
+        asked &= answer(&mut guest, prompt, text)?;
+    }
+    check(
+        "the installer asks, and takes the answers",
+        asked,
+        &guest.output(),
+    );
+    let installed = guest.wait_for("hideOS is installed.", Duration::from_secs(1200));
+    check("it installs", installed, &guest.output());
+    let output = guest.output();
+    let key = output
+        .lines()
+        .skip_while(|l| !l.contains("keep it away from this machine"))
+        .map(str::trim)
+        .find(|l| l.len() == 47 && l.matches('-').count() == 7)
+        .unwrap_or_default()
+        .to_owned();
+    check("it shows a recovery key", !key.is_empty(), &output);
+    answer(&mut guest, "Press Enter once it is written down.", "")?;
+    answer(&mut guest, "Press Enter to turn the machine off.", "")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+
+    // The disk alone: the recovery key, not the passphrase, opens it.
+    let mut guest = Guest::boot_tpm(arch, &dir, &disk, false, None)?;
+    let asked = guest.wait_for("Passphrase for the hideOS disk", boot_timeout);
+    guest.type_line(&key)?;
+    let up = asked && guest.wait_for("reached target default", boot_timeout);
+    check(
+        "the installed disk boots, opened with the recovery key",
+        up,
+        &guest.output(),
+    );
+    if up {
+        guest.shell()?;
+        let out = guest.run(&format!("getent passwd {DEV_USER}; hide status"), minute)?;
+        check(
+            "with the account it was given",
+            out.contains(&format!("{DEV_USER}:x:1000")) && out.contains("encrypted (LUKS2)"),
+            &out,
+        );
+    }
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    if failures.is_empty() {
+        println!("{}: the installer installs", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
+/// The development disk's passphrase: a disk image for QEMU.
+const DEV_DISK_PASSPHRASE: &str = "hidedisk";
+
+/// The encrypted root on an installed Minimal, with a software TPM.
+fn crypt_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
+    let disk = dir.join("crypt-test.raw");
+    install_disk_with(
+        arch,
+        MINIMAL,
+        &disk,
+        &format!("--encrypt {DEV_DISK_PASSPHRASE}"),
+    )?;
+    let tpm = dir.join("crypt-test.tpm");
+    let _ = fs::remove_dir_all(&tpm);
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let prompt = "Passphrase for the hideOS disk";
+    let boot_timeout = arch.timeout.max(Duration::from_secs(300));
+
+    // btrfs's magic, which an unencrypted root has 64 KiB in: the first
+    // 64 MiB after the ESP must not have it anywhere.
+    {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = fs::File::open(&disk).map_err(|e| e.to_string())?;
+        let mut region = vec![0u8; 64 << 20];
+        file.seek(SeekFrom::Start(513 << 20))
+            .map_err(|e| e.to_string())?;
+        file.read_exact(&mut region).map_err(|e| e.to_string())?;
+        let plain = region.windows(8).any(|w| w == b"_BHRfS_M");
+        check(
+            "the root is not readable on the disk",
+            !plain,
+            "btrfs's magic found in the clear",
+        );
+    }
+
+    println!("boot 1: a passphrase, then the key sealed to the TPM");
+    let mut guest = Guest::boot_tpm(arch, &dir, &disk, false, Some(&tpm))?;
+    let asked = guest.wait_for(prompt, boot_timeout);
+    check("it asks for the passphrase", asked, &guest.output());
+    guest.type_line("wrong")?;
+    let refused = guest.wait_for("that passphrase opens nothing", minute);
+    check("a wrong passphrase opens nothing", refused, &guest.output());
+    guest.type_line(DEV_DISK_PASSPHRASE)?;
+    let up = guest.wait_for("reached target default", boot_timeout);
+    check("the right one boots it", up, &guest.output());
+    if !up {
+        return Err("the encrypted disk did not boot".into());
+    }
+    guest.shell()?;
+    let out = guest.run(
+        "for i in {1..30}; do hide status 2>/dev/null | grep -q 'key sealed to the TPM' && break; sleep 1; done; hide status",
+        minute,
+    )?;
+    check(
+        "the first boot seals the key to the TPM",
+        out.contains("opened by passphrase") && out.contains("key sealed to the TPM"),
+        &out,
+    );
+    guest.type_line("poweroff")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+
+    println!("boot 2: the TPM opens it");
+    let guest = Guest::boot_tpm(arch, &dir, &disk, false, Some(&tpm))?;
+    let up = guest.wait_for("reached target default", boot_timeout);
+    check(
+        "it boots without asking",
+        up && guest.output().contains("unlocked with the tpm") && !guest.output().contains(prompt),
+        &guest.output(),
+    );
+    drop(guest);
+
+    println!("boot 3: Secure Boot on, so PCR 7 changed: the TPM refuses");
+    let mut guest = Guest::boot_tpm(arch, &dir, &disk, true, Some(&tpm))?;
+    let asked = guest.wait_for(prompt, boot_timeout);
+    check(
+        "the TPM refuses a changed boot chain, and it asks",
+        asked && guest.output().contains("the boot chain changed"),
+        &guest.output(),
+    );
+    guest.type_line(DEV_DISK_PASSPHRASE)?;
+    let up = guest.wait_for("reached target default", boot_timeout);
+    check("the passphrase still opens it", up, &guest.output());
+    drop(guest);
+
+    println!("boot 4: no TPM");
+    let guest = Guest::boot_tpm(arch, &dir, &disk, false, None)?;
+    let asked = guest.wait_for(prompt, boot_timeout);
+    check("without a TPM, it asks", asked, &guest.output());
+    drop(guest);
+
+    let _ = fs::remove_file(&disk);
+    let _ = fs::remove_dir_all(&tpm);
+    if failures.is_empty() {
+        println!("{}: the encrypted root opens as it should", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
 fn seal_test(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let dir = image_dir(MINIMAL, arch)?;

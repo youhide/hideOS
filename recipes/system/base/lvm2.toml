@@ -1,0 +1,39 @@
+# Only device-mapper's library and dmsetup, from LVM2's tree: cryptsetup
+# maps volumes with libdevmapper, and `hide tpm-enroll` reads the root's
+# dm-crypt table with dmsetup. LVM itself hideOS does not use.
+[package]
+name = "lvm2"
+version = "2.03.43"
+description = "device-mapper library and dmsetup"
+license = "GPL-2.0-only AND LGPL-2.1-only"
+homepage = "https://sourceware.org/lvm2/"
+
+[[source]]
+url = "https://sourceware.org/pub/lvm2/LVM2.2.03.43.tgz"
+sha256 = "d87ec0dac9061f1fa58ebced5c6b1360c87d4c5cd7b455dc0ebe1d3f036920d7"
+
+[depends]
+build = ["toolchain", "util-linux"]
+run = ["glibc", "util-linux"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --libdir=/usr/lib \\
+    --sbindir=/usr/bin \\
+    --enable-pkgconfig \\
+    --disable-readline \\
+    --disable-selinux \\
+    --disable-systemd-journal \\
+    --disable-udev_sync \\
+    --disable-dmeventd \\
+    --with-thin=none \\
+    --with-cache=none \\
+    --with-vdo=none
+make -j"$JOBS" device-mapper
+make install_device-mapper
+"""

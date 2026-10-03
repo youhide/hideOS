@@ -1,0 +1,10 @@
+# The clock: NTP from the network, once there is one.
+[unit]
+description = "Network time"
+requires    = ["oxlogd"]
+after       = ["oxlogd", "networkmanager"]
+
+[service]
+exec    = "/usr/bin/ntp-daemon"
+restart = "on-failure"
+output  = "log"

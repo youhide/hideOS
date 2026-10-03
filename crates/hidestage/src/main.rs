@@ -2,9 +2,11 @@
 //! chain".
 //!
 //! In order: mount the pseudo-filesystems, read the command line the signed
-//! UKI carries, find the root partition, check the system image's fs-verity
+//! UKI carries, find the root partition, open it if it is encrypted, resume
+//! a hibernated system if there is one, check the system image's fs-verity
 //! digest against the one on the command line, mount it as composefs with
-//! `verity=require`, bind the writable subvolumes, and hand the result to
+//! `verity=require`, merge the system extensions hideOS signed for it,
+//! bind the writable subvolumes, and hand the result to
 //! oxinit with `switch_root`.
 //!
 //! A bug here is a machine that does not boot, so the rules are oxinit's:
@@ -26,6 +28,10 @@
 mod boot;
 #[cfg(target_os = "linux")]
 mod sys;
+#[cfg(target_os = "linux")]
+mod sysext;
+#[cfg(target_os = "linux")]
+mod unlock;
 
 #[cfg(target_os = "linux")]
 fn main() {

@@ -1,0 +1,13 @@
+--- a/src/sudo/mod.rs	2026-10-03 13:18:38
++++ b/src/sudo/mod.rs	2026-10-03 13:18:38
+@@ -56,6 +56,10 @@
+     if !path.exists() {
+         path.set_file_name("sudoers");
+     };
++    // hideOS: the default in /usr/lib, an override in /etc.
++    if !path.exists() {
++        path = PathBuf::from("/usr/lib/sudo-rs/sudoers");
++    }
+ 
+     dev_info!("Running with {} file", path.display());
+     path

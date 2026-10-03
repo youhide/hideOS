@@ -136,10 +136,22 @@ one that cannot mount, and one that hangs all end, unattended, back on N.
 
 ## H4 — Real hardware
 
-- [ ] eudev, linux-firmware, microcode.
-- [ ] LUKS2 with TPM2 unlock and a recovery key, in hidestage.
-- [ ] NetworkManager + iwd, ntpd-rs, sudo-rs.
-- [ ] Suspend and resume, hibernation to the swap file.
+**In progress.** What QEMU can show, it shows: `cargo xtask net-test`
+installs Minimal and finds NetworkManager connected on its own, with DHCP,
+DNS, iwd on the bus and every daemon logging to oxlogd; `cargo xtask
+power-test` suspends it and lets the clock wake it, then hibernates it and
+resumes the same session after QEMU starts again. The encrypted root opens
+in hidestage's own Rust: `installer-test` installs it encrypted and boots it
+with the recovery key. The rest needs a laptop.
+
+- [ ] eudev ✓, linux-firmware, microcode — with kernel modules, for real
+      hardware.
+- [x] LUKS2 in hidestage, with a passphrase or a recovery key; dm-crypt
+      mapped by its own ioctls (crates/hidecrypt).
+- [ ] TPM2 unlock: sealing to PCR 7 and unsealing are written (`hide
+      tpm-enroll`, `cargo xtask crypt-test`), not yet run against swtpm.
+- [x] NetworkManager + iwd, ntpd-rs; sudo-rs in the Workstation.
+- [x] Suspend and resume, hibernation to the swap file.
 - [ ] Hardware watchdog fed by oxinit (oxinit-side work).
 
 Done when: one AMD or Intel laptop boots hideOS from its own disk, unlocks with
@@ -182,7 +194,9 @@ reaching for another machine. CI boots to the greeter and logs in.
 
 ## H7 — Install and recover
 
-- [ ] Installer ISO: partitioning, LUKS enrollment, recovery key, first user.
+- [x] Installer medium (a disk image for a USB stick rather than an ISO):
+      partitioning, LUKS2 with a recovery key, the first user —
+      `cargo xtask installer`, tested by `cargo xtask installer-test`.
 - [ ] Secure Boot key enrollment, or shim — whichever H0 decided.
 - [ ] Recovery UKI: rollback, reinstall keeping `/home`, shell.
 - [ ] Release channels `edge`, `beta`, `stable` on a public registry.

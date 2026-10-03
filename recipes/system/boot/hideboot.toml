@@ -1,0 +1,24 @@
+# hideBoot, the boot manager: youhide/hideBoot, a UEFI application in Rust.
+# It reads the same convention systemd-boot does — UKIs in \EFI\Linux, boot
+# counting in their names — so it replaces systemd-boot on the ESP without
+# anything else there changing. See ARCHITECTURE.md, "Updates".
+[package]
+name = "hideboot"
+version = "0.1.0"
+description = "UEFI boot manager with boot counting and automatic fallback"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/youhide/hideBoot"
+
+[[source]]
+url = "https://github.com/youhide/hideBoot/archive/4b8d7fd53c21e1fdd7be117e0330387f0beaf798.tar.gz"
+sha256 = "85de86fcdb22535b74c0e12308146ff025fd228189f862caabeda5cdcdc78f32"
+
+[depends]
+build = ["toolchain", "stage1-rust", "stage1-rust-uefi"]
+
+[build]
+vendor = "cargo"
+script = """
+cargo build --release --frozen --package hideboot --target "$ARCH-unknown-uefi"
+install -Dm644 "target/$ARCH-unknown-uefi/release/hideboot.efi" /usr/lib/hideboot/hideboot.efi
+"""

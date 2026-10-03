@@ -24,3 +24,7 @@ CLAUDE.local.md
 *.swp
 .idea/
 .vscode/
+
+# Test fixtures are small and made on purpose: a LUKS2 header cryptsetup
+# wrote, for hidecrypt's tests.
+!crates/*/tests/fixtures/*.img

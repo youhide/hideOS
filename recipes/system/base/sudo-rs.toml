@@ -1,0 +1,28 @@
+# sudo and su, in Rust. Its sudoers is read from /etc/sudoers-rs or
+# /etc/sudoers; the patch adds /usr/lib/sudo-rs/sudoers after both, so
+# that hideOS ships the default and /etc holds only an override.
+[package]
+name = "sudo-rs"
+version = "0.2.15"
+description = "sudo and su, memory-safe"
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/trifectatechfoundation/sudo-rs"
+
+[[source]]
+url = "https://github.com/trifectatechfoundation/sudo-rs/archive/refs/tags/v0.2.15.tar.gz"
+sha256 = "ae857c3cde962a1ade2b981f7e01cf95e9fa05d5c5f95f94cf5f35394c1bf899"
+
+[depends]
+build = ["toolchain", "stage1-rust", "linux-pam"]
+run = ["glibc", "gcc", "linux-pam"]
+
+[build]
+vendor = "cargo"
+patches = ["usr-lib-sudoers.patch"]
+script = """
+cargo build --release --frozen
+install -Dm4755 target/release/sudo /usr/bin/sudo
+install -Dm4755 target/release/su /usr/bin/su
+install -Dm755 target/release/visudo /usr/bin/visudo
+install -Dm440 "$FILES/sudoers" /usr/lib/sudo-rs/sudoers
+"""

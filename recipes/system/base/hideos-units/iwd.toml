@@ -1,0 +1,10 @@
+# Wi-Fi, for NetworkManager.
+[unit]
+description = "Wireless daemon"
+requires    = ["dbus", "oxlogd"]
+after       = ["dbus", "oxlogd"]
+
+[service]
+exec    = "/usr/libexec/iwd"
+restart = "on-failure"
+output  = "log"

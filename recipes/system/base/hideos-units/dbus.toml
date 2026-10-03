@@ -1,7 +1,9 @@
 [unit]
 description = "System message bus"
-after       = ["setup"]
+requires    = ["oxlogd"]
+after       = ["setup", "oxlogd"]
 
 [service]
 exec    = "/usr/bin/dbus-daemon --system --nofork --nopidfile"
 restart = "on-failure"
+output  = "log"

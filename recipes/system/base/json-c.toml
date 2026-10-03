@@ -1,0 +1,29 @@
+# JSON, which LUKS2 keeps its metadata in: cryptsetup reads and writes it
+# with this.
+[package]
+name = "json-c"
+version = "0.19"
+description = "JSON library in C"
+license = "MIT"
+homepage = "https://github.com/json-c/json-c"
+
+[[source]]
+url = "https://github.com/json-c/json-c/archive/refs/tags/json-c-0.19-20260627.tar.gz"
+sha256 = "f17a6d7d265cf840dfd8f0f46a606d98c6b5b26dc7cfe27275d1546a213086c8"
+
+[depends]
+build = ["toolchain", "cmake", "ninja"]
+run = ["glibc"]
+
+[build]
+script = """
+cmake -S . -B build -G Ninja \\
+    -DCMAKE_INSTALL_PREFIX=/usr \\
+    -DCMAKE_INSTALL_LIBDIR=lib \\
+    -DCMAKE_BUILD_TYPE=Release \\
+    -DBUILD_STATIC_LIBS=OFF \\
+    -DBUILD_APPS=OFF \\
+    -DDISABLE_EXTRA_LIBS=ON
+cmake --build build -j "$JOBS"
+cmake --install build
+"""

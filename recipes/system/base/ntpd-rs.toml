@@ -1,0 +1,23 @@
+# The clock, in Rust. Without /etc/ntpd-rs/ntp.toml it runs on its own
+# defaults — the ntpd-rs pool — so hideOS ships no configuration for it.
+[package]
+name = "ntpd-rs"
+version = "1.9.0"
+description = "NTP client and server"
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/pendulum-project/ntpd-rs"
+
+[[source]]
+url = "https://github.com/pendulum-project/ntpd-rs/archive/refs/tags/v1.9.0.tar.gz"
+sha256 = "b25d560c4ae5a704d9509984b040123675052d27fe7a3e7cbc5bedc9e392c932"
+
+[depends]
+build = ["toolchain", "stage1-rust"]
+run = ["glibc", "gcc"]
+
+[build]
+vendor = "cargo"
+script = """
+cargo build --release --frozen --package ntpd
+install -Dm755 -t /usr/bin target/release/ntp-daemon target/release/ntp-ctl
+"""

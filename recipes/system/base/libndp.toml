@@ -1,0 +1,42 @@
+# IPv6 neighbour discovery, which NetworkManager requires. The release
+# tarballs with a configure script are on libndp.org over plain HTTP only,
+# which hideforge does not fetch; the tag, over HTTPS, has no configure,
+# and hideOS has no autotools. It is one C file, compiled here as its
+# Makefile.am does — libtool's 3:0:3 is libndp.so.0.3.0.
+[package]
+name = "libndp"
+version = "1.9"
+description = "IPv6 Neighbor Discovery Protocol library"
+license = "LGPL-2.1-or-later"
+homepage = "https://github.com/jpirko/libndp"
+
+[[source]]
+url = "https://github.com/jpirko/libndp/archive/refs/tags/v1.9.tar.gz"
+sha256 = "e564f5914a6b1b799c3afa64c258824a801c1b79a29e2fe6525b682249c65261"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+cc -O2 -fPIC -shared -fvisibility=hidden -D_GNU_SOURCE -DENABLE_LOGGING=1 \\
+    -Iinclude libndp/libndp.c \\
+    -Wl,-soname,libndp.so.0 -Wl,--as-needed \\
+    -o libndp.so.0.3.0
+install -Dm755 libndp.so.0.3.0 /usr/lib/libndp.so.0.3.0
+ln -sf libndp.so.0.3.0 /usr/lib/libndp.so.0
+ln -sf libndp.so.0 /usr/lib/libndp.so
+install -Dm644 include/ndp.h /usr/include/ndp.h
+install -Dm644 /dev/stdin /usr/lib/pkgconfig/libndp.pc <<'END'
+prefix=/usr
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: libndp
+Description: Neighbour discovery library.
+Version: 1.9
+Libs: -L${libdir} -lndp
+Cflags: -I${includedir}
+END
+"""

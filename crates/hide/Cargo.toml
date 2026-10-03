@@ -17,8 +17,10 @@ tar = "0.4"
 sha-crypt = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rustix = { workspace = true, features = ["fs", "mount", "process", "system"] }
+rustix = { workspace = true, features = ["fs", "mount", "process", "system", "termios"] }
 composefs-ioctls = "0.9.3"
+hidecrypt.workspace = true
+zeroize = "1"
 # The store's garbage collection: composefs knows which objects an image
 # uses, and hide does not reimplement that.
 composefs = "0.9.3"

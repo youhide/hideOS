@@ -1,0 +1,84 @@
+# Networking for every edition: wired, Wi-Fi through iwd, DHCP with its own
+# client, and /etc/resolv.conf written directly. nmcli for the console;
+# COSMIC's applet talks to it over D-Bus. What hideOS has no use for, or
+# no library for yet — PPP, modems, Open vSwitch, 802.1X certificates,
+# connectivity checks — is off.
+[package]
+name = "networkmanager"
+version = "1.58.1"
+description = "Network connection manager"
+license = "GPL-2.0-or-later"
+homepage = "https://networkmanager.dev"
+
+# Checked against the .sha256sum published with the release.
+[[source]]
+url = "https://gitlab.freedesktop.org/api/v4/projects/411/packages/generic/NetworkManager/1.58.1/NetworkManager-1.58.1.tar.xz"
+sha256 = "262864cfd198123d3e5dbe91937441b97ee9059d6d712e1a5bfbb1c54668d14d"
+
+[depends]
+build = ["buildtools", "glib", "dbus", "eudev", "util-linux", "libndp", "elogind", "polkit", "readline"]
+run = ["glibc", "glib", "dbus", "eudev", "util-linux", "libndp", "elogind", "readline", "iwd"]
+
+[build]
+script = """
+# msgfmt merges translations into the polkit policy with the rules polkit
+# installs, where the stage-1 gettext does not look on its own.
+export GETTEXTDATADIRS=/usr/share/gettext
+# gdbus-codegen is Python, from glib: left alone it caches its bytecode in
+# glib's directory, a file this recipe would then ship and another, which
+# ran the same generator, too.
+export PYTHONDONTWRITEBYTECODE=1
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dsystemdsystemunitdir=no \\
+    -Dsystemdsystemgeneratordir=no \\
+    -Dudev_dir=/usr/lib/udev \\
+    -Ddbus_conf_dir=/usr/share/dbus-1/system.d \\
+    -Dsession_tracking=elogind \\
+    -Dsession_tracking_consolekit=false \\
+    -Dsuspend_resume=elogind \\
+    -Dpolkit=true \\
+    -Dselinux=false \\
+    -Dsystemd_journal=false \\
+    -Dlibaudit=no \\
+    -Dwifi=true \\
+    -Diwd=true \\
+    -Dconfig_wifi_backend_default=iwd \\
+    -Dppp=false \\
+    -Dmodem_manager=false \\
+    -Dconcheck=false \\
+    -Dovs=false \\
+    -Dteamdctl=false \\
+    -Dnmcli=true \\
+    -Dreadline=libreadline \\
+    -Dnmtui=false \\
+    -Dnm_cloud_setup=false \\
+    -Debpf=false \\
+    -Dnbft=false \\
+    -Dclat=false \\
+    -Difupdown=false \\
+    -Dresolvconf=no \\
+    -Dnetconfig=no \\
+    -Dconfig_dns_rc_manager_default=file \\
+    -Dconfig_dhcp_default=internal \\
+    -Dintrospection=false \\
+    -Dvapi=false \\
+    -Ddocs=false \\
+    -Dman=false \\
+    -Dtests=no \\
+    -Dfirewalld_zone=false \\
+    -Dlibpsl=false \\
+    -Dcrypto=null \\
+    -Dqt=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+install -Dm644 /dev/stdin /usr/lib/tmpfiles.d/networkmanager.conf <<'END'
+d /var/lib/NetworkManager 0700 - - -
+d /etc/NetworkManager/system-connections 0700 - - -
+END
+"""

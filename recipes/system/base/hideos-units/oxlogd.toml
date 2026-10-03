@@ -1,0 +1,17 @@
+# The log writer: what a unit with `output = "log"` writes goes to
+# /var/log/oxinit/<unit>.log, read with `oxctl logs <unit>`. Daemons log
+# there rather than over the console, where the login shell is.
+#
+# Its own output is the console's: a log writer routed into itself would be
+# a pipe only it reads. `notify`, so a unit ordered after it starts once it
+# can take descriptors.
+[unit]
+description = "Log writer"
+after       = ["setup"]
+
+[service]
+type        = "notify"
+exec        = "/usr/bin/oxlogd"
+restart     = "always"
+restart-sec = "500ms"
+output      = "console"

@@ -179,6 +179,7 @@ const ROOT_DIRECTORIES: &[(&str, u32)] = &[
     ("root", 0o700),
     ("mnt", 0o755),
     ("hideos", 0o755),
+    ("swap", 0o755),
     // Empty in every boot image: composefs-boot clears both, and requires
     // them. /boot carries the UKI inside the OCI image (see payload.rs);
     // /sysroot is a convention of the tools hideOS shares that format with.
@@ -324,6 +325,12 @@ pub struct PayloadParts<'a> {
     /// Appended to the UKI's command line: for test images, which shorten
     /// what production keeps long, like hideos.watchdog.
     pub cmdline: Option<&'a str>,
+    /// The recipe whose output has the boot manager, hideBoot's layout;
+    /// systemd-boot from the builder when none.
+    pub boot_manager: Option<&'a str>,
+    /// Also the installer's UKI: this image's initramfs, booting into
+    /// `hide installer`. For Minimal, which installs every edition.
+    pub installer: bool,
 }
 
 /// The system as `hide install` takes it, archived as `payload.tar`:
@@ -406,17 +413,19 @@ fn write_payload(
         .ok_or_else(|| anyhow!("{} installed no kernel", parts.kernel))??;
     let vmlinuz = release.path().join("vmlinuz");
 
-    // The serial console last: it becomes /dev/console, which is where
-    // hidestage, oxinit and the tests read.
+    // The screen last: it becomes /dev/console, where hidestage asks for
+    // the disk's passphrase and oxinit puts the login shell. The kernel
+    // writes to the serial port too. Test images append the serial console
+    // with --cmdline, which makes it the last, so the tests can read.
     let (stub_name, console, boot_efi) = match parts.arch {
         hideforge_recipe::Arch::X86_64 => (
             "linuxx64.efi.stub",
-            "console=tty0 console=ttyS0",
+            "console=ttyS0 console=tty0",
             "BOOTX64.EFI",
         ),
         hideforge_recipe::Arch::Aarch64 => (
             "linuxaa64.efi.stub",
-            "console=tty0 console=ttyAMA0",
+            "console=ttyAMA0 console=tty0",
             "BOOTAA64.EFI",
         ),
     };
@@ -444,44 +453,65 @@ fn write_payload(
         &esp.join("EFI/Linux").join(&uki_name),
     )?;
 
-    // systemd-boot, until hideBoot: it finds UKIs in EFI/Linux by itself.
-    let loader = Path::new(BOOT_EFI_DIR).join(format!(
-        "systemd-boot{}.efi",
-        if parts.arch == hideforge_recipe::Arch::X86_64 {
-            "x64"
-        } else {
-            "aa64"
-        }
-    ));
+    // The boot manager, as the firmware's default: hideBoot when the
+    // image names it, systemd-boot otherwise. Both find UKIs in EFI/Linux
+    // by themselves and count attempts the same way.
     fs::create_dir_all(esp.join("EFI/BOOT"))?;
-    fs::create_dir_all(esp.join("EFI/systemd"))?;
-    fs::create_dir_all(esp.join("loader"))?;
-    fs::copy(&loader, esp.join("EFI/BOOT").join(boot_efi))
-        .with_context(|| format!("copying {}", loader.display()))?;
-    fs::copy(
-        &loader,
-        esp.join("EFI/systemd")
-            .join(loader.file_name().unwrap_or_default()),
-    )?;
-    fs::write(esp.join("loader/loader.conf"), "timeout 3\n")?;
+    let mut to_sign = vec![
+        esp.join("EFI/Linux").join(&uki_name),
+        esp.join("EFI/BOOT").join(boot_efi),
+    ];
+    match parts.boot_manager {
+        Some(recipe) => {
+            let manager = output_of(recipe)?.join("usr/lib/hideboot/hideboot.efi");
+            fs::copy(&manager, esp.join("EFI/BOOT").join(boot_efi))
+                .with_context(|| format!("copying {}", manager.display()))?;
+        }
+        None => {
+            let loader = Path::new(BOOT_EFI_DIR).join(format!(
+                "systemd-boot{}.efi",
+                if parts.arch == hideforge_recipe::Arch::X86_64 {
+                    "x64"
+                } else {
+                    "aa64"
+                }
+            ));
+            fs::create_dir_all(esp.join("EFI/systemd"))?;
+            fs::create_dir_all(esp.join("loader"))?;
+            fs::copy(&loader, esp.join("EFI/BOOT").join(boot_efi))
+                .with_context(|| format!("copying {}", loader.display()))?;
+            let copy = esp
+                .join("EFI/systemd")
+                .join(loader.file_name().unwrap_or_default());
+            fs::copy(&loader, &copy)?;
+            to_sign.push(copy);
+            fs::write(esp.join("loader/loader.conf"), "timeout 3\n")?;
+        }
+    }
 
     // Signed last, once nothing on the ESP will change. The UKI is the one
     // that matters: its command line carries the image's digest, so the
-    // signature is what makes the seal reach the firmware. systemd-boot is
-    // signed because the firmware will not start it otherwise.
+    // signature is what makes the seal reach the firmware. The boot
+    // manager is signed because the firmware will not start it otherwise.
     match parts.sign {
         Some(keys) => {
-            for file in [
-                esp.join("EFI/Linux").join(&uki_name),
-                esp.join("EFI/BOOT").join(boot_efi),
-                esp.join("EFI/systemd")
-                    .join(loader.file_name().unwrap_or_default()),
-            ] {
-                sign_efi(keys, &file)?;
+            for file in &to_sign {
+                sign_efi(keys, file)?;
             }
             println!("  signed  with {}", keys.join("db.crt").display());
         }
         None => println!("  signed  no: EFI binaries left unsigned"),
+    }
+    if parts.installer {
+        write_installer(
+            &root.join("usr/lib/os-release"),
+            &vmlinuz,
+            stub_name,
+            console,
+            &esp.join("EFI/BOOT").join(boot_efi),
+            outputs,
+            parts,
+        )?;
     }
     image.add_uki(
         root,
@@ -531,6 +561,50 @@ fn write_payload(
     .context("archiving the OCI image")?;
     println!("  oci     {}", output.join("image.oci.tar").display());
     println!("  uki     {}", output.join(&uki_name).display());
+    Ok(())
+}
+
+/// The installer's UKI: the kernel, this image's initramfs — the whole
+/// system, in memory — and a command line that starts `hide installer` as
+/// its init. With the boot manager beside it, signed: what `cargo xtask
+/// installer` puts on an installer medium with a payload.
+#[cfg(target_os = "linux")]
+fn write_installer(
+    os_release: &Path,
+    vmlinuz: &Path,
+    stub_name: &str,
+    console: &str,
+    boot_manager: &Path,
+    outputs: &Outputs,
+    parts: &PayloadParts,
+) -> Result<()> {
+    let output = outputs.dir;
+    let initramfs = output.join("initramfs.cpio");
+    if !initramfs.is_file() {
+        bail!("an installer needs the initramfs: build it without --no-initramfs");
+    }
+    // Everything after `--` is the init's argv, so additions go before it.
+    let mut cmdline = format!("{console} rdinit=/usr/bin/hide panic=10");
+    if let Some(extra) = parts.cmdline {
+        cmdline.push(' ');
+        cmdline.push_str(extra);
+    }
+    cmdline.push_str(" -- installer");
+    let uki = output.join("installer.efi");
+    crate::uki::build(
+        &Path::new(BOOT_EFI_DIR).join(stub_name),
+        os_release,
+        &cmdline,
+        &initramfs,
+        vmlinuz,
+        &uki,
+    )?;
+    let manager = output.join("bootmanager.efi");
+    fs::copy(boot_manager, &manager)?;
+    if let Some(keys) = parts.sign {
+        sign_efi(keys, &uki)?;
+    }
+    println!("  installer {} (with {})", uki.display(), manager.display());
     Ok(())
 }
 

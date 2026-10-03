@@ -21,7 +21,7 @@ use rustix::mount::{
 /// Where the btrfs root is mounted, top level, before the system exists.
 const DISK: &str = "/run/hidestage/disk";
 /// Where the system is assembled before it becomes `/`.
-const SYSROOT: &str = "/sysroot";
+pub const SYSROOT: &str = "/sysroot";
 /// Subvolumes on the root partition. See ARCHITECTURE.md, "Disk layout".
 const STORE: &str = "@store";
 /// Writable subvolumes, and where they go in the system.
@@ -31,6 +31,10 @@ const BINDS: &[(&str, &str)] = &[
     ("@home", "home"),
     ("@store", "hideos"),
 ];
+/// Bound only where it exists: disks installed before hibernation have none.
+const SWAP: (&str, &str) = ("@swap", "swap");
+/// The ESP, where the TPM-sealed key is. `hide install` names it.
+const ESP_LABEL: &str = "hideos-esp";
 /// How long to wait for the root partition to appear.
 const DEVICE_TIMEOUT: Duration = Duration::from_secs(30);
 /// fs-verity's identifier for SHA-256.
@@ -55,9 +59,11 @@ pub enum BootError {
     Seal { expected: String, found: String },
     #[error("starting {0}: {1}")]
     Exec(PathBuf, std::io::Error),
+    #[error("the encrypted root: {0}")]
+    Crypt(String),
 }
 
-fn os(what: impl Into<String>) -> impl FnOnce(rustix::io::Errno) -> BootError {
+pub fn os(what: impl Into<String>) -> impl FnOnce(rustix::io::Errno) -> BootError {
     let what = what.into();
     move |errno| BootError::Os {
         what,
@@ -79,11 +85,20 @@ pub fn run() -> Result<Infallible, BootError> {
 
     let cmdline = fs::read_to_string("/proc/cmdline").map_err(io("reading /proc/cmdline"))?;
     let config = Config::from_cmdline(&cmdline)?;
+
+    let partition = wait_for_partition(&config.root_label)?;
+    let device = crate::unlock::open(&partition, ESP_LABEL)?;
+    // Before anything mounts the disk: a hibernated system's filesystems
+    // are mounted in the image, and writing to them first loses that
+    // system's writes, or the filesystem.
+    resume(&device);
+    // After the resume, not before: a resumed system is one whose boot
+    // already finished, and nothing in it would disarm a watchdog armed
+    // here. A partition that never appears still ends the boot, by the
+    // timeout in wait_for_partition.
     if let Some(seconds) = config.watchdog {
         say(&format!("hidestage: {}", arm_watchdog(seconds)));
     }
-
-    let device = wait_for_partition(&config.root_label)?;
     fs::create_dir_all(DISK).map_err(io(format!("creating {DISK}")))?;
     mount(device.as_path(), DISK, "btrfs", MountFlags::NOATIME, None)
         .map_err(os(format!("mounting {} on {DISK}", device.display())))?;
@@ -96,8 +111,15 @@ pub fn run() -> Result<Infallible, BootError> {
     ));
 
     mount_composefs(image, &store.join("objects"))?;
+    crate::sysext::merge(&store, &config.image);
     for (subvolume, target) in BINDS {
         let from = Path::new(DISK).join(subvolume);
+        let to = Path::new(SYSROOT).join(target);
+        mount_bind(&from, &to).map_err(os(format!("binding {subvolume} to /{target}")))?;
+    }
+    let (subvolume, target) = SWAP;
+    let from = Path::new(DISK).join(subvolume);
+    if from.is_dir() {
         let to = Path::new(SYSROOT).join(target);
         mount_bind(&from, &to).map_err(os(format!("binding {subvolume} to /{target}")))?;
     }
@@ -194,6 +216,35 @@ fn secure_boot_state() -> &'static str {
     }
 }
 
+/// Resumes a hibernated system, if there is one: the kernel reads the
+/// image from the swap file at the offset `hide swap` recorded and, when
+/// it finds one, becomes that system — this call does not return. When
+/// there is no image, the write fails or returns, and the boot goes on.
+/// Nothing here can stop a boot: every failure is a boot without resume.
+fn resume(device: &Path) {
+    let Some(offset) = fs::read(hidestage::RESUME_VARIABLE)
+        .ok()
+        .and_then(|v| hidestage::resume_offset(&v))
+    else {
+        return;
+    };
+    let Ok(stat) = rustix::fs::stat(device) else {
+        return;
+    };
+    let (major, minor) = (
+        rustix::fs::major(stat.st_rdev),
+        rustix::fs::minor(stat.st_rdev),
+    );
+    if fs::write("/sys/power/resume_offset", offset.to_string()).is_err() {
+        return;
+    }
+    say(&format!(
+        "hidestage: looking for a hibernated system at {major}:{minor}+{offset}"
+    ));
+    // Returns only when there is nothing to resume.
+    let _ = fs::write("/sys/power/resume", format!("{major}:{minor}"));
+}
+
 /// Polls sysfs for the partition named `label`, the way a person would wait
 /// for a slow disk: the kernel has no event to wait on before userspace has a
 /// device manager, and the initrd has none.
@@ -219,7 +270,7 @@ fn wait_for_partition(label: &str) -> Result<PathBuf, BootError> {
 /// the one on the command line. This is the seal: the kernel was signed with
 /// that digest, and a different image is refused here, before anything in it
 /// runs.
-fn open_verified_image(store: &Path, expected: &[u8; 32]) -> Result<OwnedFd, BootError> {
+pub fn open_verified_image(store: &Path, expected: &[u8; 32]) -> Result<OwnedFd, BootError> {
     let path = store.join("images").join(hex(expected));
     let image = rustix::fs::open(&path, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
         .map_err(os(format!("opening {}", path.display())))?;
@@ -244,6 +295,22 @@ fn open_verified_image(store: &Path, expected: &[u8; 32]) -> Result<OwnedFd, Boo
 /// records for it on every open. `verity=require` makes a file without
 /// fs-verity, or with a different digest, unreadable rather than trusted.
 fn mount_composefs(image: OwnedFd, objects: &Path) -> Result<(), BootError> {
+    let root = composefs_mount(image, objects)?;
+    fs::create_dir_all(SYSROOT).map_err(io(format!("creating {SYSROOT}")))?;
+    move_mount(
+        &root,
+        "",
+        CWD,
+        SYSROOT,
+        MoveMountFlags::MOVE_MOUNT_F_EMPTY_PATH,
+    )
+    .map_err(os(format!("attaching the system at {SYSROOT}")))?;
+    Ok(())
+}
+
+/// A composefs image as a detached, read-only mount, for the caller to
+/// attach: the system at /sysroot, an extension under /run.
+pub fn composefs_mount(image: OwnedFd, objects: &Path) -> Result<OwnedFd, BootError> {
     let erofs = fsopen("erofs", FsOpenFlags::FSOPEN_CLOEXEC).map_err(os("opening erofs"))?;
     fsconfig_set_flag(&erofs, "ro").map_err(os("erofs ro"))?;
     let source = format!("/proc/self/fd/{}", std::os::fd::AsRawFd::as_raw_fd(&image));
@@ -281,17 +348,7 @@ fn mount_composefs(image: OwnedFd, objects: &Path) -> Result<(), BootError> {
         MountAttrFlags::MOUNT_ATTR_RDONLY,
     )
     .map_err(os("mounting composefs"))?;
-
-    fs::create_dir_all(SYSROOT).map_err(io(format!("creating {SYSROOT}")))?;
-    move_mount(
-        &root,
-        "",
-        CWD,
-        SYSROOT,
-        MoveMountFlags::MOVE_MOUNT_F_EMPTY_PATH,
-    )
-    .map_err(os(format!("attaching the system at {SYSROOT}")))?;
-    Ok(())
+    Ok(root)
 }
 
 /// Moves the pseudo-filesystems into the system, makes it `/`, and becomes
@@ -329,6 +386,6 @@ pub fn emergency(message: &str) -> ! {
     }
 }
 
-fn say(line: &str) {
+pub fn say(line: &str) {
     eprintln!("{line}");
 }

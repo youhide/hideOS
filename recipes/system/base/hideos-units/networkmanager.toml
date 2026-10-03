@@ -1,0 +1,13 @@
+# Networking. --debug keeps it in the foreground and logging to stderr,
+# which oxlogd keeps: hideOS has no syslog. It finds devices through udev
+# and Wi-Fi through iwd.
+[unit]
+description = "Network connections"
+requires    = ["dbus", "udevd", "oxlogd"]
+wants       = ["udev-trigger", "iwd"]
+after       = ["dbus", "udevd", "udev-trigger", "iwd", "oxlogd"]
+
+[service]
+exec    = "/usr/bin/NetworkManager --no-daemon --debug"
+restart = "on-failure"
+output  = "log"

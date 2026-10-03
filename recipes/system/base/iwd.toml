@@ -1,0 +1,37 @@
+# Wi-Fi: iwd, NetworkManager's Wi-Fi backend on hideOS, and iwctl. It uses
+# the kernel's crypto API rather than a TLS library; see
+# linux/hideos.config.
+[package]
+name = "iwd"
+version = "3.12"
+description = "Wireless daemon"
+license = "LGPL-2.1-or-later"
+homepage = "https://iwd.wiki.kernel.org"
+
+# Checked against sha256sums.asc on kernel.org.
+[[source]]
+url = "https://mirrors.edge.kernel.org/pub/linux/network/wireless/iwd-3.12.tar.xz"
+sha256 = "d89a5e45c7180170e19be828f9e944a768c593758094fc57a358d0e7c4cb1a49"
+
+[depends]
+build = ["toolchain", "readline"]
+run = ["glibc", "readline"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --libexecdir=/usr/libexec \\
+    --disable-systemd-service \\
+    --disable-manual-pages \\
+    --with-dbus-datadir=/usr/share \\
+    --with-dbus-busdir=/usr/share/dbus-1/system-services
+make -j"$JOBS"
+make install
+install -Dm644 /dev/stdin /usr/lib/tmpfiles.d/iwd.conf <<'END'
+d /var/lib/iwd 0700 - - -
+END
+"""

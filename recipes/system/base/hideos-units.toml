@@ -1,5 +1,6 @@
-# What oxinit starts on every hideOS machine: `hide setup`, a banner, and a
-# login shell on the console, grouped as the multi-user target. Which
+# What oxinit starts on every hideOS machine: `hide setup`, the log writer,
+# device management, the system bus, networking, a banner, and a login shell
+# on the console, grouped as the multi-user target. Which
 # target the machine boots to is the edition's; see recipes/system/images.
 [package]
 name = "hideos-units"
@@ -9,10 +10,11 @@ license = "MIT"
 
 [depends]
 build = ["toolchain"]
-run = ["oxinit", "zsh", "hide"]
+run = ["oxinit", "zsh", "hide", "eudev", "dbus", "networkmanager", "iwd", "ntpd-rs"]
 
 [build]
 script = """
 install -Dm644 -t /usr/lib/oxinit/units "$FILES"/*.toml
 install -Dm644 -t /usr/lib/tmpfiles.d "$FILES"/tmpfiles.d/hideos.conf
+install -Dm644 -t /usr/lib/sysusers.d "$FILES"/sysusers.d/*.conf
 """

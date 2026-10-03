@@ -1,0 +1,8 @@
+# hideOS's sudoers. An /etc/sudoers, if there is one, is read instead of
+# this file; this one is part of the sealed image.
+Defaults env_reset
+Defaults secure_path="/usr/bin:/usr/sbin"
+
+root   ALL=(ALL:ALL) ALL
+# The first user is in wheel: see `hide install --user`.
+%wheel ALL=(ALL:ALL) ALL

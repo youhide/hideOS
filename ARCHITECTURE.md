@@ -161,6 +161,18 @@ places that must be writable are not left to chance:
   directories exist, because `hideos-units` declares them in `tmpfiles.d`
   and `hide setup` makes them. `@var` starts empty.
 
+**Hibernation** writes memory to `/swap/swapfile`, which `hide install`
+makes as large as memory. The kernel needs to know where the file is twice:
+when it hibernates, and — before anything is mounted — when the next boot
+resumes. The first is `hide swap`, at every boot: swap on, then
+`/sys/power/resume` and `resume_offset`. The second cannot be the kernel
+command line, which is signed and the same for every machine, so `hide
+swap` also writes the offset into an EFI variable of hideOS's own, and
+hidestage reads it and asks the kernel to resume before it mounts the disk.
+Turning swap on rewrites the signature of an image that was never resumed,
+so a stale one is never found later. Suspend to RAM is elogind's, or
+`/sys/power/state`.
+
 Why btrfs: checksums on data, cheap snapshots for `/home`, transparent
 compression, fs-verity support (Linux 5.15+), and one pool instead of
 pre-sized partitions. Why the system is *not* a btrfs snapshot: a snapshot is
@@ -392,10 +404,11 @@ administrator's changes survive every update.
 | Component     | Role                                                             | Status        |
 |---------------|------------------------------------------------------------------|---------------|
 | `oxinit`      | PID 1, service manager, `oxctl`, `oxlogd`                        | Exists, v0.1  |
-| `hideforge`   | Build system: recipes → packages → root tree → OCI image + UKI    | To write      |
-| `hidestage`   | initrd `/init`: unlock, verify, assemble, `switch_root`          | To write      |
-| `hideupd`     | Update daemon: pull, unpack, deploy, garbage-collect             | To write      |
-| `hide`        | User-facing CLI: `update`, `rollback`, `status`, `ext`, `shell`  | To write      |
+| `hideforge`   | Build system: recipes → packages → root tree → OCI image + UKI    | Exists        |
+| `hidestage`   | initrd `/init`: unlock, resume, verify, assemble, `switch_root`  | Exists        |
+| `hidecrypt`   | LUKS2 and TPM2 for hidestage and `hide`, host-tested             | Exists        |
+| `hideupd`     | Update daemon: pull, unpack, deploy, garbage-collect             | In `hide` for now |
+| `hide`        | CLI: `install`, `installer`, `update`, `rollback`, `status`, `gc`, `swap`, `tpm-enroll` | Exists |
 | COSMIC pieces | Settings pages, panel applet, first-boot setup (`hidesetup`)     | To write      |
 | `hideboot`    | UEFI boot manager with boot counting (youhide/hideBoot)          | H7            |
 | `hidedev`     | Device manager, libudev-compatible; replaces eudev               | Later         |
@@ -495,6 +508,11 @@ which hideboot counts as a failed boot of this deployment.
 
 ## Reliability
 
+**Logs.** Daemons write to stdout and stderr, and oxinit hands that to
+`oxlogd`, which keeps `/var/log/oxinit/<unit>.log`; `oxctl logs <unit>`
+reads it. hideOS has no syslog: NetworkManager runs with `--debug`, which is
+what makes it log to stderr. The console stays for the login shell.
+
 What "no BSOD" means concretely, layer by layer:
 
 | Failure                                 | What happens                                                         |
@@ -533,7 +551,21 @@ panics, one that hangs. Each must end in the previous deployment.
   emulated CPUs: `--secure-boot` is a flag, and the desktop boots without it.
 - **Measured boot.** The LUKS key is sealed to a TPM2 policy over the hideOS
   signing key (PCR 7 and a signed PCR 11 policy), not over exact hashes, so an
-  update does not need re-enrollment.
+  update does not need re-enrollment. **Today, PCR 7 only**: Secure Boot's
+  state and keys, which an update does not change. The signed PCR 11 policy
+  comes with hideOS's own keys.
+- **How the disk opens.** hidestage reads the LUKS2 header and derives keys
+  itself (crates/hidecrypt), and maps the root with device-mapper's ioctls:
+  nothing in C runs in the initrd. With a TPM and a sealed key on the ESP
+  (`EFI/hideos/root.tpm2` — not secret: only that TPM, in that boot state,
+  opens it), the disk opens by itself; otherwise hidestage asks for the
+  passphrase, or the recovery key the installer showed, on the console. The
+  key is sealed at the first boot that has a TPM (`hide tpm-enroll`), from
+  the running dm-crypt table, so no keyslot is added. When the TPM refuses a
+  sealed key — the boot chain changed — the disk asks, and nothing re-seals
+  by itself: whoever knows why it changed runs `hide tpm-enroll`. The
+  session is not salted, so the key crosses the bus to a discrete TPM in
+  the clear; firmware TPMs have no bus. Parameter encryption is next.
 - **Kernel lockdown** in integrity mode; only modules signed by the hideOS key
   load.
 - **No unsigned code in `/usr`.** Users run what they install from Flatpak
@@ -556,6 +588,25 @@ Linux VM or container, as oxinit's `xtask` does.
   `lld` elsewhere, Rust from source.
 - **Outputs**: one OCI image per architecture, one signed UKI per kernel, the
   signed sysexts, and an installer ISO.
+
+### The installer medium
+
+`cargo xtask installer --edition E` makes a disk image to write to a USB
+stick: GPT, an ESP with the boot manager and the installer's UKI —
+Minimal's kernel and its whole root as the initramfs, booting into `hide
+installer` — and a partition named `hideos-payload` holding E's payload as
+it is, raw. Raw because a tar archive is read from a block device the same
+as from a file, and a FAT file could not hold a payload over 4 GiB. The
+installer asks for the disk, a passphrase and the first account, installs
+with the code `hide install` runs, and shows a recovery key: a second LUKS2
+keyslot, 200 random bits in Crockford base32, shown once.
+
+**The console is the screen.** Every UKI ends its command line with
+`console=tty0`, so `/dev/console` — where hidestage asks for the passphrase,
+the installer asks its questions and Minimal's login shell runs — is the
+screen. The kernel writes to the serial port too. Test images append
+`console=ttyS0`, which makes the serial port the console, so the tests can
+read and type.
 
 ### Disk images are installed, not assembled
 
