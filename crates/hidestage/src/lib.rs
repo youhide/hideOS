@@ -23,7 +23,16 @@ pub struct Config {
     pub root_label: String,
     /// What to run as PID 1 once the root is assembled.
     pub init: PathBuf,
+    /// Seconds the system gets to come up before the hardware watchdog
+    /// resets the machine, which the boot manager counts as a failed
+    /// attempt. `None`: no watchdog (`hideos.watchdog=0`).
+    pub watchdog: Option<u32>,
 }
+
+/// How long a boot may take before it counts as hung: long enough for a
+/// slow disk and a first-boot setup, short enough that a machine stuck on
+/// an update gives up within minutes.
+pub const DEFAULT_WATCHDOG_SECONDS: u32 = 180;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {
@@ -33,6 +42,8 @@ pub enum ConfigError {
     BadImage(String),
     #[error("{0} must be an absolute path, not `{1}`")]
     NotAbsolute(&'static str, String),
+    #[error("hideos.watchdog `{0}` is not a number of seconds")]
+    BadWatchdog(String),
 }
 
 impl Config {
@@ -42,6 +53,7 @@ impl Config {
         let mut image = None;
         let mut root_label = "hideos-root".to_owned();
         let mut init = PathBuf::from("/usr/bin/oxinit");
+        let mut watchdog = Some(DEFAULT_WATCHDOG_SECONDS);
         for word in cmdline.split_ascii_whitespace() {
             let Some((key, value)) = word.split_once('=') else {
                 continue;
@@ -55,6 +67,12 @@ impl Config {
                     }
                     init = PathBuf::from(value);
                 }
+                "hideos.watchdog" => {
+                    let seconds: u32 = value
+                        .parse()
+                        .map_err(|_| ConfigError::BadWatchdog(value.to_owned()))?;
+                    watchdog = (seconds > 0).then_some(seconds);
+                }
                 _ => {}
             }
         }
@@ -62,6 +80,7 @@ impl Config {
             image: image.ok_or(ConfigError::MissingImage)?,
             root_label,
             init,
+            watchdog,
         })
     }
 }
@@ -156,6 +175,18 @@ mod tests {
         let config = Config::from_cmdline(&format!("hideos.image=sha256:{DIGEST}")).unwrap();
         assert_eq!(config.root_label, "hideos-root");
         assert_eq!(config.init, PathBuf::from("/usr/bin/oxinit"));
+        assert_eq!(config.watchdog, Some(DEFAULT_WATCHDOG_SECONDS));
+    }
+
+    #[test]
+    fn the_watchdog_can_be_shortened_or_turned_off() {
+        let with = |w: &str| Config::from_cmdline(&format!("hideos.image=sha256:{DIGEST} {w}"));
+        assert_eq!(with("hideos.watchdog=60").unwrap().watchdog, Some(60));
+        assert_eq!(with("hideos.watchdog=0").unwrap().watchdog, None);
+        assert_eq!(
+            with("hideos.watchdog=soon"),
+            Err(ConfigError::BadWatchdog("soon".to_owned()))
+        );
     }
 
     #[test]

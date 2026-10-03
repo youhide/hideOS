@@ -575,7 +575,7 @@ fn image(args: &[String]) -> Result<(), String> {
             .map_err(|_| format!("--image-version `{v}` is not a whole number"))?,
         None => image_version()?,
     };
-    build_image(arch, edition, version, "")
+    build_image(arch, edition, version, "", None)
 }
 
 /// The version an image built from this checkout gets: the number of
@@ -596,7 +596,13 @@ fn image_version() -> Result<u64, String> {
 
 /// Builds `edition` with `version` into target/images/EDITION-ARCH, or a
 /// subdirectory of it named `sub`.
-fn build_image(arch: Arch, edition: Edition, version: u64, sub: &str) -> Result<(), String> {
+fn build_image(
+    arch: Arch,
+    edition: Edition,
+    version: u64,
+    sub: &str,
+    cmdline: Option<&str>,
+) -> Result<(), String> {
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
     let root = workspace_root()?;
     let mut output = format!("/src/target/images/{}-{}", edition.name, arch.name);
@@ -625,6 +631,7 @@ fn build_image(arch: Arch, edition: Edition, version: u64, sub: &str) -> Result<
         ])
         .args(["--payload", "--initrd", "hidestage", "--sign", DEV_KEYS])
         .args(["--image-version", &version])
+        .args(cmdline.into_iter().flat_map(|c| ["--cmdline", c]))
         .args(if edition.ram {
             &[][..]
         } else {
@@ -650,6 +657,11 @@ fn qemu(arch: Arch, edition: Edition) -> Command {
 /// the guest runs on QEMU's own CPU emulation, slower; KVM has SMM.
 fn qemu_with(arch: Arch, edition: Edition, smm: bool) -> Command {
     let mut command = Command::new(arch.qemu);
+    // A watchdog, which hidestage arms: a guest that hangs resets, and
+    // -no-reboot turns the reset into QEMU exiting, as for a panic.
+    if arch.name == "x86_64" {
+        command.args(["-device", "i6300esb"]);
+    }
     for accel in accelerators(arch)
         .into_iter()
         .filter(|a| !(smm && *a == "hvf"))
@@ -1387,10 +1399,7 @@ fn boot_until_up(
             }
             thread::sleep(Duration::from_millis(500));
         }
-        log.push_str(&format!(
-            "attempt {attempt}:\n{}\n",
-            without_kernel_messages(&guest.output())
-        ));
+        log.push_str(&format!("attempt {attempt}:\n{}\n", guest.output()));
     }
     Err("the disk did not come up in six boots".to_owned())
 }
@@ -1427,7 +1436,7 @@ fn update_test(args: &[String]) -> Result<(), String> {
     // `hide`.
     let version = image_version()?;
     println!("building N (version {version})");
-    build_image(arch, MINIMAL, version, "")?;
+    build_image(arch, MINIMAL, version, "", None)?;
     let n = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
     let n: String = n
         .trim()
@@ -1437,8 +1446,16 @@ fn update_test(args: &[String]) -> Result<(), String> {
         .collect();
 
     // N+1: the same system, one version later, which is a different image.
+    // Its watchdog is shortened, so that the hang below costs minutes, not
+    // a quarter of an hour.
     println!("building N+1 (version {})", version + 1);
-    build_image(arch, MINIMAL, version + 1, "next")?;
+    build_image(
+        arch,
+        MINIMAL,
+        version + 1,
+        "next",
+        Some("hideos.watchdog=45"),
+    )?;
     let next_dir = dir.join("next");
     let next_payload = next_dir.join("payload.tar");
     let n1 = fs::read_to_string(next_dir.join("image.digest")).map_err(|e| e.to_string())?;
@@ -1516,7 +1533,9 @@ fn update_test(args: &[String]) -> Result<(), String> {
         reboot(guest)?;
         let mut tries = String::new();
         let mut guest = boot_until_up(arch, &dir, &disk, None, &mut tries)?;
-        let refusals = tries.matches("does not match").count();
+        let refusals = without_kernel_messages(&tries)
+            .matches("does not match")
+            .count();
         check(
             "N+1 is tried three times, then N boots",
             running_digest(&mut guest)? == n && refusals == 3,
@@ -1527,6 +1546,96 @@ fn update_test(args: &[String]) -> Result<(), String> {
             "N+1 is marked bad, N good",
             status.lines().any(|l| l.contains(&n1) && l.contains("bad"))
                 && status.lines().any(|l| l.contains(&n) && l.contains("good")),
+            &status,
+        );
+        drop(guest);
+
+        println!("an update that hangs, which the watchdog has to end");
+        install_disk(arch, MINIMAL, &disk)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
+        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        check("hide update stages N+1", out.contains("committed"), &out);
+        // In /etc, which both share: boot-ok, the last unit, hangs on N+1
+        // and only there. Nothing else stops a hung boot but the watchdog.
+        let out = guest.run(
+            &format!(
+                "mkdir -p /etc/oxinit/units && cat > /etc/oxinit/units/boot-ok.toml <<'END'
+[unit]
+description = \"Mark this deployment good, or hang on N+1\"
+requires = [\"multi-user\"]
+after = [\"multi-user\"]
+
+[service]
+type = \"oneshot\"
+exec = \"/usr/bin/sh -c 'grep -qx IMAGE_VERSION={} /usr/lib/os-release && sleep 100000; exec /usr/bin/hide boot-ok'\"
+END
+print hang-ready",
+                version + 1
+            ),
+            minute,
+        )?;
+        check("N+1 can be made to hang", out.contains("hang-ready"), &out);
+        reboot(guest)?;
+        let mut hangs = String::new();
+        let mut guest = boot_until_up(arch, &dir, &disk, None, &mut hangs)?;
+        let resets = without_kernel_messages(&hangs)
+            .matches("watchdog armed, 45 s")
+            .count();
+        check(
+            "N+1 hangs three times, the watchdog resets it, then N boots",
+            running_digest(&mut guest)? == n && resets == 3,
+            &format!("{resets} resets:\n{hangs}"),
+        );
+        let status = guest.run("hide status", minute)?;
+        check(
+            "the hung N+1 is marked bad",
+            status.lines().any(|l| l.contains(&n1) && l.contains("bad")),
+            &status,
+        );
+        drop(guest);
+
+        println!("an update whose kernel panics");
+        install_disk(arch, MINIMAL, &disk)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
+        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        check("hide update stages N+1", out.contains("committed"), &out);
+        // The same override, crashing the kernel instead: panic=10 on the
+        // command line turns the panic into a reboot, and a failed attempt.
+        let out = guest.run(
+            &format!(
+                "mkdir -p /etc/oxinit/units && cat > /etc/oxinit/units/boot-ok.toml <<'END'
+[unit]
+description = \"Mark this deployment good, or panic on N+1\"
+requires = [\"multi-user\"]
+after = [\"multi-user\"]
+
+[service]
+type = \"oneshot\"
+exec = \"/usr/bin/sh -c 'grep -qx IMAGE_VERSION={} /usr/lib/os-release && echo c > /proc/sysrq-trigger; exec /usr/bin/hide boot-ok'\"
+END
+print panic-ready",
+                version + 1
+            ),
+            minute,
+        )?;
+        check(
+            "N+1 can be made to panic",
+            out.contains("panic-ready"),
+            &out,
+        );
+        reboot(guest)?;
+        let mut panics = String::new();
+        let mut guest = boot_until_up(arch, &dir, &disk, None, &mut panics)?;
+        let resets = panics.matches("Kernel panic").count();
+        check(
+            "N+1 panics three times, then N boots",
+            running_digest(&mut guest)? == n && resets == 3,
+            &format!("{resets} panics:\n{panics}"),
+        );
+        let status = guest.run("hide status", minute)?;
+        check(
+            "the panicking N+1 is marked bad",
+            status.lines().any(|l| l.contains(&n1) && l.contains("bad")),
             &status,
         );
         drop(guest);

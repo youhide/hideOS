@@ -316,6 +316,9 @@ pub struct PayloadParts<'a> {
     /// trusts. Every EFI binary on the ESP is signed with it. `None`
     /// leaves them unsigned, for firmware without Secure Boot.
     pub sign: Option<&'a Path>,
+    /// Appended to the UKI's command line: for test images, which shorten
+    /// what production keeps long, like hideos.watchdog.
+    pub cmdline: Option<&'a str>,
 }
 
 /// The system as `hide install` takes it, archived as `payload.tar`:
@@ -413,7 +416,11 @@ fn write_payload(
     // panic=10: a kernel that panics reboots, and the boot manager counts
     // the attempt against this deployment, rather than the machine sitting
     // on a panic screen with no way back.
-    let cmdline = format!("{console} hideos.image=sha256:{digest} panic=10");
+    let mut cmdline = format!("{console} hideos.image=sha256:{digest} panic=10");
+    if let Some(extra) = parts.cmdline {
+        cmdline.push(' ');
+        cmdline.push_str(extra);
+    }
     // hide's deployment names; see hide::deployment.
     let uki_name = format!(
         "hideos-{name}-{version}-{}.efi",

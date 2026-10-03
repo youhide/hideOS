@@ -19,7 +19,8 @@
 //!                         that boot only from a disk; --sign DIR signs
 //!                         the ESP's EFI binaries with DIR/db.key;
 //!                         --image-version N goes into os-release and the
-//!                         UKI's name
+//!                         UKI's name; --cmdline TEXT is appended to the
+//!                         UKI's command line
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -214,6 +215,7 @@ fn run(args: &[String]) -> Result<i32> {
                     initrd,
                     arch: options.arch,
                     sign: parsed.value("--sign").map(std::path::Path::new),
+                    cmdline: parsed.value("--cmdline"),
                 }),
                 (true, _, _) => bail!("--payload needs --kernel and --initrd\n{usage}"),
             };
@@ -274,6 +276,7 @@ const VALUE_OPTIONS: &[&str] = &[
     "--initrd",
     "--sign",
     "--image-version",
+    "--cmdline",
 ];
 
 fn parse_args(args: &[String]) -> Result<Args> {

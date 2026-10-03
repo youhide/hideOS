@@ -79,6 +79,9 @@ pub fn run() -> Result<Infallible, BootError> {
 
     let cmdline = fs::read_to_string("/proc/cmdline").map_err(io("reading /proc/cmdline"))?;
     let config = Config::from_cmdline(&cmdline)?;
+    if let Some(seconds) = config.watchdog {
+        say(&format!("hidestage: {}", arm_watchdog(seconds)));
+    }
 
     let device = wait_for_partition(&config.root_label)?;
     fs::create_dir_all(DISK).map_err(io(format!("creating {DISK}")))?;
@@ -142,6 +145,29 @@ fn mount_pseudo_filesystems() -> Result<(), BootError> {
         mount(source, target, fstype, flags, None).map_err(os(format!("mounting {target}")))?;
     }
     Ok(())
+}
+
+/// Starts the hardware watchdog and lets go of it without stopping it: the
+/// kernel then leaves it running, and unless `hide boot-ok` stops it once
+/// the system is up, it resets the machine — which the boot manager counts
+/// as a failed attempt of this deployment. That is what turns a boot that
+/// hangs, anywhere from here to the desktop, into a way back. A machine
+/// without a watchdog boots the same, without that protection.
+fn arm_watchdog(seconds: u32) -> String {
+    let device = match rustix::fs::open(
+        "/dev/watchdog",
+        OFlags::WRONLY | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(device) => device,
+        Err(_) => return "no watchdog; a hung boot will not be noticed".to_owned(),
+    };
+    let wanted = i32::try_from(seconds).unwrap_or(i32::MAX);
+    match crate::sys::set_watchdog_timeout(&device, wanted) {
+        // Closed without the magic character: it keeps running.
+        Ok(applied) => format!("watchdog armed, {applied} s to come up"),
+        Err(error) => format!("watchdog armed at its own timeout ({error} setting {seconds} s)"),
+    }
 }
 
 /// "on", "off" or "unknown", for the console: whether the firmware checked

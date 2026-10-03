@@ -464,6 +464,14 @@ commit step of `hideupd`.
 `panic = "unwind"` in every profile. `unsafe` only in one `sys` module per
 crate, each block with a `// SAFETY:` comment. Errors are `thiserror` enums.
 
+**A boot that hangs is a failed boot.** hidestage starts the hardware
+watchdog — 180 seconds, `hideos.watchdog=` on the command line — and lets
+go of it without stopping it, so the kernel leaves it running. `hide
+boot-ok` stops it once the edition's target is reached. A deployment that
+hangs anywhere in between, kernel or userspace, is reset, and the reset is a
+failed attempt like a panic (`panic=10` on the command line) or a refused
+seal. When oxinit feeds the watchdog itself, it takes over from `boot-ok`.
+
 hidestage has its own last resort, because it runs before anything else can
 help: if it cannot assemble the root, it does not panic the kernel. It prints
 what failed and why on the console, offers a shell, and on a timeout reboots —

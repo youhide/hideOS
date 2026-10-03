@@ -12,7 +12,8 @@
 //! and why on the console and reboot — which the boot manager counts as a
 //! failed boot of this deployment, and after three, falls back from.
 
-#![forbid(unsafe_code)]
+// unsafe only in `sys`, which allows it for itself; see CLAUDE.md.
+#![deny(unsafe_code)]
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -23,6 +24,8 @@
 
 #[cfg(target_os = "linux")]
 mod boot;
+#[cfg(target_os = "linux")]
+mod sys;
 
 #[cfg(target_os = "linux")]
 fn main() {

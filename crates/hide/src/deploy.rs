@@ -153,9 +153,28 @@ pub fn update(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Marks the deployment that booted as good: what makes an update stay. Run
-/// once the system has come up; until then, the boot manager is counting.
+/// Marks the deployment that booted as good, and stops the watchdog
+/// hidestage started: the system came up. Run once the edition's target is
+/// reached; until then, the boot manager is counting and the watchdog is
+/// running, and either can send the machine back.
 pub fn boot_ok() -> Result<()> {
+    let marked = mark_good();
+    disarm_watchdog();
+    marked
+}
+
+/// The magic close: writing `V` before closing tells the watchdog driver
+/// the close is deliberate, and it stops. Opening it when nothing armed it
+/// starts it, and the same close stops it again.
+fn disarm_watchdog() {
+    if let Ok(mut watchdog) = fs::OpenOptions::new().write(true).open("/dev/watchdog")
+        && watchdog.write_all(b"V").is_ok()
+    {
+        say("watchdog stopped: the system is up");
+    }
+}
+
+fn mark_good() -> Result<()> {
     let Ok(variable) = fs::read(BOOT_COUNT_PATH) else {
         // No counter: this deployment was already good.
         return Ok(());

@@ -106,10 +106,11 @@ with a wrong digest refuses to boot.
 
 **In progress.** Applying and rolling back work, from a payload file:
 `cargo xtask update-test` takes Minimal N to N+1 on scratch disks — a good
-update that boots and is marked good, a rollback, an N+1 that cannot boot
-and goes back to N by itself after three attempts, and a power cut after
-each of the update's five steps, which leaves N booting before the commit
-and N+1 after. Getting updates over the network is next.
+update that boots and is marked good, a rollback; an N+1 that cannot
+mount, one whose kernel panics and one that hangs, each tried three times
+before the machine goes back to N by itself; and a power cut after each of
+the update's five steps, which leaves N booting before the commit and N+1
+after. Getting updates over the network, and collecting garbage, are left.
 
 - [ ] OCI image output from hideforge; push to a local registry.
 - [ ] Pulling and verifying an OCI image in `hide update`. Until then it
