@@ -44,7 +44,7 @@ run = [
 
 [build]
 script = """
-install -Dm644 "$FILES/default.toml" /usr/lib/oxinit/units/default.toml
+install -Dm644 -t /usr/lib/oxinit/units "$FILES/default.toml" "$FILES/boot-ok.toml"
 """
 
 # As Minimal's, and LLVM's and clang's development files: Mesa needs

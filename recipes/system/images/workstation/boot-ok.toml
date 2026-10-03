@@ -1,0 +1,11 @@
+# This deployment came up: mark it good, so the boot manager stops counting
+# its attempts and an update becomes permanent. After the edition's own
+# target, which is what "came up" means for workstation.
+[unit]
+description = "Mark this deployment good"
+requires    = ["graphical"]
+after       = ["graphical"]
+
+[service]
+type = "oneshot"
+exec = "/usr/bin/hide boot-ok"

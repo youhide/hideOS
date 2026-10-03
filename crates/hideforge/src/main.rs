@@ -17,7 +17,9 @@
 //!                         composefs repository, the UKI, the ESP;
 //!                         --no-initramfs skips the initramfs, for images
 //!                         that boot only from a disk; --sign DIR signs
-//!                         the ESP's EFI binaries with DIR/db.key
+//!                         the ESP's EFI binaries with DIR/db.key;
+//!                         --image-version N goes into os-release and the
+//!                         UKI's name
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -197,7 +199,8 @@ fn run(args: &[String]) -> Result<i32> {
         }
         "image" => {
             let usage = "usage: hideforge image NAME --output DIR --kernel NAME \
-                         [--payload --initrd NAME [--sign DIR]] [--no-initramfs]";
+                         [--payload --initrd NAME [--sign DIR]] [--no-initramfs] \
+                         [--image-version N]";
             let [name] = names.as_slice() else {
                 bail!("{usage}");
             };
@@ -234,6 +237,12 @@ fn run(args: &[String]) -> Result<i32> {
                 kernel,
                 initramfs: !flag("--no-initramfs"),
                 payload,
+                version: match parsed.value("--image-version") {
+                    Some(v) => v
+                        .parse()
+                        .map_err(|_| anyhow!("--image-version `{v}` is not a whole number"))?,
+                    None => 0,
+                },
             };
             image::assemble(&set, &layout, &hashes, name, &outputs)?;
         }
@@ -259,7 +268,13 @@ impl Args {
 }
 
 /// Options that take a value. Everything else starting with `--` is a flag.
-const VALUE_OPTIONS: &[&str] = &["--output", "--kernel", "--initrd", "--sign"];
+const VALUE_OPTIONS: &[&str] = &[
+    "--output",
+    "--kernel",
+    "--initrd",
+    "--sign",
+    "--image-version",
+];
 
 fn parse_args(args: &[String]) -> Result<Args> {
     let mut parsed = Args {

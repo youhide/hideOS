@@ -104,12 +104,25 @@ with a wrong digest refuses to boot.
 
 ## H3 — Updates and rollback
 
+**In progress.** Applying and rolling back work, from a payload file:
+`cargo xtask update-test` takes Minimal N to N+1 on scratch disks — a good
+update that boots and is marked good, a rollback, an N+1 that cannot boot
+and goes back to N by itself after three attempts, and a power cut after
+each of the update's five steps, which leaves N booting before the commit
+and N+1 after. Getting updates over the network is next.
+
 - [ ] OCI image output from hideforge; push to a local registry.
-- [ ] `hideupd`: pull, verify signature, unpack into the object store,
-      regenerate, compare digest, install UKI atomically with `+3` tries.
-- [ ] `hide-boot-ok`: mark the booted deployment good on boot-complete.
-- [ ] `hide update`, `hide rollback`, `hide status`.
-- [ ] Garbage collection of unreferenced objects.
+- [ ] Pulling and verifying an OCI image in `hide update`. Until then it
+      takes a payload file, the same one `hide install` takes.
+- [x] Applying an update: only the objects the store lacks, sealed,
+      digest compared, the UKI renamed into place with `+3` tries — the
+      commit point — and a durable rename, which FAT needs spelled out.
+- [x] `hide boot-ok`: mark the booted deployment good once the edition's
+      target is reached.
+- [x] `hide update`, `hide rollback`, `hide status`.
+- [ ] Garbage collection of unreferenced objects. The ESP is pruned to the
+      running deployment, the way back and the new one; the store is not
+      yet.
 
 Done when, in CI: an update from build N to N+1 applies and boots; a power cut
 (QEMU killed) at every step of the update leaves N booting; an N+1 that panics,

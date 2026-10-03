@@ -5,4 +5,5 @@
 [unit]
 description = "hideOS Workstation"
 requires    = ["graphical"]
-after       = ["graphical"]
+wants       = ["boot-ok"]
+after       = ["graphical", "boot-ok"]

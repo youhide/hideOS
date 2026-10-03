@@ -41,6 +41,7 @@ fn main() -> ExitCode {
         Some("install") => install(args.get(1..).unwrap_or_default()),
         Some("boot") => boot(args.get(1..).unwrap_or_default()),
         Some("seal-test") => seal_test(args.get(1..).unwrap_or_default()),
+        Some("update-test") => update_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
         Some("publish-site") => publish_site(),
         Some("help" | "--help" | "-h") | None => {
@@ -69,9 +70,10 @@ fn usage() -> &'static str {
     firmware-smoke [--arch ARCH]  boot UEFI firmware in QEMU (x86_64, aarch64)
     forge -- ARG...               run hideforge in the builder
     forge-selftest                check the sandbox's guarantees
-    image [--arch ARCH] [--edition E]
+    image [--arch ARCH] [--edition E] [--image-version N]
                                   build an edition (minimal, workstation)
-                                  into target/images
+                                  into target/images; the version defaults
+                                  to the number of commits on HEAD
     install [--arch ARCH] [--edition E]
                                   install it on target/images/.../disk.raw
     boot [--arch ARCH] [--edition E] [--test] [--disk] [--secure-boot]
@@ -83,6 +85,10 @@ fn usage() -> &'static str {
                                   break the seal, under Secure Boot: write
                                   /usr, tamper with an object, swap the
                                   image, change the kernel image
+    update-test [--arch ARCH]     update Minimal N to N+1 on scratch disks: a
+                                  good update, a bad one that has to roll
+                                  back by itself, and a power cut after each
+                                  step of an update
     screenshot [--arch ARCH] [--edition E] [--login]
                                   boot it and save a PNG of the screen;
                                   --login logs in at the greeter first
@@ -563,9 +569,41 @@ fn image_dir(edition: Edition, arch: Arch) -> Result<PathBuf, String> {
 fn image(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let edition = find_edition(args)?;
+    let version = match flag(args, "--image-version")? {
+        Some(v) => v
+            .parse()
+            .map_err(|_| format!("--image-version `{v}` is not a whole number"))?,
+        None => image_version()?,
+    };
+    build_image(arch, edition, version, "")
+}
+
+/// The version an image built from this checkout gets: the number of
+/// commits behind it, which only goes up along main. Not a build counter:
+/// two builds of the same commit are the same version, and, being the same
+/// inputs, the same image.
+fn image_version() -> Result<u64, String> {
+    let out = Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(workspace_root()?)
+        .output()
+        .map_err(|e| format!("running git: {e}"))?;
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse()
+        .map_err(|_| "git rev-list --count HEAD gave no number".to_owned())
+}
+
+/// Builds `edition` with `version` into target/images/EDITION-ARCH, or a
+/// subdirectory of it named `sub`.
+fn build_image(arch: Arch, edition: Edition, version: u64, sub: &str) -> Result<(), String> {
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
     let root = workspace_root()?;
-    let output = format!("/src/target/images/{}-{}", edition.name, arch.name);
+    let mut output = format!("/src/target/images/{}-{}", edition.name, arch.name);
+    if !sub.is_empty() {
+        output = format!("{output}/{sub}");
+    }
+    let version = version.to_string();
     run(builder_command(&runtime, &root, false).args(["sh", "-c", DEV_KEYS_SCRIPT]))?;
     run(builder_command(&runtime, &root, false)
         .args([
@@ -586,6 +624,7 @@ fn image(args: &[String]) -> Result<(), String> {
             "linux",
         ])
         .args(["--payload", "--initrd", "hidestage", "--sign", DEV_KEYS])
+        .args(["--image-version", &version])
         .args(if edition.ram {
             &[][..]
         } else {
@@ -1017,11 +1056,35 @@ struct Guest {
 impl Guest {
     /// The disk, through firmware that enforces Secure Boot.
     fn boot(arch: Arch, dir: &Path, disk: &Path) -> Result<Guest, String> {
-        let mut command = disk_qemu(arch, MINIMAL, dir, true)?;
+        Guest::boot_with(arch, dir, disk, true, None)
+    }
+
+    /// The disk, with or without Secure Boot, and optionally a second disk,
+    /// read-only, as /dev/vdb.
+    fn boot_with(
+        arch: Arch,
+        dir: &Path,
+        disk: &Path,
+        secure_boot: bool,
+        second: Option<&Path>,
+    ) -> Result<Guest, String> {
+        let mut command = disk_qemu(arch, MINIMAL, dir, secure_boot)?;
         command
             .arg("-drive")
             .arg(format!("if=virtio,format=raw,file={}", disk.display()));
+        if let Some(second) = second {
+            command.arg("-drive").arg(format!(
+                "if=virtio,format=raw,readonly=on,file={}",
+                second.display()
+            ));
+        }
         Guest::spawn(arch, command)
+    }
+
+    /// Whether QEMU has exited: the guest powered off, or rebooted, which
+    /// `-no-reboot` turns into an exit.
+    fn exited(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
     }
 
     /// Minimal from RAM, with the disk attached as /dev/vda and nothing on
@@ -1292,6 +1355,227 @@ fn seal_test(args: &[String]) -> Result<(), String> {
 
     if failures.is_empty() {
         println!("{}: the seal holds", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// update-test
+
+/// Boots `disk` until the system comes up, through as many reboots as the
+/// boot manager's attempts take: a failed boot ends QEMU (`-no-reboot`), and
+/// the next start is the next attempt. Returns the guest at a shell.
+fn boot_until_up(
+    arch: Arch,
+    dir: &Path,
+    disk: &Path,
+    second: Option<&Path>,
+    log: &mut String,
+) -> Result<Guest, String> {
+    for attempt in 1..=6 {
+        let mut guest = Guest::boot_with(arch, dir, disk, false, second)?;
+        let started = Instant::now();
+        loop {
+            if guest.output().contains("reached target default") {
+                guest.shell()?;
+                return Ok(guest);
+            }
+            if guest.exited() || started.elapsed() > Duration::from_secs(180) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        log.push_str(&format!(
+            "attempt {attempt}:\n{}\n",
+            without_kernel_messages(&guest.output())
+        ));
+    }
+    Err("the disk did not come up in six boots".to_owned())
+}
+
+/// The digest the guest is running, from its command line.
+fn running_digest(guest: &mut Guest) -> Result<String, String> {
+    let out = guest.run("cat /proc/cmdline", Duration::from_secs(30))?;
+    out.split_whitespace()
+        .find_map(|w| w.strip_prefix("hideos.image=sha256:"))
+        .map(|d| d.chars().take(12).collect())
+        .ok_or_else(|| format!("no hideos.image= in `{out}`"))
+}
+
+/// Restarts the guest: `reboot`, which oxinit turns into a reboot, which
+/// `-no-reboot` turns into QEMU exiting.
+fn reboot(mut guest: Guest) -> Result<(), String> {
+    guest.type_line("reboot")?;
+    let started = Instant::now();
+    while !guest.exited() {
+        if started.elapsed() > Duration::from_secs(60) {
+            return Err("the guest did not reboot".to_owned());
+        }
+        thread::sleep(Duration::from_millis(300));
+    }
+    Ok(())
+}
+
+/// H3's "done when", on scratch disks. See ROADMAP, "H3".
+fn update_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    // N, built here from this tree: an update runs the `hide` of the system
+    // being updated, and an N left from an earlier build tests an earlier
+    // `hide`.
+    let version = image_version()?;
+    println!("building N (version {version})");
+    build_image(arch, MINIMAL, version, "")?;
+    let n = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
+    let n: String = n
+        .trim()
+        .trim_start_matches("sha256:")
+        .chars()
+        .take(12)
+        .collect();
+
+    // N+1: the same system, one version later, which is a different image.
+    println!("building N+1 (version {})", version + 1);
+    build_image(arch, MINIMAL, version + 1, "next")?;
+    let next_dir = dir.join("next");
+    let next_payload = next_dir.join("payload.tar");
+    let n1 = fs::read_to_string(next_dir.join("image.digest")).map_err(|e| e.to_string())?;
+    let n1: String = n1
+        .trim()
+        .trim_start_matches("sha256:")
+        .chars()
+        .take(12)
+        .collect();
+    println!("N is {n} (version {version}), N+1 is {n1}");
+
+    let disk = dir.join("update-test.raw");
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let mut log = String::new();
+
+    // HIDEOS_UPDATE_TEST_STEPS=commit,prune: only those power cuts, for
+    // when one is being chased.
+    let only = env::var("HIDEOS_UPDATE_TEST_STEPS").ok();
+    if only.is_none() {
+        println!("a good update, then a rollback");
+        install_disk(arch, MINIMAL, &disk)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
+        check("N boots", running_digest(&mut guest)? == n, &log);
+        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        check("hide update stages N+1", out.contains("committed"), &out);
+        reboot(guest)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
+        check(
+            "N+1 boots after the update",
+            running_digest(&mut guest)? == n1,
+            &log,
+        );
+        let status = guest.run("hide status", minute)?;
+        check(
+            "N+1 is marked good once it is up",
+            status
+                .lines()
+                .any(|l| l.contains(&n1) && l.contains("good")),
+            &status,
+        );
+        let out = guest.run("hide rollback", minute)?;
+        check("hide rollback", out.contains("goes back"), &out);
+        reboot(guest)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
+        check(
+            "N boots after the rollback",
+            running_digest(&mut guest)? == n,
+            &log,
+        );
+        drop(guest);
+
+        println!("a bad update, which has to roll back by itself");
+        install_disk(arch, MINIMAL, &disk)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
+        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        check("hide update stages N+1", out.contains("committed"), &out);
+        // N+1's image replaced by another sealed file: hidestage refuses it at
+        // every attempt, as it would a corrupt or incomplete update.
+        let out = guest.run(
+            &format!(
+                "other=(/hideos/objects/*/*(.L+100000)); \
+                 ln -sfn ../objects/${{other[1]#/hideos/objects/}} /hideos/images/{n1}* && sync && print broken"
+            ),
+            minute,
+        )?;
+        check("N+1 can be broken", out.contains("broken"), &out);
+        reboot(guest)?;
+        let mut tries = String::new();
+        let mut guest = boot_until_up(arch, &dir, &disk, None, &mut tries)?;
+        let refusals = tries.matches("does not match").count();
+        check(
+            "N+1 is tried three times, then N boots",
+            running_digest(&mut guest)? == n && refusals == 3,
+            &format!("{refusals} refusals:\n{tries}"),
+        );
+        let status = guest.run("hide status", minute)?;
+        check(
+            "N+1 is marked bad, N good",
+            status.lines().any(|l| l.contains(&n1) && l.contains("bad"))
+                && status.lines().any(|l| l.contains(&n) && l.contains("good")),
+            &status,
+        );
+        drop(guest);
+    }
+
+    let steps = ["unpack", "seal", "stage", "commit", "prune"];
+    for step in steps.into_iter().filter(|s| {
+        only.as_deref()
+            .is_none_or(|o| o.split(',').any(|x| x == *s))
+    }) {
+        println!("a power cut after `{step}`");
+        install_disk(arch, MINIMAL, &disk)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
+        guest.type_line(&format!(
+            "hide update --payload /dev/vdb --crash-after {step}"
+        ))?;
+        let started = Instant::now();
+        while !guest.exited() && started.elapsed() < Duration::from_secs(300) {
+            thread::sleep(Duration::from_millis(300));
+        }
+        drop(guest);
+        let mut after = String::new();
+        let mut guest = boot_until_up(arch, &dir, &disk, None, &mut after)?;
+        let running = running_digest(&mut guest)?;
+        let status = guest.run("hide status", minute)?;
+        // Before the commit the update never happened; after it, the new
+        // system is what boots.
+        let expected = if matches!(step, "commit" | "prune") {
+            &n1
+        } else {
+            &n
+        };
+        check(
+            &format!(
+                "after a cut at `{step}`, {} boots",
+                if expected == &n { "N" } else { "N+1" }
+            ),
+            &running == expected,
+            &format!("running {running}\n{status}\n{after}"),
+        );
+        drop(guest);
+    }
+    // Kept when chasing one step, to look at.
+    if only.is_none() {
+        let _ = fs::remove_file(&disk);
+    }
+
+    if failures.is_empty() {
+        println!("{}: updates hold", arch.name);
         Ok(())
     } else {
         Err(format!("{}: {} check(s) failed", arch.name, failures.len()))

@@ -12,5 +12,6 @@
 
 pub mod account;
 pub mod config;
+pub mod deployment;
 pub mod sysusers;
 pub mod tmpfiles;

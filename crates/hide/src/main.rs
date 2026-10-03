@@ -3,14 +3,18 @@
 //! ```text
 //! hide install --payload FILE --disk DEVICE [--poweroff] [--user NAME --password PASS]
 //! hide setup [--root DIR]
+//! hide update --payload FILE
+//! hide status | rollback | boot-ok
 //! poweroff | reboot | halt     (hide under those names)
 //! ```
 //!
-//! `update`, `rollback`, `status`, `rebase` and `shell` come with H3 and H5.
+//! `rebase` and `shell` come with H5.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
+#[cfg(target_os = "linux")]
+mod deploy;
 #[cfg(target_os = "linux")]
 mod install;
 #[cfg(target_os = "linux")]
@@ -64,6 +68,14 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         Some("install") => install::run(args.get(1..).unwrap_or_default()),
         #[cfg(target_os = "linux")]
         Some("setup") => setup::run(args.get(1..).unwrap_or_default()),
+        #[cfg(target_os = "linux")]
+        Some("update") => deploy::update(args.get(1..).unwrap_or_default()),
+        #[cfg(target_os = "linux")]
+        Some("boot-ok") => deploy::boot_ok(),
+        #[cfg(target_os = "linux")]
+        Some("status") => deploy::status(),
+        #[cfg(target_os = "linux")]
+        Some("rollback") => deploy::rollback(),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", USAGE);
             Ok(())
@@ -81,4 +93,17 @@ const USAGE: &str = "usage: hide <command>
     setup [--root DIR]
         Create /etc/machine-id, the system users in sysusers.d and the paths
         in tmpfiles.d that do not exist yet. Run at every boot.
+
+    update --payload FILE
+        Stage a new system from a payload hideforge built. It starts at the
+        next boot, with three attempts before the machine goes back.
+
+    status
+        The deployments on this machine, in the order they boot.
+
+    rollback
+        Boot the previous deployment next.
+
+    boot-ok
+        Mark the deployment that booted as good. Run at the end of boot.
 ";

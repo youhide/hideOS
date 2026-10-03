@@ -25,6 +25,10 @@ pub struct Outputs<'a> {
     pub initramfs: bool,
     /// The root as what `hide install` installs.
     pub payload: Option<PayloadParts<'a>>,
+    /// The image's version, an integer that only goes up: written to
+    /// os-release as IMAGE_VERSION, and into the UKI's name, which is how
+    /// the boot manager puts the newest deployment first.
+    pub version: u64,
 }
 
 pub fn assemble(
@@ -91,6 +95,16 @@ pub fn assemble(
         }
     }
 
+    // The image's identity, in the os-release the system and the UKI read.
+    let os_release = root.join("usr/lib/os-release");
+    let mut release = fs::read_to_string(&os_release)
+        .with_context(|| format!("{name} has no /usr/lib/os-release"))?;
+    release.push_str(&format!(
+        "IMAGE_ID=hideos-{name}\nIMAGE_VERSION={}\n",
+        outputs.version
+    ));
+    fs::write(&os_release, release)?;
+
     let image = &set.get(name)?.recipe.image;
     let excluded = exclude(&root, image)?;
     let stripped = strip(&root)?;
@@ -123,7 +137,7 @@ pub fn assemble(
     }
 
     if let Some(parts) = &outputs.payload {
-        write_payload(set, layout, hashes, name, &root, output, parts)?;
+        write_payload(set, layout, hashes, name, &root, outputs, parts)?;
     }
 
     if let Some(kernel) = outputs.kernel {
@@ -323,9 +337,11 @@ fn write_payload(
     hashes: &BTreeMap<String, InputHash>,
     name: &str,
     root: &Path,
-    output: &Path,
+    outputs: &Outputs,
     parts: &PayloadParts,
 ) -> Result<()> {
+    let output = outputs.dir;
+    let version = outputs.version;
     let output_of = |recipe: &str| -> Result<std::path::PathBuf> {
         let hash = hashes
             .get(recipe)
@@ -394,13 +410,20 @@ fn write_payload(
             "BOOTAA64.EFI",
         ),
     };
-    let cmdline = format!("{console} hideos.image=sha256:{digest}");
-    let uki_name = format!("hideos-{name}-{}.efi", digest.get(..12).unwrap_or(&digest));
+    // panic=10: a kernel that panics reboots, and the boot manager counts
+    // the attempt against this deployment, rather than the machine sitting
+    // on a panic screen with no way back.
+    let cmdline = format!("{console} hideos.image=sha256:{digest} panic=10");
+    // hide's deployment names; see hide::deployment.
+    let uki_name = format!(
+        "hideos-{name}-{version}-{}.efi",
+        digest.get(..12).unwrap_or(&digest)
+    );
     let esp = stage.join("esp");
     fs::create_dir_all(esp.join("EFI/Linux"))?;
     crate::uki::build(
         &Path::new(BOOT_EFI_DIR).join(stub_name),
-        &root.join("etc/os-release"),
+        &root.join("usr/lib/os-release"),
         &cmdline,
         &initrd,
         &vmlinuz,
@@ -510,7 +533,7 @@ fn write_payload(
     _: &BTreeMap<String, InputHash>,
     _: &str,
     _: &Path,
-    _: &Path,
+    _: &Outputs,
     _: &PayloadParts,
 ) -> Result<()> {
     bail!("payloads are written on Linux, in the builder")

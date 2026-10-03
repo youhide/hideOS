@@ -42,10 +42,16 @@ cat > /etc/hosts <<'END'
 127.0.0.1 localhost hideos
 ::1       localhost
 END
-cat > /etc/os-release <<'END'
+# In /usr/lib, where the image keeps it, and linked from /etc: /etc is the
+# machine's, and an os-release copied there would go on naming the version
+# the machine was installed with. Image assembly adds IMAGE_ID and
+# IMAGE_VERSION.
+mkdir -p /usr/lib
+cat > /usr/lib/os-release <<'END'
 NAME="hideOS"
 ID=hideos
 PRETTY_NAME="hideOS (pre-alpha)"
 HOME_URL="https://github.com/youhide/hideOS"
 END
+ln -sfn ../usr/lib/os-release /etc/os-release
 """

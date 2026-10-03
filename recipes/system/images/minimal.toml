@@ -15,7 +15,7 @@ run = ["minimal-base"]
 [build]
 # The edition's default target: the multi-user system, nothing more.
 script = """
-install -Dm644 "$FILES/default.toml" /usr/lib/oxinit/units/default.toml
+install -Dm644 -t /usr/lib/oxinit/units "$FILES/default.toml" "$FILES/boot-ok.toml"
 """
 
 # hideOS ships no compiler: development happens in containers. GCC and

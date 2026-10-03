@@ -230,6 +230,16 @@ of its UKI into place on the ESP, after everything it references has been
 written and synced. Power can be cut at any instant before that and the
 machine boots the previous deployment as if nothing had happened.
 
+**Boot counting is systemd-boot's, until hideBoot.** A new deployment's UKI
+is named `hideos-EDITION-VERSION-DIGEST+3.efi`: systemd-boot's Automatic
+Boot Assessment decrements the count before each attempt, and a UKI at `+0`
+sorts after every good one, so the previous deployment boots. `hide boot-ok`
+renames it without the count once the edition's target is reached. The
+version is `IMAGE_VERSION` in `/usr/lib/os-release` — the commit count of the
+tree it was built from — and systemd-boot boots the highest version first.
+`os-release` lives in `/usr/lib` and is linked from `/etc`, because `/etc` is
+the machine's and would otherwise go on naming the installed version.
+
 **What the user sees.** `hide update` downloads and stages; the change applies
 on the next reboot. Nothing about the running system changes under the user.
 Kept on disk: the booted deployment, the previous one, and any the user pinned.
