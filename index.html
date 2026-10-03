@@ -183,6 +183,7 @@
   /* the screenshot, in a terminal window */
   .shot .term__body { display: block; padding: 1.25rem; background-color: #000; background-image: none; }
   .shot img { width: 100%; height: auto; image-rendering: pixelated; border-radius: 6px; }
+  .shot--photo img { image-rendering: auto; }
   .shot__caption { margin-top: .9rem; color: var(--muted); font-size: .86rem; max-width: 70ch; }
   .code {
     margin-top: 1.25rem; padding: 1rem 1.25rem;
@@ -334,6 +335,23 @@
 
   <hr class="rule">
 
+  <section class="section" aria-labelledby="desktop">
+    <h2 class="section__title" id="desktop"><span class="sig">$</span>cargo xtask screenshot --edition workstation --login</h2>
+    <p class="comment"># hideOS Workstation: COSMIC epoch 1.9, Mesa and LLVM built from source, booted sealed from its own disk, logged in at cosmic-greeter. drawn by llvmpipe on QEMU's virtio-gpu.</p>
+    <div class="term shot shot--photo">
+      <div class="term__bar" aria-hidden="true">
+        <span class="dot dot--red"></span><span class="dot dot--yellow"></span><span class="dot dot--green"></span>
+        <span class="term__path">qemu-system-x86_64: hideOS workstation</span>
+      </div>
+      <div class="term__body">
+        <img src="desktop.png" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS: the top panel with Workspaces, Applications, the clock and status applets, the Orion nebula wallpaper, and the dock at the bottom.">
+      </div>
+    </div>
+    <p class="shot__caption"># the dock's gears are missing icons: the base icon theme is next.</p>
+  </section>
+
+  <hr class="rule">
+
   <section class="section" aria-labelledby="boots">
     <h2 class="section__title" id="boots"><span class="sig">$</span>cargo xtask screenshot</h2>
     <p class="comment"># not a mock-up. the kernel, glibc, oxinit, zsh and uutils below were built from source by hideOS's own build system, booted in QEMU, and photographed by this command.</p>
@@ -379,7 +397,7 @@
       <li class="is-now"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">boots sealed; signing next</span></li>
       <li><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">planned</span></li>
       <li><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">planned</span></li>
-      <li class="is-next"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">building</span></li>
+      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">logs in to the desktop</span></li>
       <li><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">planned</span></li>
       <li><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideboot</span><span class="roadmap__state">planned</span></li>
       <li><span class="roadmap__id">H8</span><span class="roadmap__what">Rust replacements for the device manager and login daemon</span><span class="roadmap__state">planned</span></li>
