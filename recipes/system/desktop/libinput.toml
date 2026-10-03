@@ -1,0 +1,34 @@
+[package]
+name = "libinput"
+version = "1.32.0"
+description = "Input device handling for Wayland compositors"
+license = "MIT"
+homepage = "https://gitlab.freedesktop.org/libinput/libinput"
+
+[[source]]
+url = "https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.32.0/libinput-1.32.0.tar.bz2"
+sha256 = "3a6065c07b118c08d0c7b7b85a265ecb050a8cfc91eeb360890d768a51b4cce9"
+
+[depends]
+build = ["buildtools", "eudev", "libevdev", "mtdev"]
+run = ["glibc", "eudev", "libevdev", "mtdev"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Ddocumentation=false \\
+    -Dtests=false \\
+    -Ddebug-gui=false \\
+    -Dlibwacom=false \\
+    -Dlua-plugins=disabled \\
+    -Dinstall-tests=false \\
+    -Dzshcompletiondir=no
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

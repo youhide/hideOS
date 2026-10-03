@@ -1,0 +1,52 @@
+# With the Lua it bundles, from meson's package cache: upstream Lua
+# installs neither a shared library nor a pkg-config file.
+[package]
+name = "wireplumber"
+version = "0.5.18"
+description = "PipeWire session manager"
+license = "MIT"
+homepage = "https://pipewire.pages.freedesktop.org/wireplumber/"
+
+[[source]]
+url = "https://gitlab.freedesktop.org/pipewire/wireplumber/-/archive/0.5.18/wireplumber-0.5.18.tar.bz2"
+sha256 = "0c2ea30a7b3bb4ecad456bb27e2c283defda59bb53d97df6917a495f12887e33"
+
+[[source]]
+url = "https://www.lua.org/ftp/lua-5.5.0.tar.gz"
+sha256 = "57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d"
+dest = "subprojects/packagecache"
+extract = false
+
+[[source]]
+url = "https://github.com/mesonbuild/wrapdb/releases/download/lua_5.5.0-1/lua_5.5.0-1_patch.zip"
+sha256 = "69ec4a2dd99ecf8e84830093d418f3a5be1202f16ba8d636b3008b67506e5cca"
+dest = "subprojects/packagecache"
+extract = false
+
+[depends]
+build = ["buildtools", "glib", "pipewire", "elogind"]
+run = ["glibc", "glib", "pipewire", "elogind"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dintrospection=disabled \\
+    -Ddoc=disabled \\
+    -Dtests=false \\
+    -Ddbus-tests=false \\
+    -Dsystemd=disabled \\
+    -Dsystemd-user-service=false \\
+    -Dsystemd-system-service=false \\
+    -Delogind=enabled \\
+    -Dmodules=true \\
+    -Ddaemon=true \\
+    -Dtools=true
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

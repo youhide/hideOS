@@ -1,0 +1,30 @@
+[package]
+name = "wayland"
+version = "1.26.0"
+description = "Wayland protocol libraries and scanner"
+license = "MIT"
+homepage = "https://wayland.freedesktop.org"
+
+[[source]]
+url = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.26.0/downloads/wayland-1.26.0.tar.xz"
+sha256 = "64176eaa46e4969903e286f8e5ef8331affc17fdf03ac9b58381d2b23162b7a3"
+
+[depends]
+build = ["buildtools", "expat", "libffi"]
+run = ["glibc", "expat", "libffi"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Ddocumentation=false \\
+    -Ddtd_validation=false \\
+    -Dtests=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

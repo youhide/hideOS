@@ -1,0 +1,23 @@
+[package]
+name = "cosmic-osd"
+version = "1.9.0"
+description = "COSMIC on-screen displays"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-osd"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-osd/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "7f4e7e991f9201bacb0d0c3c47d160419de849710f16c9deb29a3aaeb82b0de3"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "libinput", "eudev", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "libinput", "eudev"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+just rootdir=/ prefix=/usr install
+"""

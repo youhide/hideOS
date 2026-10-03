@@ -1,0 +1,26 @@
+[package]
+name = "cosmic-files"
+version = "1.9.0"
+description = "COSMIC Files"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-files"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-files/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "c30cb40b8177112c821753a95134ba82e64dfd8230f5c371a1c89a4b0d066309"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "glib", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "glib"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+# The applet is the desktop's file icons, which cosmic-session starts;
+# the thumbnailer makes the previews.
+cargo build --release --frozen -p cosmic-files -p cosmic-files-applet \\
+    -p cosmic-files-thumbnailer
+just rootdir=/ prefix=/usr install
+"""

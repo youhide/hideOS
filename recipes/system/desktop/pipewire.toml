@@ -1,0 +1,79 @@
+# Audio through ALSA, with the PulseAudio replacement; screen capture
+# for the portal. Everything optional off. The session manager is
+# WirePlumber, its own recipe.
+[package]
+name = "pipewire"
+version = "1.6.9"
+description = "Audio and video server"
+license = "MIT"
+homepage = "https://pipewire.org"
+
+[[source]]
+url = "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.9/pipewire-1.6.9.tar.bz2"
+sha256 = "0cde58c124825bad462b32ab79f9aa286ee7b113cc73a5cda923a4365e752657"
+
+[depends]
+build = ["buildtools", "alsa-lib", "dbus", "eudev", "elogind"]
+run = ["glibc", "alsa-lib", "dbus", "eudev", "elogind"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dsession-managers=[] \\
+    -Ddocs=disabled \\
+    -Dman=disabled \\
+    -Dexamples=disabled \\
+    -Dtests=disabled \\
+    -Dinstalled_tests=disabled \\
+    -Dlibsystemd=disabled \\
+    -Dsystemd-system-service=disabled \\
+    -Dsystemd-user-service=disabled \\
+    -Dlogind=enabled \\
+    -Dlogind-provider=libelogind \\
+    -Dselinux=disabled \\
+    -Dgstreamer=disabled \\
+    -Dgstreamer-device-provider=disabled \\
+    -Dlibcamera=disabled \\
+    -Dbluez5=disabled \\
+    -Djack=disabled \\
+    -Dpipewire-jack=disabled \\
+    -Dpipewire-v4l2=disabled \\
+    -Dv4l2=disabled \\
+    -Decho-cancel-webrtc=disabled \\
+    -Dx11=disabled \\
+    -Dx11-xfixes=disabled \\
+    -Dlibcanberra=disabled \\
+    -Dsdl2=disabled \\
+    -Dsndfile=disabled \\
+    -Dlibpulse=disabled \\
+    -Droc=disabled \\
+    -Davahi=disabled \\
+    -Draop=disabled \\
+    -Dlv2=disabled \\
+    -Dlibmysofa=disabled \\
+    -Dlibffado=disabled \\
+    -Dopus=disabled \\
+    -Debur128=disabled \\
+    -Dfftw=disabled \\
+    -Donnxruntime=disabled \\
+    -Dsnap=disabled \\
+    -Dreadline=disabled \\
+    -Dcompress-offload=disabled \\
+    -Dflatpak=disabled \\
+    -Dgsettings=disabled \\
+    -Dgsettings-pulse-schema=disabled \\
+    -Dlibusb=disabled \\
+    -Davb=disabled \\
+    -Dalsa=enabled \\
+    -Dpipewire-alsa=enabled \\
+    -Ddbus=enabled \\
+    -Dudev=enabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

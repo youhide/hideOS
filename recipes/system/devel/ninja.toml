@@ -1,0 +1,22 @@
+# Bootstrapped with its own configure.py, which needs only Python and a
+# C++ compiler. The tag archive: ninja publishes no release tarball.
+[package]
+name = "ninja"
+version = "1.13.2"
+description = "Small build system that meson drives"
+license = "Apache-2.0"
+homepage = "https://ninja-build.org"
+
+[[source]]
+url = "https://github.com/ninja-build/ninja/archive/refs/tags/v1.13.2.tar.gz"
+sha256 = "974d6b2f4eeefa25625d34da3cb36bdcebe7fbce40f4c16ac0835fd1c0cbae17"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc", "gcc"]
+
+[build]
+script = """
+CXX=g++ python3 configure.py --bootstrap
+install -Dm755 ninja /usr/bin/ninja
+"""

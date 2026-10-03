@@ -1,0 +1,33 @@
+[package]
+name = "pcre2"
+version = "10.49"
+description = "Perl-compatible regular expressions"
+license = "BSD-3-Clause"
+homepage = "https://pcre2project.github.io/pcre2/"
+
+[[source]]
+url = "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.49/pcre2-10.49.tar.bz2"
+sha256 = "53c156e1ba416a20da8e65395daa132da0d80e76910424caca3fcdae7831d384"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static \\
+    --enable-unicode \\
+    --enable-jit \\
+    --enable-pcre2-16 \\
+    --enable-pcre2-32 \\
+    --disable-pcre2grep-libz \\
+    --disable-pcre2grep-libbz2 \\
+    --disable-pcre2test-libreadline
+make -j"$JOBS"
+make install
+"""

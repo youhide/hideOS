@@ -1,0 +1,11 @@
+# The greeter's system-bus half: reads each user's theme and wallpaper so
+# the greeter can show them. It has no D-Bus activation file; it is started
+# here, before greetd.
+[unit]
+description = "COSMIC greeter daemon"
+requires    = ["dbus"]
+after       = ["dbus"]
+
+[service]
+exec    = "/usr/bin/cosmic-greeter-daemon"
+restart = "on-failure"

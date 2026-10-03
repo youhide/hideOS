@@ -296,7 +296,7 @@ fn vendor_cargo_git(layout: &Layout, src: &Path, git: usize) -> Result<()> {
     eprintln!("  vendor with cargo ({git} packages from git)");
     let vendor = src.join(".hideforge-vendor");
     let output = Command::new("cargo")
-        .args(["vendor", "--locked", "--versioned-dirs", "--quiet"])
+        .args(["vendor", "--locked", "--versioned-dirs"])
         .arg(&vendor)
         .current_dir(src)
         // A cache that outlives the build, so a rebuild does not download
@@ -320,6 +320,11 @@ fn vendor_cargo_git(layout: &Layout, src: &Path, git: usize) -> Result<()> {
             &vendor.display().to_string(),
             "/build/src/.hideforge-vendor",
         );
+    // Without it, cargo would go to the network for the very sources just
+    // vendored, and fail much later, offline, in the sandbox.
+    if !config.contains("replace-with") {
+        bail!("cargo vendor printed no source replacement:\n{config}");
+    }
     fs::create_dir_all(src.join(".cargo"))?;
     fs::write(
         src.join(".cargo/config.toml"),

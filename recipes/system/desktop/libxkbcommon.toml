@@ -1,0 +1,35 @@
+# Without xkbregistry, which needs libxml2 and only layout pickers use;
+# without X11. The tag archive: no release tarballs are published.
+[package]
+name = "libxkbcommon"
+version = "1.13.2"
+description = "Keymap handling"
+license = "MIT"
+homepage = "https://xkbcommon.org"
+
+[[source]]
+url = "https://github.com/xkbcommon/libxkbcommon/archive/refs/tags/xkbcommon-1.13.2.tar.gz"
+sha256 = "acc4d5f7c3cbba5f9f8d08d8bdbeede84ecede46792f47929aa9321873385528"
+
+[depends]
+build = ["buildtools", "xkeyboard-config", "wayland", "wayland-protocols"]
+run = ["glibc", "xkeyboard-config"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Denable-x11=false \\
+    -Denable-docs=false \\
+    -Denable-xkbregistry=false \\
+    -Denable-tools=false \\
+    -Denable-wayland=false \\
+    -Dxkb-config-root=/usr/share/xkeyboard-config-2
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

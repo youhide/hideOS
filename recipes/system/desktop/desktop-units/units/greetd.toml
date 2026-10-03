@@ -1,0 +1,11 @@
+# The login screen: cosmic-greeter on cosmic-comp, then the session the
+# person picks.
+[unit]
+description = "Login manager"
+requires    = ["dbus", "elogind"]
+wants       = ["cosmic-greeter-daemon", "udev-settle"]
+after       = ["elogind", "cosmic-greeter-daemon", "udev-settle"]
+
+[service]
+exec    = "/usr/bin/greetd --config /usr/lib/greetd/config.toml"
+restart = "always"

@@ -1,0 +1,26 @@
+[package]
+name = "mtdev"
+version = "1.1.7"
+description = "Multitouch protocol translation"
+license = "MIT"
+homepage = "https://bitmath.org/code/mtdev/"
+
+[[source]]
+url = "https://bitmath.org/code/mtdev/mtdev-1.1.7.tar.bz2"
+sha256 = "a107adad2101fecac54ac7f9f0e0a0dd155d954193da55c2340c97f2ff1d814e"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static
+make -j"$JOBS"
+make install
+"""

@@ -1,0 +1,23 @@
+[package]
+name = "cosmic-notifications"
+version = "1.9.0"
+description = "COSMIC notifications"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-notifications"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-notifications/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "36fb0a639461432f77df30e8d065ecc536a64a8504e2eebe4b0dcd054cffad08"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+just rootdir=/ prefix=/usr install
+"""

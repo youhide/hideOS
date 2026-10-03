@@ -1,0 +1,22 @@
+# Without the PAM module (no PAM in this build), and without Go.
+[package]
+name = "libcap"
+version = "2.78"
+description = "POSIX capabilities library"
+license = "BSD-3-Clause OR GPL-2.0-only"
+homepage = "https://sites.google.com/site/fullycapable/"
+
+[[source]]
+url = "https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.78.tar.xz"
+sha256 = "0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+make -j"$JOBS" prefix=/usr lib=lib PAM_CAP=no GOLANG=no
+make prefix=/usr lib=lib PAM_CAP=no GOLANG=no install
+rm -f /usr/lib/libcap.a /usr/lib/libpsx.a
+"""

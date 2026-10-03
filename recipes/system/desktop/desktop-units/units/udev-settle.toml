@@ -1,0 +1,10 @@
+# Until udevd has handled every event the trigger replayed: what greetd
+# and the compositor wait for, so the GPU and the keyboard are there.
+[unit]
+description = "Wait for devices"
+requires    = ["udev-trigger"]
+after       = ["udev-trigger"]
+
+[service]
+type = "oneshot"
+exec = "/usr/bin/udevadm settle --timeout=30"

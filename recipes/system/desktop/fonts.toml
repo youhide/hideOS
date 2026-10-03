@@ -1,0 +1,53 @@
+# libcosmic names these two families as its defaults. Open Sans from
+# Google Fonts' repository at a fixed commit: its own repository
+# publishes no releases.
+[package]
+name = "fonts"
+version = "1"
+description = "Open Sans and Noto Sans Mono, COSMIC's interface and monospace faces"
+license = "OFL-1.1"
+
+[[source]]
+url = "https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/opensans/OpenSans%5Bwdth%2Cwght%5D.ttf"
+sha256 = "36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878"
+dest = "opensans"
+extract = false
+
+[[source]]
+url = "https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/opensans/OpenSans-Italic%5Bwdth%2Cwght%5D.ttf"
+sha256 = "fe269381e992f32e135801740998544d6235061e37c93ec067ad2be3edd5b17b"
+dest = "opensans"
+extract = false
+
+[[source]]
+url = "https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/opensans/OFL.txt"
+sha256 = "fbbbcfef55318de350562559b671360de6d597112ecc5c73881b05092db89602"
+dest = "opensans"
+extract = false
+
+[[source]]
+url = "https://github.com/notofonts/latin-greek-cyrillic/releases/download/NotoSansMono-v2.014/NotoSansMono-v2.014.zip"
+sha256 = "090cf6c5e03f337a755630ca888b1fef463e64ae7b33ee134e9309c05f978732"
+dest = "noto"
+extract = false
+
+[depends]
+build = ["toolchain", "python"]
+
+[build]
+script = """
+install -Dm644 -t /usr/share/fonts/open-sans opensans/*.ttf
+install -Dm644 opensans/OFL.txt /usr/share/licenses/open-sans/OFL.txt
+python3 - <<'END'
+import zipfile
+with zipfile.ZipFile("noto/NotoSansMono-v2.014.zip") as z:
+    for name in z.namelist():
+        if "/unhinted/variable/" in name and name.endswith(".ttf"):
+            data = z.read(name)
+            out = "/usr/share/fonts/noto-sans-mono/" + name.rsplit("/", 1)[1]
+            import os
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            open(out, "wb").write(data)
+END
+ls /usr/share/fonts/noto-sans-mono/*.ttf
+"""

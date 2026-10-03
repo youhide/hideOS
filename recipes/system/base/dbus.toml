@@ -1,0 +1,54 @@
+# The system bus runs as messagebus, which `hide setup` creates from the
+# sysusers.d file below; the paths it needs come from tmpfiles.d.
+[package]
+name = "dbus"
+version = "1.16.2"
+description = "The system and session message bus"
+license = "AFL-2.1 OR GPL-2.0-or-later"
+homepage = "https://www.freedesktop.org/wiki/Software/dbus/"
+
+[[source]]
+url = "https://dbus.freedesktop.org/releases/dbus/dbus-1.16.2.tar.xz"
+sha256 = "0ba2a1a4b16afe7bceb2c07e9ce99a8c2c3508e5dec290dbb643384bd6beb7e2"
+
+[depends]
+build = ["buildtools", "expat"]
+run = ["glibc", "expat"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dsystemd=disabled \\
+    -Dx11_autolaunch=disabled \\
+    -Ddoxygen_docs=disabled \\
+    -Dxml_docs=disabled \\
+    -Dducktype_docs=disabled \\
+    -Dqt_help=disabled \\
+    -Dmodular_tests=disabled \\
+    -Dinstalled_tests=false \\
+    -Dselinux=disabled \\
+    -Dapparmor=disabled \\
+    -Dlibaudit=disabled \\
+    -Dmessage_bus=true \\
+    -Dtools=true \\
+    -Duser_session=false \\
+    -Druntime_dir=/run \\
+    -Dsystem_socket=/run/dbus/system_bus_socket \\
+    -Ddbus_user=messagebus
+meson compile -C build -j "$JOBS"
+meson install -C build
+install -Dm644 /dev/stdin /usr/lib/sysusers.d/dbus.conf <<'END'
+u messagebus - "D-Bus message bus" /run/dbus
+END
+install -Dm644 /dev/stdin /usr/lib/tmpfiles.d/dbus.conf <<'END'
+d /run/dbus 0755 - - -
+d /var/lib/dbus 0755 - - -
+L /var/lib/dbus/machine-id - - - - /etc/machine-id
+END
+"""

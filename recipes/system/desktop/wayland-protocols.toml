@@ -1,0 +1,27 @@
+[package]
+name = "wayland-protocols"
+version = "1.49"
+description = "Wayland protocol extensions"
+license = "MIT"
+homepage = "https://gitlab.freedesktop.org/wayland/wayland-protocols"
+
+[[source]]
+url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.49/downloads/wayland-protocols-1.49.tar.xz"
+sha256 = "ec4c8f74942d6dff7ace8b4ce4764f0ef9ff618a935d974ea77edee2ad240b14"
+
+[depends]
+build = ["buildtools", "wayland"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dtests=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

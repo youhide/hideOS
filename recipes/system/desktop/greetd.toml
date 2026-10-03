@@ -1,0 +1,24 @@
+# Starts the greeter, and the session the greeter asks for, each
+# through PAM. Its configuration, and the PAM stacks, come with the
+# desktop units.
+[package]
+name = "greetd"
+version = "0.10.3"
+description = "Login manager daemon"
+license = "GPL-3.0-only"
+homepage = "https://git.sr.ht/~kennylevinsen/greetd"
+
+[[source]]
+url = "https://git.sr.ht/~kennylevinsen/greetd/archive/0.10.3.tar.gz"
+sha256 = "ee5cb70e0add4ca9c9fe57e47581ab0002d44c07743fb5492469f3b570db640b"
+
+[depends]
+build = ["toolchain", "stage1-rust", "linux-pam", "llvm"]
+run = ["glibc", "gcc", "linux-pam"]
+
+[build]
+vendor = "cargo"
+script = """
+cargo build --release --frozen
+install -Dm755 -t /usr/bin target/release/greetd target/release/agreety
+"""

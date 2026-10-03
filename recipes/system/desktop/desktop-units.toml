@@ -1,0 +1,29 @@
+# What the Workstation adds to boot: device management, the system bus,
+# seats, and the login screen, as oxinit units; the PAM stacks and the greetd
+# configuration they use. See recipes/system/images/workstation.toml.
+[package]
+name = "desktop-units"
+version = "1"
+description = "hideOS desktop services for oxinit, PAM and greetd configuration"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+run = [
+    "hideos-units",
+    "hide",
+    "eudev",
+    "dbus",
+    "elogind",
+    "linux-pam",
+    "greetd",
+    "cosmic-greeter",
+]
+
+[build]
+script = """
+install -Dm644 -t /usr/lib/oxinit/units "$FILES"/units/*.toml
+install -Dm644 -t /usr/lib/pam.d "$FILES"/pam.d/*
+install -Dm644 -t /usr/lib/greetd "$FILES"/greetd/config.toml
+install -Dm644 -t /usr/lib/sysusers.d "$FILES"/sysusers.d/*.conf
+"""

@@ -1,0 +1,23 @@
+[package]
+name = "cosmic-idle"
+version = "1.9.0"
+description = "COSMIC idle and screen blanking"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-idle"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-idle/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "acdd250cc845879352b1707c25636145dbdc3f0b4d17724d9a031e789a0592f1"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+just rootdir=/ prefix=/usr install
+"""

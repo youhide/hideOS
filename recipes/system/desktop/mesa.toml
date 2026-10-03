@@ -1,0 +1,67 @@
+# Wayland only. llvmpipe and softpipe draw without a GPU — in QEMU, and
+# on any machine whose GPU is not supported yet; virgl is QEMU's
+# accelerated GPU; radeonsi is AMD. Intel's iris needs clang's OpenCL
+# front end and the SPIR-V tools at build time, and comes with real
+# hardware in H4. No Vulkan drivers yet: COSMIC's renderer falls back
+# to GLES.
+[package]
+name = "mesa"
+version = "26.2.4"
+description = "OpenGL ES and EGL, with the GPU drivers"
+license = "MIT"
+homepage = "https://mesa3d.org"
+
+[[source]]
+url = "https://archive.mesa3d.org/mesa-26.2.4.tar.xz"
+sha256 = "bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9"
+
+[depends]
+build = ["buildtools", "llvm", "libdrm", "wayland", "wayland-protocols", "expat", "zstd", "elfutils", "eudev"]
+run = ["glibc", "gcc", "zlib", "llvm", "libdrm", "wayland", "expat", "zstd", "elfutils", "eudev"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dplatforms=wayland \\
+    -Dglx=disabled \\
+    -Dxlib-lease=disabled \\
+    -Degl=enabled \\
+    -Dgbm=enabled \\
+    -Dgles1=disabled \\
+    -Dgles2=enabled \\
+    -Dopengl=true \\
+    -Dglvnd=disabled \\
+    -Dgallium-drivers=llvmpipe,softpipe,virgl,radeonsi \\
+    -Dvulkan-drivers=[] \\
+    -Dllvm=enabled \\
+    -Dshared-llvm=enabled \\
+    -Ddraw-use-llvm=true \\
+    -Damd-use-llvm=true \\
+    -Dgallium-va=disabled \\
+    -Dvideo-codecs=[] \\
+    -Dgallium-rusticl=false \\
+    -Dmicrosoft-clc=disabled \\
+    -Dteflon=false \\
+    -Dvalgrind=disabled \\
+    -Dlibunwind=disabled \\
+    -Dlmsensors=disabled \\
+    -Dselinux=false \\
+    -Dzstd=enabled \\
+    -Dexpat=enabled \\
+    -Dxmlconfig=enabled \\
+    -Dshader-cache=enabled \\
+    -Dbuild-tests=false \\
+    -Dhtml-docs=disabled \\
+    -Dperfetto=false \\
+    -Dsysprof=false \\
+    -Dintel-rt=disabled \\
+    -Dcpp_rtti=true
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

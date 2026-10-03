@@ -1,0 +1,29 @@
+# 0.3, not the newest: cosmic-comp's libdisplay-info-sys asks for
+# >= 0.1, < 0.4, and 0.4 changed the API.
+[package]
+name = "libdisplay-info"
+version = "0.3.0"
+description = "EDID and DisplayID parsing"
+license = "MIT"
+homepage = "https://gitlab.freedesktop.org/emersion/libdisplay-info"
+
+[[source]]
+url = "https://gitlab.freedesktop.org/emersion/libdisplay-info/-/releases/0.3.0/downloads/libdisplay-info-0.3.0.tar.xz"
+sha256 = "6ae77cd937f9cf7d1321d35c116062c4911e8447010a6a713ac4286f7a9d5987"
+
+[depends]
+build = ["buildtools", "hwdata"]
+run = ["glibc"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

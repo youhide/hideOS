@@ -1,0 +1,34 @@
+# glibc no longer has libcrypt; PAM's pam_unix verifies passwords with
+# crypt(3). Strong hashes and glibc's own, nothing obsolete. Without
+# -Werror: glibc 2.44's const-correct strchr makes a warning of code
+# that is fine.
+[package]
+name = "libxcrypt"
+version = "4.5.2"
+description = "Password hashing (crypt), for PAM"
+license = "LGPL-2.1-or-later"
+homepage = "https://github.com/besser82/libxcrypt"
+
+[[source]]
+url = "https://github.com/besser82/libxcrypt/releases/download/v4.5.2/libxcrypt-4.5.2.tar.xz"
+sha256 = "71513a31c01a428bccd5367a32fd95f115d6dac50fb5b60c779d5c7942aec071"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static \\
+    --enable-hashes=strong,glibc \\
+    --enable-obsolete-api=no \\
+    --disable-failure-tokens \\
+    --disable-werror
+make -j"$JOBS"
+make install
+"""

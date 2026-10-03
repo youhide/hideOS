@@ -40,6 +40,7 @@ fn main() -> ExitCode {
         Some("image") => image(args.get(1..).unwrap_or_default()),
         Some("install") => install(args.get(1..).unwrap_or_default()),
         Some("boot") => boot(args.get(1..).unwrap_or_default()),
+        Some("seal-test") => seal_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
         Some("publish-site") => publish_site(),
         Some("help" | "--help" | "-h") | None => {
@@ -77,8 +78,12 @@ fn usage() -> &'static str {
                                   boot it in QEMU; --test waits for the
                                   banner; --disk boots disk.raw through UEFI
                                   (Workstation always does)
-    screenshot [--arch ARCH] [--edition E]
-                                  boot it and save a PNG of the screen
+    seal-test [--arch ARCH]       install Minimal on a scratch disk and try to
+                                  break the seal: write /usr, tamper with an
+                                  object, swap the image
+    screenshot [--arch ARCH] [--edition E] [--login]
+                                  boot it and save a PNG of the screen;
+                                  --login logs in at the greeter first
     publish-site                  push site/ and the screenshot to gh-pages
 "
 }
@@ -645,6 +650,12 @@ const INSTALL_FAILED: &str = "hide install: FAILED";
 fn install(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let edition = find_edition(args)?;
+    let disk = image_dir(edition, arch)?.join("disk.raw");
+    install_disk(arch, edition, &disk)
+}
+
+/// Installs `edition` on a new disk image at `disk`.
+fn install_disk(arch: Arch, edition: Edition, disk: &Path) -> Result<(), String> {
     let dir = image_dir(edition, arch)?;
     // Every edition is installed by Minimal, as on a real machine.
     let (kernel, initrd) = ram_image(arch, &image_dir(MINIMAL, arch)?)?;
@@ -657,9 +668,8 @@ fn install(args: &[String]) -> Result<(), String> {
             edition.name
         ));
     }
-    let disk = dir.join("disk.raw");
-    let _ = fs::remove_file(&disk);
-    fs::File::create(&disk)
+    let _ = fs::remove_file(disk);
+    fs::File::create(disk)
         .and_then(|f| f.set_len(DISK_SIZE))
         .map_err(|e| format!("creating {}: {e}", disk.display()))?;
 
@@ -906,6 +916,235 @@ fn boot(args: &[String]) -> Result<(), String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// seal-test
+
+/// A guest whose serial console is this process's to read and type at.
+struct Guest {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    output: std::sync::Arc<std::sync::Mutex<String>>,
+}
+
+impl Guest {
+    fn boot(arch: Arch, dir: &Path, disk: &Path) -> Result<Guest, String> {
+        let mut command = qemu(arch, MINIMAL);
+        uefi_firmware(arch, &mut command, dir)?;
+        command
+            .arg("-drive")
+            .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+            .args(["-display", "none", "-monitor", "none", "-serial", "stdio"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("could not start {}: {e}", arch.qemu))?;
+        let stdin = child.stdin.take().ok_or("QEMU's stdin")?;
+        let mut stdout = child.stdout.take().ok_or("QEMU's stdout")?;
+        let output = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let sink = std::sync::Arc::clone(&output);
+        thread::spawn(move || {
+            use std::io::Read;
+            let mut buffer = [0u8; 4096];
+            while let Ok(n) = stdout.read(&mut buffer) {
+                if n == 0 {
+                    break;
+                }
+                if let (Ok(mut text), Some(bytes)) = (sink.lock(), buffer.get(..n)) {
+                    text.push_str(&String::from_utf8_lossy(bytes));
+                }
+            }
+        });
+        Ok(Guest {
+            child,
+            stdin,
+            output,
+        })
+    }
+
+    fn output(&self) -> String {
+        self.output.lock().map(|t| t.clone()).unwrap_or_default()
+    }
+
+    /// Waits for `text` on the console, kernel messages aside.
+    fn wait_for(&self, text: &str, timeout: Duration) -> bool {
+        let started = Instant::now();
+        while started.elapsed() < timeout {
+            if without_kernel_messages(&self.output()).contains(text) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        false
+    }
+
+    fn type_line(&mut self, line: &str) -> Result<(), String> {
+        use std::io::Write;
+        self.stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .and_then(|()| self.stdin.flush())
+            .map_err(|e| format!("typing at the guest: {e}"))
+    }
+
+    /// Runs `command` at the shell and returns what it printed between two
+    /// markers. The markers are built by the shell from pieces, so the
+    /// echo of the typed line never matches them.
+    fn run(&mut self, command: &str, timeout: Duration) -> Result<String, String> {
+        let before = self.output().len();
+        self.type_line(&format!(
+            "a=@@; print \"${{a}}BEGIN\"; {{ {command} ; }} 2>&1; print \"${{a}}END\""
+        ))?;
+        if !self.wait_for_after(before, "@@END", timeout) {
+            let output = self.output();
+            let tail = output.get(output.len().saturating_sub(800)..).unwrap_or("");
+            return Err(format!(
+                "no answer to `{command}`; the console ends:\n{tail:?}"
+            ));
+        }
+        let text = without_kernel_messages(self.output().get(before..).unwrap_or(""));
+        let start = text
+            .find("@@BEGIN")
+            .map(|i| i + "@@BEGIN".len())
+            .unwrap_or(0);
+        let end = text.find("@@END").unwrap_or(text.len());
+        Ok(text.get(start..end).unwrap_or("").trim().to_owned())
+    }
+
+    fn wait_for_after(&self, from: usize, text: &str, timeout: Duration) -> bool {
+        let started = Instant::now();
+        while started.elapsed() < timeout {
+            if without_kernel_messages(self.output().get(from..).unwrap_or("")).contains(text) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        false
+    }
+}
+
+impl Drop for Guest {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// The attacks H2's seal has to stop, on a disk of their own: see ROADMAP,
+/// "H2 — The seal". Each one is something root on the running system can
+/// do; the seal is what makes the next read, or the next boot, notice.
+fn seal_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    let disk = dir.join("seal-test.raw");
+    install_disk(arch, MINIMAL, &disk)?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let boot_timeout = arch.timeout.max(Duration::from_secs(120));
+    let minute = Duration::from_secs(60);
+
+    println!("boot 1: attacks from the running system");
+    let mut guest = Guest::boot(arch, &dir, &disk)?;
+    let booted = guest.wait_for("reached target default", boot_timeout);
+    check(
+        "boots from the sealed disk",
+        booted,
+        "no `reached target default`",
+    );
+    if !booted {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    // The shell reads its input only once it has started; until it answers,
+    // what is typed may be lost. Ask until it does.
+    let mut ready = false;
+    for _ in 0..10 {
+        guest.type_line("unsetopt zle; PS1=''")?;
+        if guest.run("print ready", Duration::from_secs(5)).is_ok() {
+            ready = true;
+            break;
+        }
+    }
+    if !ready {
+        return Err(format!("the shell never answered:\n{}", guest.output()));
+    }
+
+    let out = guest.run("touch /usr/bin/intruder; print status=$?", minute)?;
+    check(
+        "writing to /usr fails",
+        out.contains("Read-only file system") && out.contains("status=1"),
+        &out,
+    );
+
+    let out = guest.run(
+        "print hello > /etc/hide-seal-test && cat /etc/hide-seal-test",
+        minute,
+    )?;
+    check("/etc stays writable", out.contains("hello"), &out);
+
+    // The objects behind /usr/bin/btrfs, found by size with zsh's L
+    // qualifier, each replaced by a copy with one byte changed — what
+    // root, or a disk edited offline, can do to the store.
+    let out = guest.run(
+        "size=$(stat -c %s /usr/bin/btrfs); obj=(/hideos/objects/*/*(L$size)); \
+         for o in $obj; do cp $o $o.new && print -n X | dd of=$o.new bs=1 seek=4096 \
+         conv=notrunc status=none && mv -f $o.new $o; done; print tampered=${#obj}",
+        minute,
+    )?;
+    check(
+        "an object can be tampered with",
+        out.contains("tampered=") && !out.contains("tampered=0"),
+        &out,
+    );
+    let out = guest.run(
+        "print 3 > /proc/sys/vm/drop_caches; cat /usr/bin/btrfs > /dev/null; print status=$?",
+        minute,
+    )?;
+    check(
+        "reading the tampered file fails with EIO",
+        out.contains("Input/output error") && out.contains("status=1"),
+        &out,
+    );
+
+    // The image's name pointed at another sealed file: what replacing the
+    // system image looks like to the next boot.
+    let out = guest.run(
+        "img=(/hideos/images/*(^/)); other=(/hideos/objects/*/*(.L+100000)); \
+         ln -sfn ../objects/${other[1]#/hideos/objects/} $img && sync && print swapped",
+        minute,
+    )?;
+    check("the image can be swapped", out.contains("swapped"), &out);
+    guest.type_line("poweroff")?;
+    let _ = guest.wait_for("reboot: Power down", minute);
+    drop(guest);
+
+    println!("boot 2: the swapped image");
+    let guest = Guest::boot(arch, &dir, &disk)?;
+    let refused = guest.wait_for(
+        "does not match the one this kernel was signed with",
+        boot_timeout,
+    );
+    check(
+        "hidestage refuses the swapped image",
+        refused && !guest.output().contains("reached target default"),
+        &without_kernel_messages(&guest.output()),
+    );
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    if failures.is_empty() {
+        println!("{}: the seal holds", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
 /// What a desktop guest gets: virtio-gpu, keyboard and tablet.
 const DESKTOP_DEVICES: &[&str] = &[
     "-device",
@@ -935,7 +1174,8 @@ fn screenshot(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let edition = find_edition(args)?;
     if !edition.ram {
-        return desktop_screenshot(arch, edition);
+        let login = args.iter().any(|a| a == "--login");
+        return desktop_screenshot(arch, edition, login);
     }
     let dir = image_dir(edition, arch)?;
     let kernel = dir.join("vmlinuz");
@@ -1053,7 +1293,7 @@ const DESKTOP_WAIT: Duration = Duration::from_secs(90);
 
 /// Boots a desktop edition from its disk, waits for the greeter, and saves
 /// the screen.
-fn desktop_screenshot(arch: Arch, edition: Edition) -> Result<(), String> {
+fn desktop_screenshot(arch: Arch, edition: Edition, login: bool) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::net::UnixStream;
 
@@ -1099,6 +1339,20 @@ fn desktop_screenshot(arch: Arch, edition: Edition) -> Result<(), String> {
     let shot = monitor_path("screenshot.png");
     let result = UnixStream::connect(&socket)
         .and_then(|mut monitor| {
+            if login {
+                // The greeter starts with the password field focused.
+                println!(
+                    "logging in as {DEV_USER}; picture in {}s",
+                    DESKTOP_WAIT.as_secs()
+                );
+                for c in DEV_USER.chars() {
+                    let key = qcode(c).map_err(std::io::Error::other)?;
+                    monitor.write_all(format!("sendkey {key}\n").as_bytes())?;
+                    thread::sleep(Duration::from_millis(100));
+                }
+                monitor.write_all(b"sendkey ret\n")?;
+                thread::sleep(DESKTOP_WAIT);
+            }
             monitor.write_all(format!("screendump {} -f png\n", shot.display()).as_bytes())
         })
         .map_err(|e| format!("QEMU monitor: {e}"));
@@ -1152,6 +1406,9 @@ fi
 git -C "$tree" rm -rqf --ignore-unmatch . >/dev/null
 cp "$root/site/index.html" "$tree/index.html"
 if [ -f "$shot" ]; then cp "$shot" "$tree/screenshot.png"; fi
+# The desktop's picture is the one in the repository: taking it means
+# building the Workstation, which is most of a day.
+cp "$root/docs/images/workstation-desktop.png" "$tree/desktop.png"
 # Plain files, not a Jekyll site.
 touch "$tree/.nojekyll"
 git -C "$tree" add -A

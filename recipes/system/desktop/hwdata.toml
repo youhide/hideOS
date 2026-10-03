@@ -1,0 +1,19 @@
+[package]
+name = "hwdata"
+version = "0.412"
+description = "Hardware identification databases"
+license = "GPL-2.0-or-later"
+homepage = "https://github.com/vcrhonek/hwdata"
+
+[[source]]
+url = "https://github.com/vcrhonek/hwdata/archive/refs/tags/v0.412.tar.gz"
+sha256 = "f0c64cd7e31d70a5fb3a52e53ab50a61e74c0421a6381eaa45114eec3bde5fe7"
+
+[depends]
+build = ["toolchain"]
+
+[build]
+script = """
+./configure --prefix=/usr --disable-blacklist
+make install
+"""

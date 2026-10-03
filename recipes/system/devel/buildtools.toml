@@ -1,0 +1,15 @@
+# What a meson build of the desktop needs, as one dependency.
+[package]
+name = "buildtools"
+version = "1"
+description = "The toolchain with meson, ninja, gperf and the Python modules code generators use"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+run = ["toolchain", "python", "meson", "ninja", "gperf", "python-build-modules"]
+
+[build]
+script = """
+true
+"""

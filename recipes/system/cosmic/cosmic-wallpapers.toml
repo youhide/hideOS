@@ -1,0 +1,18 @@
+[package]
+name = "cosmic-wallpapers"
+version = "1.9.0"
+description = "COSMIC wallpapers"
+license = "CC-BY-4.0"
+homepage = "https://github.com/pop-os/cosmic-wallpapers"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-wallpapers/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "d898a1a7f84c8138e9b16e6a0cc1ed806ce9a87a94ab75561895b8e1d7a465f5"
+
+[depends]
+build = ["toolchain"]
+
+[build]
+script = """
+make install DESTDIR= prefix=/usr
+"""

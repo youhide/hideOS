@@ -1,0 +1,26 @@
+[package]
+name = "cosmic-greeter"
+version = "1.9.1"
+description = "COSMIC greeter and lock screen"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-greeter"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-greeter/archive/refs/tags/epoch-1.9.1.tar.gz"
+sha256 = "a818e9f96715a09360a083685e5eb8eab9af5fc7e58fa92c839fa801912fe32f"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "linux-pam", "libinput", "eudev", "dav1d", "libxkbcommon", "llvm", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "linux-pam", "libinput", "eudev", "dav1d", "cosmic-comp", "cosmic-randr", "dbus"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.1"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+# --all: the greeter and cosmic-greeter-daemon, its system-bus half.
+cargo build --release --frozen --all
+just rootdir=/ prefix=/usr install
+install -Dm644 debian/cosmic-greeter.sysusers /usr/lib/sysusers.d/cosmic-greeter.conf
+install -Dm644 debian/cosmic-greeter.tmpfiles /usr/lib/tmpfiles.d/cosmic-greeter.conf
+"""

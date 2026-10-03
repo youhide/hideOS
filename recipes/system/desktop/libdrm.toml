@@ -1,0 +1,39 @@
+# Without libdrm_intel, which needs libpciaccess and nothing hideOS
+# builds uses.
+[package]
+name = "libdrm"
+version = "2.4.134"
+description = "Kernel DRM userspace library"
+license = "MIT"
+homepage = "https://gitlab.freedesktop.org/mesa/drm"
+
+[[source]]
+url = "https://dri.freedesktop.org/libdrm/libdrm-2.4.134.tar.xz"
+sha256 = "ac5e74d157830eb8bee44c6a6bf3ad49774ef0dd2a72bdad74a8f20308b52a95"
+
+[depends]
+build = ["buildtools"]
+run = ["glibc"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dudev=false \\
+    -Dvalgrind=disabled \\
+    -Dintel=disabled \\
+    -Dradeon=enabled \\
+    -Damdgpu=enabled \\
+    -Dnouveau=enabled \\
+    -Dvmwgfx=enabled \\
+    -Dcairo-tests=disabled \\
+    -Dman-pages=disabled \\
+    -Dtests=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

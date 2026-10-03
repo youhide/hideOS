@@ -1,0 +1,7 @@
+[unit]
+description = "Device manager"
+after       = ["setup"]
+
+[service]
+exec    = "/usr/bin/udevd"
+restart = "on-failure"

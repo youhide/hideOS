@@ -7,7 +7,9 @@
 //!   order NAME...         what building NAME builds, in order
 //!   hash NAME [--explain] NAME's input hash, and what went into it
 //!   fetch NAME...         download and verify sources for NAME and its inputs
-//!   build NAME... [--keep-failed]
+//!   build NAME... [--keep-failed] [--keep-going]
+//!                         --keep-going: after a failure, build everything
+//!                         that does not need what failed, then report
 //!   image NAME --output DIR --kernel NAME [--payload --initrd NAME]
 //!                         build NAME and assemble its run closure into an
 //!                         initramfs, with the kernel next to it; --payload
@@ -186,7 +188,10 @@ fn run(args: &[String]) -> Result<i32> {
                 &context,
                 &hashes,
                 &order,
-                flag("--keep-failed"),
+                BuildOptions {
+                    keep_failed: flag("--keep-failed"),
+                    keep_going: flag("--keep-going"),
+                },
             )?;
         }
         "image" => {
@@ -214,7 +219,14 @@ fn run(args: &[String]) -> Result<i32> {
             let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
             let hashes = set.input_hashes(&targets, &context)?;
             let order = set.build_order(&targets)?;
-            build(&set, &layout, &context, &hashes, &order, false)?;
+            build(
+                &set,
+                &layout,
+                &context,
+                &hashes,
+                &order,
+                BuildOptions::default(),
+            )?;
             let outputs = image::Outputs {
                 dir: output.as_ref(),
                 kernel,
@@ -274,6 +286,15 @@ fn needs_names<'a>(names: &[&'a str]) -> Result<Vec<&'a str>> {
     Ok(names.to_vec())
 }
 
+/// How `build` treats failures.
+#[derive(Clone, Copy, Default)]
+struct BuildOptions {
+    /// Keep a failed build's directory, to look at.
+    keep_failed: bool,
+    /// Go on with whatever does not need what failed.
+    keep_going: bool,
+}
+
 #[cfg(not(target_os = "linux"))]
 fn build(
     _: &RecipeSet,
@@ -281,7 +302,7 @@ fn build(
     _: &HashContext,
     _: &BTreeMap<String, InputHash>,
     _: &[String],
-    _: bool,
+    _: BuildOptions,
 ) -> Result<()> {
     bail!("building needs Linux; run it in the builder: cargo xtask forge -- build NAME")
 }
@@ -293,11 +314,42 @@ fn build(
     context: &HashContext,
     hashes: &BTreeMap<String, InputHash>,
     order: &[String],
-    keep_failed: bool,
+    options: BuildOptions,
 ) -> Result<()> {
     let exe = sandbox::ExeCopy::new(layout.exe_copy())?;
+    // Failed, or not built because something they need failed.
+    let mut failed: Vec<String> = Vec::new();
     for name in order {
-        build_one(set, layout, context, hashes, name, keep_failed, &exe)?;
+        if options.keep_going {
+            let inputs = set.sandbox_inputs(name)?;
+            if let Some(cause) = failed.iter().find(|f| inputs.contains(*f)) {
+                println!("  skip    {name}: needs {cause}");
+                failed.push(name.clone());
+                continue;
+            }
+        }
+        if let Err(error) = build_one(
+            set,
+            layout,
+            context,
+            hashes,
+            name,
+            options.keep_failed,
+            &exe,
+        ) {
+            if !options.keep_going {
+                return Err(error);
+            }
+            eprintln!("error: {error:#}");
+            failed.push(name.clone());
+        }
+    }
+    if !failed.is_empty() {
+        bail!(
+            "{} recipe(s) not built: {}",
+            failed.len(),
+            failed.join(", ")
+        );
     }
     Ok(())
 }

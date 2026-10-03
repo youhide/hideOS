@@ -1,0 +1,50 @@
+# vendordir=/usr/lib: PAM reads a service's stack from /etc/pam.d, and
+# then from /usr/lib/pam.d, where hideOS ships them; /etc stays the
+# machine's. elogind's PAM module comes from elogind; this one is built
+# without logind support so the two do not depend on each other.
+[package]
+name = "linux-pam"
+version = "1.7.3"
+description = "Pluggable authentication modules"
+license = "BSD-3-Clause OR GPL-2.0-or-later"
+homepage = "https://github.com/linux-pam/linux-pam"
+
+[[source]]
+url = "https://github.com/linux-pam/linux-pam/releases/download/v1.7.3/Linux-PAM-1.7.3.tar.xz"
+sha256 = "2ce4765fd49df6693771ef2941f81e33d8ee14b94a81a5c7b369aa3b137b85a5"
+
+[depends]
+build = ["buildtools", "libxcrypt"]
+run = ["glibc", "libxcrypt"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dvendordir=/usr/lib \\
+    -Ddocs=disabled \\
+    -Dexamples=false \\
+    -Delogind=disabled \\
+    -Dlogind=disabled \\
+    -Daudit=disabled \\
+    -Dselinux=disabled \\
+    -Dnis=disabled \\
+    -Deconf=disabled \\
+    -Di18n=disabled \\
+    -Dxtests=false \\
+    -Dpam_userdb=disabled \\
+    -Dpam_lastlog=disabled \\
+    -Dopenssl=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+# Setuid, as every distribution makes it: pam_unix asks this
+# helper to check a password whenever the caller is not root,
+# and only root can read /etc/shadow. Upstream's install
+# leaves the bit to the packager.
+chmod 4755 /usr/sbin/unix_chkpwd
+"""

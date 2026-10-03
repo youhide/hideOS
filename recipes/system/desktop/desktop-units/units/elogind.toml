@@ -1,0 +1,10 @@
+# Seats and sessions: COSMIC gets its GPU and input devices through it,
+# and the power buttons go to it.
+[unit]
+description = "Login and seat manager"
+requires    = ["dbus"]
+after       = ["dbus", "udev-settle"]
+
+[service]
+exec    = "/usr/libexec/elogind"
+restart = "on-failure"

@@ -1,0 +1,23 @@
+[package]
+name = "cosmic-comp"
+version = "1.9.0"
+description = "COSMIC compositor"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-comp"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-comp/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "f0f3a2362861fe8976d7d45436aaa0a10de975522b6e8a53d77058a74ffc81e8"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "eudev", "libinput", "seatd", "mesa", "libdisplay-info", "pixman", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "eudev", "libinput", "seatd", "libdisplay-info", "pixman"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+make install DESTDIR= prefix=/usr CARGO_TARGET_DIR=target
+"""

@@ -42,6 +42,12 @@ pub fn valid_name(name: &str) -> bool {
         && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-' | '_'))
 }
 
+/// Random bytes for a password's salt. Twelve, because SHA-crypt takes at
+/// most 16 characters of salt, and 12 bytes are 16 in its base64; a longer
+/// salt is cut to 16 by libxcrypt when it checks the password, which then
+/// never matches the hash that was stored with all of it.
+pub type Salt = [u8; 12];
+
 /// Adds `name` with its own group, `FIRST_UID`, and `password` hashed with
 /// SHA-512-crypt, the hash glibc's crypt and PAM verify by default.
 pub fn add_first_user(
@@ -49,6 +55,7 @@ pub fn add_first_user(
     name: &str,
     full_name: &str,
     password: &str,
+    salt: &Salt,
 ) -> Result<Files, AccountError> {
     if !valid_name(name) {
         return Err(AccountError::Name(name.to_owned()));
@@ -61,7 +68,7 @@ pub fn add_first_user(
         return Err(AccountError::Exists(name.to_owned()));
     }
     let hash = ShaCrypt::default()
-        .hash_password(password.as_bytes())
+        .hash_password_with_salt(password.as_bytes(), salt)
         .map_err(|e| AccountError::Hash(e.to_string()))?;
     let gecos = full_name.replace([':', '\n'], " ");
 
@@ -106,6 +113,8 @@ mod tests {
     use super::*;
     use sha_crypt::PasswordVerifier;
 
+    const SALT: Salt = *b"twelve bytes";
+
     fn base() -> Files {
         Files {
             passwd: "root:x:0:0:root:/root:/usr/bin/zsh\n".to_owned(),
@@ -116,7 +125,7 @@ mod tests {
 
     #[test]
     fn adds_an_administrator_with_a_verifiable_password() {
-        let files = add_first_user(&base(), "youri", "Youri: Mattar", "s3cret").unwrap();
+        let files = add_first_user(&base(), "youri", "Youri: Mattar", "s3cret", &SALT).unwrap();
         assert!(
             files
                 .passwd
@@ -130,6 +139,9 @@ mod tests {
             .and_then(|s| s.split(':').next())
             .unwrap();
         assert!(hash.starts_with("$6$"));
+        // $6$rounds=N$SALT$HASH: no more salt than crypt(3) reads.
+        let salt = hash.split('$').nth(3).unwrap();
+        assert_eq!(salt.len(), 16, "{hash}");
         ShaCrypt::default()
             .verify_password(b"s3cret", hash)
             .unwrap();
@@ -139,16 +151,16 @@ mod tests {
     fn refuses_bad_names_duplicates_and_empty_passwords() {
         for bad in ["", "Youri", "1abc", "a b", "a:b", &"a".repeat(33)] {
             assert_eq!(
-                add_first_user(&base(), bad, "", "x"),
+                add_first_user(&base(), bad, "", "x", &SALT),
                 Err(AccountError::Name(bad.to_owned()))
             );
         }
         assert_eq!(
-            add_first_user(&base(), "root", "", "x"),
+            add_first_user(&base(), "root", "", "x", &SALT),
             Err(AccountError::Exists("root".to_owned()))
         );
         assert_eq!(
-            add_first_user(&base(), "youri", "", ""),
+            add_first_user(&base(), "youri", "", "", &SALT),
             Err(AccountError::EmptyPassword)
         );
     }

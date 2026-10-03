@@ -27,7 +27,7 @@ chmod 0700 /root
 chmod 1777 /tmp
 
 cat > /etc/passwd <<'END'
-root:x:0:0:root:/root:/usr/bin/zsh
+root:x:0:0:root:/var/root:/usr/bin/zsh
 nobody:x:65534:65534:Unprivileged user:/:/usr/bin/false
 END
 cat > /etc/group <<'END'

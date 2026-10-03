@@ -93,7 +93,8 @@ left is signing, and making those attacks a test anyone can run.
       the payload attached and running `hide install` — the builder's kernel
       cannot enable fs-verity. See ARCHITECTURE, "Disk images are installed,
       not assembled". `cargo xtask install`, then `boot --disk`.
-- [ ] `cargo xtask seal-test`: the attacks above, scripted.
+- [x] `cargo xtask seal-test`: the attacks above, scripted, on a disk of
+      their own — seven checks.
 
 Done when: QEMU boots from a disk into the sealed root; writing to `/usr` fails;
 flipping one byte of one object makes reading that file fail with `EIO`; a UKI
@@ -125,15 +126,24 @@ TPM2, joins Wi-Fi, suspends and resumes.
 
 ## H5 — Desktop
 
-- [ ] dbus-daemon, elogind, polkit.
-- [ ] Mesa, PipeWire, WirePlumber.
-- [ ] Per-user services in oxinit (oxinit-side work).
-- [ ] greetd + cosmic-greeter, the COSMIC session and applications.
+**In progress.** On 2026-10-03 the `workstation` image — 118 recipes, LLVM,
+Mesa and COSMIC epoch 1.9 built from source — installed with `cargo xtask
+install --edition workstation`, booted sealed to cosmic-greeter, and logged
+in to the COSMIC desktop, drawn by llvmpipe on QEMU's virtio-gpu. Missing
+yet: polkit (the lock screen), sound, the base icon theme, a locale.
+
+- [x] dbus-daemon, elogind. [ ] polkit.
+- [x] Mesa (llvmpipe, softpipe, virgl, radeonsi). [ ] Intel's iris, which
+      needs clang's OpenCL front end and the SPIR-V tools.
+- [ ] PipeWire and WirePlumber started for the session: built, not started.
+- [ ] Per-user services in oxinit (oxinit-side work). Until then the
+      session's output goes to `~/.local/state/cosmic-session.log`.
+- [x] greetd + cosmic-greeter, the COSMIC session and applications.
 - [ ] `os.hide.Update1` D-Bus API on hideupd; the `hide` CLI moved onto it.
 - [ ] COSMIC Settings pages (Updates, Recovery, Extensions) and the update
       applet, in libcosmic.
 - [ ] `hidesetup`: first-boot setup.
-- [ ] The `workstation` image: `minimal` and the desktop layer.
+- [x] The `workstation` image: `minimal-base` and the desktop layer.
 - [ ] Flatpak with Flathub and `xdg-desktop-portal-cosmic`.
 - [ ] `hide shell`: toolbox-style Podman containers.
 

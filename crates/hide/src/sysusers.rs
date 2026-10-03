@@ -186,10 +186,20 @@ impl Database {
         Ok(gid)
     }
 
-    /// Applies entries in order. Returns a description of each change.
+    /// Applies entries: groups first, then users, then memberships, as
+    /// systemd-sysusers does — a file may add its user to a group another
+    /// file declares, and files are read in name order, not dependency
+    /// order. Returns a description of each change.
     pub fn apply(&mut self, entries: &[Entry]) -> Result<Vec<String>, String> {
         let mut changes = Vec::new();
-        for entry in entries {
+        let phase = |e: &&Entry| match e {
+            Entry::Group { .. } => 0,
+            Entry::User { .. } => 1,
+            Entry::Member { .. } => 2,
+        };
+        let mut ordered: Vec<&Entry> = entries.iter().collect();
+        ordered.sort_by_key(phase);
+        for entry in ordered {
             match entry {
                 Entry::Group { name, gid } => {
                     if self.group_gid(name).is_none() {
@@ -313,13 +323,15 @@ mod tests {
         let mut db = Database::parse(PASSWD, GROUP);
         let entries = parse("u messagebus -\nu polkitd -\ng render -\n").unwrap();
         db.apply(&entries).unwrap();
+        // Groups are allocated first, then each user with a group of its
+        // own ID.
+        assert!(db.group_text().contains("render:x:999:\n"));
         assert!(
             db.passwd_text()
-                .contains("messagebus:x:999:999::/:/usr/bin/false\n")
+                .contains("messagebus:x:998:998::/:/usr/bin/false\n")
         );
-        assert!(db.passwd_text().contains("polkitd:x:998:998:"));
-        assert!(db.group_text().contains("messagebus:x:999:\n"));
-        assert!(db.group_text().contains("render:x:997:\n"));
+        assert!(db.passwd_text().contains("polkitd:x:997:997:"));
+        assert!(db.group_text().contains("messagebus:x:998:\n"));
         assert_eq!(db.new_users, ["messagebus", "polkitd"]);
     }
 
@@ -342,6 +354,21 @@ mod tests {
             .unwrap();
         assert_eq!(db.passwd_text(), PASSWD);
         assert_eq!(db.group_text(), GROUP);
+    }
+
+    #[test]
+    fn memberships_wait_for_groups_declared_later() {
+        // cosmic-greeter.conf sorts before devices.conf, which declares video.
+        let mut entries = parse("u cosmic-greeter -\nm cosmic-greeter video\n").unwrap();
+        entries.extend(parse("g video -\n").unwrap());
+        let mut db = Database::parse(PASSWD, GROUP);
+        db.apply(&entries).unwrap();
+        assert!(db.group_text().contains(":cosmic-greeter\n"));
+        assert!(
+            db.group_text()
+                .lines()
+                .any(|l| l.starts_with("video:") && l.ends_with(":cosmic-greeter"))
+        );
     }
 
     #[test]

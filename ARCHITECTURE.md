@@ -149,6 +149,18 @@ btrfs subvolumes:
 | `@home`    | `/home`    | User data, snapshotted on a timer                             |
 | `@swap`    | `/swap`    | Swap file, sized for hibernation                              |
 
+Everything else in the root is the sealed image, read-only, so the few
+places that must be writable are not left to chance:
+
+- `/tmp` is a tmpfs, mounted by hidestage before oxinit starts. A directory
+  in the image would be read-only, and the first casualty is the desktop:
+  `dbus-run-session` puts the session bus's socket there.
+- Root's home is `/var/root`, as on macOS, not `/root`, which is in the
+  image. `/root` stays as an empty mount point.
+- `/var/run` and `/var/lock` are links into `/run`, and `/var`'s other
+  directories exist, because `hideos-units` declares them in `tmpfiles.d`
+  and `hide setup` makes them. `@var` starts empty.
+
 Why btrfs: checksums on data, cheap snapshots for `/home`, transparent
 compression, fs-verity support (Linux 5.15+), and one pool instead of
 pre-sized partitions. Why the system is *not* a btrfs snapshot: a snapshot is
@@ -393,6 +405,8 @@ roadmaps stay in step.
 - **Per-user service management.** PipeWire, WirePlumber, portals and the
   COSMIC session are per-user services. oxinit today refuses to run unless it
   is PID 1. A user instance, started per login session, is the largest gap.
+  Until it exists, `start-cosmic` sends the session's output to
+  `~/.local/state/cosmic-session.log`, because nothing else keeps it.
 - **A boot-complete signal** that hideOS can hang `hide-boot-ok` on. Possibly
   just a target; to be decided there.
 - **Ordering against devices.** A unit that needs a GPU, a network interface or

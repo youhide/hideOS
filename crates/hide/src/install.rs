@@ -322,7 +322,11 @@ fn add_user(root: &Path, name: &str, password: &str) -> Result<()> {
         group: read("group"),
         shadow: read("shadow"),
     };
-    let files = hide::account::add_first_user(&files, name, name, password)?;
+    let mut salt: hide::account::Salt = [0; 12];
+    fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut salt))
+        .context("reading /dev/urandom")?;
+    let files = hide::account::add_first_user(&files, name, name, password, &salt)?;
     fs::write(etc.join("passwd"), files.passwd)?;
     fs::write(etc.join("group"), files.group)?;
     let shadow = etc.join("shadow");

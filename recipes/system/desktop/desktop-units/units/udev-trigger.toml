@@ -1,0 +1,10 @@
+# The devices the kernel found before udevd started, announced again so
+# that udevd names them and sets their permissions.
+[unit]
+description = "Replay device events"
+requires    = ["udevd"]
+after       = ["udevd"]
+
+[service]
+type = "oneshot"
+exec = "/usr/bin/udevadm trigger --action=add"

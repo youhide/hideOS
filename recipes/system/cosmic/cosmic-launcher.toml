@@ -1,0 +1,23 @@
+[package]
+name = "cosmic-launcher"
+version = "1.9.0"
+description = "COSMIC launcher"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-launcher"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-launcher/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "9ded0bbe14a08f4b83da8124d1243c965cf71751dc7d94539dd71ad5a4eff54a"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "pop-launcher"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+just rootdir=/ prefix=/usr install
+"""

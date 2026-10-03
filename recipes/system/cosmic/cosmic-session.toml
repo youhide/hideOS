@@ -1,0 +1,41 @@
+[package]
+name = "cosmic-session"
+version = "1.9.0"
+description = "COSMIC session: starts the compositor and the shell's components"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-session"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-session/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "e6d093938ab59baafdccac576cb0bc1a1966c825a5fedf9cb498061d8099ed57"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just"]
+run = ["glibc", "gcc", "dbus"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+# autostart: without systemd, cosmic-session is what runs
+# $XDG_CONFIG_DIRS/autostart.
+cargo build --release --frozen --features autostart
+just rootdir=/ prefix=/usr install
+rm -rf /usr/lib/systemd
+# The session's output, to a file in the user's state directory: with
+# no journald, and greetd keeping nothing a session prints, a desktop
+# that fails to start would otherwise leave no trace. Until oxinit
+# runs per-user services and oxlogd keeps their logs.
+test "$(sed -n 3p /usr/bin/start-cosmic)" = "set -e"
+{
+    head -n 3 /usr/bin/start-cosmic
+    cat <<'END'
+state="${XDG_STATE_HOME:-$HOME/.local/state}"
+mkdir -p "$state" && exec >>"$state/cosmic-session.log" 2>&1
+END
+    tail -n +4 /usr/bin/start-cosmic
+} > start-cosmic
+install -m755 start-cosmic /usr/bin/start-cosmic
+head -8 /usr/bin/start-cosmic
+"""

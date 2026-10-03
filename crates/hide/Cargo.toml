@@ -14,7 +14,7 @@ thiserror.workspace = true
 # The payload is a tar archive read straight off a disk; hideOS ships no tar
 # program, and this needs none.
 tar = "0.4"
-sha-crypt = { version = "0.6", features = ["getrandom"] }
+sha-crypt = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true, features = ["fs", "mount", "process", "system"] }

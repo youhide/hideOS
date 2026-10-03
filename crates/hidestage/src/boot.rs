@@ -97,6 +97,18 @@ pub fn run() -> Result<Infallible, BootError> {
         let to = Path::new(SYSROOT).join(target);
         mount_bind(&from, &to).map_err(os(format!("binding {subvolume} to /{target}")))?;
     }
+    // /tmp is a directory in the sealed image, so read-only until something
+    // is mounted on it; programs that write there — dbus-run-session, for
+    // the session bus — fail before the desktop starts.
+    let tmp = Path::new(SYSROOT).join("tmp");
+    mount(
+        "tmpfs",
+        &tmp,
+        "tmpfs",
+        MountFlags::NOSUID | MountFlags::NODEV,
+        Some(c"mode=1777"),
+    )
+    .map_err(os("mounting /tmp"))?;
 
     switch_root(&config.init)
 }

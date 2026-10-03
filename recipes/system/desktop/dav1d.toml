@@ -1,0 +1,30 @@
+[package]
+name = "dav1d"
+version = "1.5.4"
+description = "AV1 decoder, for COSMIC's wallpapers and images"
+license = "BSD-2-Clause"
+homepage = "https://code.videolan.org/videolan/dav1d"
+
+[[source]]
+url = "https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz"
+sha256 = "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5"
+
+[depends]
+build = ["buildtools", "nasm"]
+run = ["glibc"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Denable_tools=false \\
+    -Denable_tests=false \\
+    -Denable_examples=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

@@ -1,0 +1,23 @@
+# HAVE_*=0: the zstd program links whichever other compression
+# libraries it finds, and the build root has stage 1's.
+[package]
+name = "zstd"
+version = "1.5.7"
+description = "Zstandard compression"
+license = "BSD-3-Clause OR GPL-2.0-only"
+homepage = "https://facebook.github.io/zstd/"
+
+[[source]]
+url = "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
+sha256 = "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+make -j"$JOBS" PREFIX=/usr HAVE_ZLIB=0 HAVE_LZMA=0 HAVE_LZ4=0
+make PREFIX=/usr HAVE_ZLIB=0 HAVE_LZMA=0 HAVE_LZ4=0 install
+rm -f /usr/lib/libzstd.a
+"""

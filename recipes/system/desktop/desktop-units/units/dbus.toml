@@ -1,0 +1,7 @@
+[unit]
+description = "System message bus"
+after       = ["setup"]
+
+[service]
+exec    = "/usr/bin/dbus-daemon --system --nofork --nopidfile"
+restart = "on-failure"

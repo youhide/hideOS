@@ -1,0 +1,7 @@
+# The desktop up: the multi-user system and the login screen.
+[target]
+
+[unit]
+description = "hideOS graphical target"
+requires    = ["multi-user", "greetd"]
+after       = ["multi-user", "greetd"]

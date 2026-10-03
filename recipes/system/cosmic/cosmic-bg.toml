@@ -1,0 +1,23 @@
+[package]
+name = "cosmic-bg"
+version = "1.9.0"
+description = "COSMIC wallpaper"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-bg"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-bg/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "848594cabc13d78fef20a907bc79aa2b132986e40bb042b9423779bfc081dcca"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "dav1d", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "dav1d"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+just rootdir=/ prefix=/usr install
+"""

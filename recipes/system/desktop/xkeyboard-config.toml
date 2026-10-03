@@ -1,0 +1,27 @@
+[package]
+name = "xkeyboard-config"
+version = "2.48"
+description = "Keyboard layouts"
+license = "MIT"
+homepage = "https://xkeyboard-config.freedesktop.org"
+
+[[source]]
+url = "https://www.x.org/releases/individual/data/xkeyboard-config/xkeyboard-config-2.48.tar.xz"
+sha256 = "b77041324f0109f77161ee43743fe04baa485866af8460d31e476ad3f7648fd5"
+
+[depends]
+build = ["buildtools"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dnls=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

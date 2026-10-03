@@ -1,0 +1,8 @@
+# Reached at the end of boot: hideOS Workstation is the desktop, with the
+# console shell still there for whoever needs it.
+[target]
+
+[unit]
+description = "hideOS Workstation"
+requires    = ["graphical"]
+after       = ["graphical"]

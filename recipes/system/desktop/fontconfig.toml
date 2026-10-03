@@ -1,0 +1,32 @@
+[package]
+name = "fontconfig"
+version = "2.18.3"
+description = "Font discovery and configuration"
+license = "MIT"
+homepage = "https://www.freedesktop.org/wiki/Software/fontconfig/"
+
+[[source]]
+url = "https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz"
+sha256 = "4f7b554a38cdf78c033f666c8871f3749e14a094f65a07f630c91ed0b43d35e3"
+
+[depends]
+build = ["buildtools", "freetype", "expat"]
+run = ["glibc", "freetype", "expat"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Ddoc=disabled \\
+    -Dtests=disabled \\
+    -Dtools=enabled \\
+    -Dcache-build=disabled \\
+    -Dnls=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

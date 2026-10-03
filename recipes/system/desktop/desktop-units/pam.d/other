@@ -1,0 +1,5 @@
+# Any service without a stack of its own: refused.
+auth      required  pam_deny.so
+account   required  pam_deny.so
+password  required  pam_deny.so
+session   required  pam_deny.so

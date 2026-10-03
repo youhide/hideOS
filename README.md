@@ -10,9 +10,12 @@ that cannot be corrupted, and updates that roll themselves back when they fail.
 
 **Pre-alpha.** hideOS builds itself from source, installs itself on a disk,
 and boots it sealed — UEFI, systemd-boot, a kernel image carrying the
-system's digest, a read-only root checked by fs-verity — to a shell under
-oxinit, in QEMU. The desktop comes in milestone H5; see
-[ROADMAP.md](ROADMAP.md). Site: <https://youhide.github.io/hideOS/>.
+system's digest, a read-only root checked by fs-verity — under oxinit, in
+QEMU: Minimal to a shell, Workstation to the COSMIC desktop. Not yet for
+daily use; see [ROADMAP.md](ROADMAP.md). Site:
+<https://youhide.github.io/hideOS/>.
+
+![hideOS Workstation: the COSMIC desktop, with its panel and dock, after logging in at the greeter](docs/images/workstation-desktop.png)
 
 ![hideOS Minimal booted in QEMU: os-release, uname, oxctl list and the merged /usr layout on the console](docs/images/minimal-console.png)
 
@@ -25,7 +28,13 @@ cargo xtask image           # build hideOS Minimal from source
 cargo xtask boot            # boot it in QEMU, from RAM
 cargo xtask install         # install it on a disk image, as on a machine
 cargo xtask boot --disk     # boot that disk through UEFI
+cargo xtask seal-test       # try to break the seal
 ```
+
+The Workstation is the same with `--edition workstation`; it boots only
+from its disk, in a window, and the development disk's account is `hide`,
+password `hide`. Its first build is most of a day on a 2018 laptop: LLVM,
+Mesa and twenty COSMIC components.
 
 The first `image` bootstraps a toolchain and the whole system from source,
 about two hours on a 2018 laptop; after that, only what changed rebuilds.

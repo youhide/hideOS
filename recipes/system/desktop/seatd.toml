@@ -1,0 +1,35 @@
+# Only libseat, and only its logind backend: elogind is the seat
+# manager. cosmic-comp opens the GPU and input devices through it.
+[package]
+name = "seatd"
+version = "0.9.3"
+description = "libseat: seat access for compositors"
+license = "MIT"
+homepage = "https://git.sr.ht/~kennylevinsen/seatd"
+
+[[source]]
+url = "https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.3.tar.gz"
+sha256 = "302564d54d8e28191fadfd734f2675ecb0c9e0615a58011b89ef15dfa4dbaa96"
+
+[depends]
+build = ["buildtools", "elogind"]
+run = ["glibc", "elogind"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dlibseat-logind=elogind \\
+    -Dlibseat-seatd=disabled \\
+    -Dlibseat-builtin=disabled \\
+    -Dserver=disabled \\
+    -Dexamples=disabled \\
+    -Dman-pages=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

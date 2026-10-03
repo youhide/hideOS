@@ -1,0 +1,64 @@
+# hideOS Workstation: Minimal and the desktop. See ARCHITECTURE.md,
+# "Editions" and "The desktop".
+#
+# Boots from its disk only — `cargo xtask install --edition workstation`
+# makes one — and reaches the COSMIC greeter.
+[package]
+name = "workstation"
+version = "1"
+description = "hideOS Workstation: Minimal and the COSMIC desktop"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+run = [
+    "minimal-base",
+    "desktop-units",
+    "fonts",
+    "mesa",
+    "cosmic-comp",
+    "cosmic-session",
+    "cosmic-greeter",
+    "cosmic-panel",
+    "cosmic-applets",
+    "cosmic-bg",
+    "cosmic-launcher",
+    "pop-launcher",
+    "cosmic-osd",
+    "cosmic-notifications",
+    "cosmic-settings-daemon",
+    "cosmic-settings",
+    "cosmic-files",
+    "cosmic-term",
+    "cosmic-edit",
+    "cosmic-randr",
+    "cosmic-workspaces",
+    "cosmic-app-library",
+    "cosmic-idle",
+    "cosmic-osk",
+    "cosmic-icons",
+    "cosmic-wallpapers",
+]
+
+[build]
+script = """
+install -Dm644 "$FILES/default.toml" /usr/lib/oxinit/units/default.toml
+"""
+
+# As Minimal's, and LLVM's and clang's development files: Mesa needs
+# libLLVM at run time, nothing in the image needs to compile against it.
+[image]
+exclude = [
+    "usr/include/",
+    "usr/lib/gcc/",
+    "usr/libexec/gcc/",
+    "usr/share/man/",
+    "usr/share/info/",
+    "usr/share/doc/",
+    "usr/share/i18n/",
+    "usr/lib/cmake/",
+    "usr/lib/clang/",
+    "usr/share/clang/",
+    "usr/share/opt-viewer/",
+    "*.a",
+]

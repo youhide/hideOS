@@ -1,0 +1,37 @@
+# Stage 1's Python is enough to build stage 2's toolchain, and has no
+# zlib module, which meson imports on startup. This one is built
+# against stage 2, and shadows it in every build that uses it. The
+# modules that would find a library only an earlier stage has are
+# turned off rather than left to configure's luck.
+[package]
+name = "python"
+version = "3.14.8"
+description = "Python, for the desktop's build systems"
+license = "PSF-2.0"
+homepage = "https://www.python.org"
+
+[[source]]
+url = "https://www.python.org/ftp/python/3.14.8/Python-3.14.8.tar.xz"
+sha256 = "c2215904f02b175596dc49351585104f4bc20341e1c47378b26a2c274360ce73"
+
+[depends]
+build = ["toolchain", "expat", "libffi", "ncurses"]
+run = ["glibc", "zlib", "expat", "libffi", "ncurses"]
+
+[build]
+script = """
+export py_cv_module__lzma=n/a py_cv_module__bz2=n/a py_cv_module__uuid=n/a
+export py_cv_module__dbm=n/a py_cv_module__gdbm=n/a py_cv_module__sqlite3=n/a
+export py_cv_module__tkinter=n/a py_cv_module_readline=n/a
+export py_cv_module__ssl=n/a py_cv_module__hashlib=n/a
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --enable-shared \\
+    --without-ensurepip \\
+    --without-static-libpython \\
+    --with-system-expat
+make -j"$JOBS"
+make install
+python3 -c 'import zlib, pyexpat, ctypes, gzip'
+"""

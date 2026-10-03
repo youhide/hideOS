@@ -1,0 +1,64 @@
+# Mesa compiles shaders with LLVM (llvmpipe, radeonsi), and three COSMIC
+# crates generate bindings with bindgen, which loads libclang: one
+# build gives both. As shared libraries, which is what Mesa links
+# (shared-llvm) and what keeps the tools from each carrying a copy.
+# RTTI on: Mesa refuses an LLVM whose RTTI differs from its own default.
+# Four compile jobs, two tablegen jobs, one link at a time: eight
+# jobs ran AMDGPU's tablegen out of the builder's eight gigabytes.
+#
+# The default target triple is hideOS's, so that clang finds hideOS's
+# GCC installation — its libgcc and C++ headers — by name.
+[package]
+name = "llvm"
+version = "23.1.2"
+description = "LLVM and clang: Mesa's shader compiler, and libclang for bindgen"
+license = "Apache-2.0 WITH LLVM-exception"
+homepage = "https://llvm.org"
+
+[[source]]
+url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.2/llvm-project-23.1.2.src.tar.xz"
+sha256 = "c98bbef08a2b4c2613cd50e9aa9ae7b69b1fe6c16b2c40373bc0ab6116fdf78a"
+
+[depends]
+build = ["toolchain", "cmake", "ninja", "zstd"]
+run = ["glibc", "gcc", "zlib", "zstd"]
+
+[build]
+script = """
+case "$ARCH" in
+    x86_64) targets="X86;AMDGPU" ;;
+    aarch64) targets="AArch64;AMDGPU" ;;
+esac
+cmake -G Ninja -S llvm -B build \\
+    -DCMAKE_BUILD_TYPE=Release \\
+    -DCMAKE_INSTALL_PREFIX=/usr \\
+    -DLLVM_ENABLE_PROJECTS=clang \\
+    -DLLVM_TARGETS_TO_BUILD="$targets" \\
+    -DLLVM_DEFAULT_TARGET_TRIPLE="$TARGET" \\
+    -DLLVM_HOST_TRIPLE="$TARGET" \\
+    -DLLVM_BUILD_LLVM_DYLIB=ON \\
+    -DLLVM_LINK_LLVM_DYLIB=ON \\
+    -DCLANG_LINK_CLANG_DYLIB=ON \\
+    -DLLVM_ENABLE_RTTI=ON \\
+    -DLLVM_ENABLE_FFI=OFF \\
+    -DLLVM_ENABLE_ZLIB=FORCE_ON \\
+    -DLLVM_ENABLE_ZSTD=FORCE_ON \\
+    -DLLVM_ENABLE_LIBXML2=OFF \\
+    -DLLVM_ENABLE_LIBEDIT=OFF \\
+    -DLLVM_ENABLE_TERMINFO=OFF \\
+    -DLLVM_ENABLE_BINDINGS=OFF \\
+    -DLLVM_INCLUDE_TESTS=OFF \\
+    -DLLVM_INCLUDE_BENCHMARKS=OFF \\
+    -DLLVM_INCLUDE_EXAMPLES=OFF \\
+    -DLLVM_INCLUDE_DOCS=OFF \\
+    -DCLANG_INCLUDE_TESTS=OFF \\
+    -DCLANG_INCLUDE_DOCS=OFF \\
+    -DCLANG_DEFAULT_PIE_ON_LINUX=ON \\
+    -DLLVM_INSTALL_UTILS=ON \\
+    -DLLVM_PARALLEL_LINK_JOBS=1 \\
+    -DLLVM_PARALLEL_COMPILE_JOBS=4 \\
+    -DLLVM_PARALLEL_TABLEGEN_JOBS=2
+ninja -C build -j "$JOBS"
+ninja -C build install
+rm -f /usr/lib/lib{LLVM,clang}[A-Z]*.a
+"""

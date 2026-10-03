@@ -1,0 +1,12 @@
+# greetd for hideOS: cosmic-greeter as the greeter, run by its own user,
+# and logins through the cosmic-greeter PAM service. Read from /usr/lib,
+# given to greetd with --config, so /etc/greetd is never needed.
+[terminal]
+vt = 1
+
+[general]
+service = "cosmic-greeter"
+
+[default_session]
+command = "cosmic-greeter-start"
+user = "cosmic-greeter"

@@ -1,0 +1,23 @@
+[package]
+name = "cosmic-settings-daemon"
+version = "1.9.0"
+description = "COSMIC settings daemon"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-settings-daemon"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-settings-daemon/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "69e34f67c1ae727a75b9a75e7901738adf2779ca1024f53d280d474d1af9ff6c"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "libinput", "eudev", "pipewire", "openssl", "libxkbcommon", "llvm", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "libinput", "eudev", "pipewire", "openssl"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+make install DESTDIR= prefix=/usr CARGO_TARGET_DIR=target
+"""

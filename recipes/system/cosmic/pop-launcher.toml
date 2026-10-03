@@ -1,0 +1,24 @@
+[package]
+name = "pop-launcher"
+version = "1.9.0"
+description = "COSMIC launcher service: the search behind the launcher"
+license = "MPL-2.0"
+homepage = "https://github.com/pop-os/launcher"
+
+[[source]]
+url = "https://github.com/pop-os/launcher/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "86907d81d7a97938076455be3b9e4f093fb90760a95c1e0558a04350e5701fb5"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "libxkbcommon"]
+run = ["glibc", "gcc", "libxkbcommon"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen -p pop-launcher-bin
+# rootdir must be set: empty, the justfile installs into ~/.local.
+just rootdir=/ install
+"""

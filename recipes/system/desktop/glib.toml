@@ -1,0 +1,38 @@
+# For cosmic-files, cosmic-edit, the portal and WirePlumber.
+[package]
+name = "glib"
+version = "2.90.0"
+description = "GLib, GObject and GIO"
+license = "LGPL-2.1-or-later"
+homepage = "https://gitlab.gnome.org/GNOME/glib"
+
+[[source]]
+url = "https://download.gnome.org/sources/glib/2.90/glib-2.90.0.tar.xz"
+sha256 = "17d15cac2af80a33271127408e0abc2748eb297c595c2a26409e81e14e7d1b8f"
+
+[depends]
+build = ["buildtools", "pcre2", "libffi", "util-linux"]
+run = ["glibc", "zlib", "pcre2", "libffi", "util-linux"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dintrospection=disabled \\
+    -Dman-pages=disabled \\
+    -Ddocumentation=false \\
+    -Dtests=false \\
+    -Dinstalled_tests=false \\
+    -Dsysprof=disabled \\
+    -Dselinux=disabled \\
+    -Dlibmount=enabled \\
+    -Dnls=disabled \\
+    -Dglib_debug=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

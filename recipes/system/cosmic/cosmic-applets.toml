@@ -1,0 +1,24 @@
+[package]
+name = "cosmic-applets"
+version = "1.9.0"
+description = "COSMIC panel applets"
+license = "GPL-3.0-only"
+homepage = "https://github.com/pop-os/cosmic-applets"
+
+[[source]]
+url = "https://github.com/pop-os/cosmic-applets/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "f113f74cd05b179ab0478dd5876b671880914600d5df56d518f8f80c08543037"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "dbus", "libinput", "eudev", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "dbus", "libinput", "eudev"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen
+just rootdir=/ prefix=/usr install
+rm -rf /usr/lib/systemd
+"""
