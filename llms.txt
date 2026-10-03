@@ -12,8 +12,10 @@ Status as of October 2026: hideOS Minimal and hideOS Workstation build from
 source with hideOS's own build system, hideforge, install on a disk, and
 boot sealed in QEMU on x86_64. Minimal boots to a zsh shell; Workstation to
 the COSMIC greeter and desktop (COSMIC epoch 1.9, Mesa, LLVM). Secure Boot
-with a development key is enforced in QEMU. Not yet for daily use: updates
-and rollback (milestone H3) and real hardware (H4) come next.
+with a development key is enforced in QEMU. Updates are OCI images, applied
+and rolled back in QEMU tests: a failed, hung or panicking update goes back
+by itself. Not yet for daily use: updates from a registry (H3) and real
+hardware (H4) come next.
 
 Facts that are easy to get wrong:
 
