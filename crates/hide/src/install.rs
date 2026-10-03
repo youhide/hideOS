@@ -153,6 +153,9 @@ fn install(options: &Options) -> Result<()> {
     say("enabling fs-verity on every object");
     let objects = root_mount.join("@store/objects");
     let count = enable_verity(&objects)?;
+    // meta.json sealed too: composefs then opens the store as one that
+    // requires fs-verity, and seals every object an update writes.
+    seal(&root_mount.join("@store/meta.json"))?;
     say(&format!("  {count} objects sealed"));
 
     // The check hidestage makes at every boot, made once here, so that a
@@ -297,20 +300,21 @@ fn enable_verity(objects: &Path) -> Result<usize> {
             if kind.is_dir() {
                 pending.push(entry.path());
             } else if kind.is_file() {
-                let file = rustix::fs::open(
-                    entry.path(),
-                    OFlags::RDONLY | OFlags::CLOEXEC,
-                    Mode::empty(),
-                )
-                .with_context(|| format!("opening {}", entry.path().display()))?;
-                match fs_ioc_enable_verity(file.as_fd(), VERITY_SHA256, VERITY_BLOCK) {
-                    Ok(()) | Err(EnableVerityError::AlreadyEnabled) => count += 1,
-                    Err(error) => bail!("fs-verity on {}: {error}", entry.path().display()),
-                }
+                seal(&entry.path())?;
+                count += 1;
             }
         }
     }
     Ok(count)
+}
+
+fn seal(path: &Path) -> Result<()> {
+    let file = rustix::fs::open(path, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+        .with_context(|| format!("opening {}", path.display()))?;
+    match fs_ioc_enable_verity(file.as_fd(), VERITY_SHA256, VERITY_BLOCK) {
+        Ok(()) | Err(EnableVerityError::AlreadyEnabled) => Ok(()),
+        Err(error) => bail!("fs-verity on {}: {error}", path.display()),
+    }
 }
 
 /// The first account, in @etc, with its home in @home.

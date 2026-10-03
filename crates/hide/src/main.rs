@@ -3,8 +3,8 @@
 //! ```text
 //! hide install --payload FILE --disk DEVICE [--poweroff] [--user NAME --password PASS]
 //! hide setup [--root DIR]
-//! hide update --payload FILE
-//! hide status | rollback | boot-ok
+//! hide update --image oci-archive:PATH | oci:DIR[:TAG]
+//! hide status | rollback | boot-ok | gc
 //! poweroff | reboot | halt     (hide under those names)
 //! ```
 //!
@@ -76,6 +76,8 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         Some("status") => deploy::status(),
         #[cfg(target_os = "linux")]
         Some("rollback") => deploy::rollback(),
+        #[cfg(target_os = "linux")]
+        Some("gc") => deploy::gc(),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", USAGE);
             Ok(())
@@ -94,9 +96,9 @@ const USAGE: &str = "usage: hide <command>
         Create /etc/machine-id, the system users in sysusers.d and the paths
         in tmpfiles.d that do not exist yet. Run at every boot.
 
-    update --payload FILE
-        Stage a new system from a payload hideforge built. It starts at the
-        next boot, with three attempts before the machine goes back.
+    update --image oci-archive:PATH | oci:DIR[:TAG]
+        Stage a new system from the OCI image hideforge built. It starts at
+        the next boot, with three attempts before the machine goes back.
 
     status
         The deployments on this machine, in the order they boot.
@@ -106,4 +108,8 @@ const USAGE: &str = "usage: hide <command>
 
     boot-ok
         Mark the deployment that booted as good. Run at the end of boot.
+
+    gc
+        Remove from the store what no deployment on the ESP uses. An update
+        does this by itself.
 ";

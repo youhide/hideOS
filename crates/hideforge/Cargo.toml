@@ -20,6 +20,12 @@ rustix = { workspace = true, features = ["fs", "mount", "process", "thread", "sy
 # Writes the composefs repository an image ships as. Its API is async; a
 # current-thread tokio runtime drives it, here and nowhere near the boot path.
 composefs = "0.9.3"
+# The system as an OCI image, and its composefs image computed from that OCI
+# image the way a client regenerates it. No default features: those reach
+# containers-storage, which hideOS does not have.
+composefs-oci = { version = "0.9.3", default-features = false, features = ["boot"] }
+composefs-boot = "0.9.3"
+ocidir = "0.8"
 tokio = { version = "1", features = ["rt"] }
 # composefs links OpenSSL. Vendored: built from source with the crate, so the
 # builder image needs no libssl-dev — and a new builder image would change the

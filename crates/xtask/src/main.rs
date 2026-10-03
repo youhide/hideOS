@@ -1457,7 +1457,9 @@ fn update_test(args: &[String]) -> Result<(), String> {
         Some("hideos.watchdog=45"),
     )?;
     let next_dir = dir.join("next");
-    let next_payload = next_dir.join("payload.tar");
+    // The update as hideforge publishes it: an OCI image, here as an
+    // oci-archive on a second disk.
+    let next_image = next_dir.join("image.oci.tar");
     let n1 = fs::read_to_string(next_dir.join("image.digest")).map_err(|e| e.to_string())?;
     let n1: String = n1
         .trim()
@@ -1485,10 +1487,28 @@ fn update_test(args: &[String]) -> Result<(), String> {
     if only.is_none() {
         println!("a good update, then a rollback");
         install_disk(arch, MINIMAL, &disk)?;
-        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_image), &mut log)?;
         check("N boots", running_digest(&mut guest)? == n, &log);
-        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        // An object no image uses, as a power cut part-way through an
+        // earlier update would leave: the update's collection removes it.
+        // That it keeps N's objects, the rollback below shows: N mounts
+        // with verity=require, and a missing object fails it.
+        let orphan = format!("/hideos/objects/00/{}", "0".repeat(62));
+        guest.run(
+            &format!("mkdir -p /hideos/objects/00 && print orphan > {orphan}"),
+            minute,
+        )?;
+        let out = guest.run(
+            "hide update --image oci-archive:/dev/vdb",
+            Duration::from_secs(300),
+        )?;
         check("hide update stages N+1", out.contains("committed"), &out);
+        let gone = guest.run(&format!("[[ -e {orphan} ]] || print gone"), minute)?;
+        check(
+            "the update collects what no deployment uses",
+            out.contains("collected") && gone.contains("gone"),
+            &format!("{out}\n{gone}"),
+        );
         reboot(guest)?;
         let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
         check(
@@ -1517,8 +1537,11 @@ fn update_test(args: &[String]) -> Result<(), String> {
 
         println!("a bad update, which has to roll back by itself");
         install_disk(arch, MINIMAL, &disk)?;
-        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
-        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_image), &mut log)?;
+        let out = guest.run(
+            "hide update --image oci-archive:/dev/vdb",
+            Duration::from_secs(300),
+        )?;
         check("hide update stages N+1", out.contains("committed"), &out);
         // N+1's image replaced by another sealed file: hidestage refuses it at
         // every attempt, as it would a corrupt or incomplete update.
@@ -1552,8 +1575,11 @@ fn update_test(args: &[String]) -> Result<(), String> {
 
         println!("an update that hangs, which the watchdog has to end");
         install_disk(arch, MINIMAL, &disk)?;
-        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
-        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_image), &mut log)?;
+        let out = guest.run(
+            "hide update --image oci-archive:/dev/vdb",
+            Duration::from_secs(300),
+        )?;
         check("hide update stages N+1", out.contains("committed"), &out);
         // In /etc, which both share: boot-ok, the last unit, hangs on N+1
         // and only there. Nothing else stops a hung boot but the watchdog.
@@ -1596,8 +1622,11 @@ print hang-ready",
 
         println!("an update whose kernel panics");
         install_disk(arch, MINIMAL, &disk)?;
-        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
-        let out = guest.run("hide update --payload /dev/vdb", Duration::from_secs(300))?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_image), &mut log)?;
+        let out = guest.run(
+            "hide update --image oci-archive:/dev/vdb",
+            Duration::from_secs(300),
+        )?;
         check("hide update stages N+1", out.contains("committed"), &out);
         // The same override, crashing the kernel instead: panic=10 on the
         // command line turns the panic into a reboot, and a failed attempt.
@@ -1641,16 +1670,44 @@ print panic-ready",
         drop(guest);
     }
 
-    let steps = ["unpack", "seal", "stage", "commit", "prune"];
+    if only
+        .as_deref()
+        .is_none_or(|o| o.split(',').any(|x| x == "tamper"))
+    {
+        println!("an image changed after it was built");
+        install_disk(arch, MINIMAL, &disk)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_image), &mut log)?;
+        // One byte flipped 100 MiB in: inside a layer, whichever it is.
+        let out = guest.run(
+            "dd if=/dev/vdb of=/tmp/image.tar bs=1M status=none && \
+             printf x | dd of=/tmp/image.tar bs=1 seek=104857600 conv=notrunc status=none && \
+             print tampered",
+            minute,
+        )?;
+        check("N+1's image can be changed", out.contains("tampered"), &out);
+        let out = guest.run(
+            "hide update --image oci-archive:/tmp/image.tar; print exit=$?",
+            Duration::from_secs(300),
+        )?;
+        let status = guest.run("hide status", minute)?;
+        check(
+            "hide update refuses it, and stages nothing",
+            !out.contains("exit=0") && !out.contains("committed") && !status.contains(&n1),
+            &format!("{out}\n{status}"),
+        );
+        drop(guest);
+    }
+
+    let steps = ["pull", "stage", "commit", "prune", "collect"];
     for step in steps.into_iter().filter(|s| {
         only.as_deref()
             .is_none_or(|o| o.split(',').any(|x| x == *s))
     }) {
         println!("a power cut after `{step}`");
         install_disk(arch, MINIMAL, &disk)?;
-        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_payload), &mut log)?;
+        let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_image), &mut log)?;
         guest.type_line(&format!(
-            "hide update --payload /dev/vdb --crash-after {step}"
+            "hide update --image oci-archive:/dev/vdb --crash-after {step}"
         ))?;
         let started = Instant::now();
         while !guest.exited() && started.elapsed() < Duration::from_secs(300) {
@@ -1663,7 +1720,7 @@ print panic-ready",
         let status = guest.run("hide status", minute)?;
         // Before the commit the update never happened; after it, the new
         // system is what boots.
-        let expected = if matches!(step, "commit" | "prune") {
+        let expected = if matches!(step, "commit" | "prune" | "collect") {
             &n1
         } else {
             &n

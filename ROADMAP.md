@@ -104,26 +104,31 @@ with a wrong digest refuses to boot.
 
 ## H3 — Updates and rollback
 
-**In progress.** Applying and rolling back work, from a payload file:
-`cargo xtask update-test` takes Minimal N to N+1 on scratch disks — a good
-update that boots and is marked good, a rollback; an N+1 that cannot
-mount, one whose kernel panics and one that hangs, each tried three times
-before the machine goes back to N by itself; and a power cut after each of
-the update's five steps, which leaves N booting before the commit and N+1
-after. Getting updates over the network, and collecting garbage, are left.
+**In progress.** Updates are OCI images, applied and rolled back:
+`cargo xtask update-test` takes Minimal N to N+1 on scratch disks, from
+N+1's image as an oci-archive — a good update that boots and is marked
+good, and a rollback; an image changed after it was built, refused before
+anything is staged; an N+1 that cannot mount, one whose kernel panics and
+one that hangs, each tried three times before the machine goes back to N
+by itself; and a power cut after each of the update's five steps, which
+leaves N booting before the commit and N+1 after. Getting images from a
+registry is left, and waits for networking (H4).
 
-- [ ] OCI image output from hideforge; push to a local registry.
-- [ ] Pulling and verifying an OCI image in `hide update`. Until then it
-      takes a payload file, the same one `hide install` takes.
-- [x] Applying an update: only the objects the store lacks, sealed,
-      digest compared, the UKI renamed into place with `+3` tries — the
+- [x] OCI image output from hideforge: the root and the UKI as two layers,
+      with the boot digest computed by pulling the image as a client does.
+- [x] Pulling and verifying an OCI image in `hide update`, from
+      `oci-archive:` or `oci:`: composefs-oci writes the objects the store
+      lacks, sealed, and regenerates the boot image, which must have the
+      digest the image's own UKI boots.
+- [ ] Pulling from a registry, and pushing to one from the build.
+- [x] Applying an update: the UKI renamed into place with `+3` tries — the
       commit point — and a durable rename, which FAT needs spelled out.
 - [x] `hide boot-ok`: mark the booted deployment good once the edition's
       target is reached.
 - [x] `hide update`, `hide rollback`, `hide status`.
-- [ ] Garbage collection of unreferenced objects. The ESP is pruned to the
-      running deployment, the way back and the new one; the store is not
-      yet.
+- [x] Garbage collection of unreferenced objects, at the end of every
+      update and as `hide gc`: the roots are the images of the UKIs left on
+      the ESP — running, the way back, the new one.
 
 Done when, in CI: an update from build N to N+1 applies and boots; a power cut
 (QEMU killed) at every step of the update leaves N booting; an N+1 that panics,

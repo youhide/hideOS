@@ -43,22 +43,26 @@ const VERITY_SHA256: u8 = 1;
 const VERITY_BLOCK: u32 = 4096;
 
 /// The steps of an update, in order, by the names `--crash-after` takes.
-const STEPS: &[&str] = &["unpack", "seal", "stage", "commit", "prune"];
+const STEPS: &[&str] = &["pull", "stage", "commit", "prune", "collect"];
 
 pub fn update(args: &[String]) -> Result<()> {
-    let mut payload = None;
+    let mut image = None;
     let mut crash_after = None;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--payload" => payload = iter.next().map(PathBuf::from),
+            "--image" => image = iter.next().cloned(),
             // For tests: cut the power after a step, to show that it does
             // not matter where an update is interrupted.
             "--crash-after" => crash_after = iter.next().cloned(),
             other => bail!("unknown argument `{other}`"),
         }
     }
-    let payload = payload.context("usage: hide update --payload FILE")?;
+    let image = image.context("usage: hide update --image oci-archive:PATH | oci:DIR[:TAG]")?;
+    ensure!(
+        image.starts_with("oci-archive:") || image.starts_with("oci:"),
+        "hide update takes oci-archive:PATH or oci:DIR[:TAG]; pulling from a registry needs a network, which hideOS does not have yet"
+    );
     if let Some(step) = &crash_after {
         ensure!(
             STEPS.contains(&step.as_str()),
@@ -78,47 +82,31 @@ pub fn update(args: &[String]) -> Result<()> {
     let booted = booted_digest()?;
     let edition = booted_edition()?;
 
-    say(&format!("unpacking {}", payload.display()));
-    let unpacked = unpack(&payload)?;
+    say(&format!("pulling {image}"));
+    let pulled = pull(&image, &edition)?;
     ensure!(
-        unpacked.digest != booted,
-        "this payload is the system that is running, sha256:{booted}"
+        pulled.digest != booted,
+        "this image is the system that is running, sha256:{booted}"
     );
-    let uki = unpacked.uki.as_ref().context("the payload has no UKI")?;
-    let version = Uki::parse(
-        uki.file_name()
-            .and_then(|n| n.to_str())
-            .context("the payload's UKI has no name")?,
-    )
-    .context("the payload's UKI is not named as a hideOS deployment")?;
+    let version = Uki::parse(&pulled.uki_name)
+        .context("the image's UKI is not named as a hideOS deployment")?;
     ensure!(
         version.edition == edition,
-        "the payload is hideOS {}, and this machine runs {edition}; rebasing is not done this way",
+        "the image is hideOS {}, and this machine runs {edition}; rebasing is not done this way",
         version.edition
     );
-    say(&format!(
-        "  {} new objects, image sha256:{}",
-        unpacked.new_objects.len(),
-        unpacked.digest
-    ));
-    crash("unpack")?;
-
-    say("sealing");
-    sync();
-    for object in &unpacked.new_objects {
-        enable_verity(object)?;
-    }
-    let measured = measure(&Path::new(STORE).join("images").join(&unpacked.digest))?;
     ensure!(
-        measured == unpacked.digest,
-        "the new image measures sha256:{measured}, but its kernel expects sha256:{}",
-        unpacked.digest
+        pulled.digest.starts_with(&version.digest),
+        "the image's UKI is named for sha256:{}…, but boots sha256:{}",
+        version.digest,
+        pulled.digest
     );
-    sync();
-    crash("seal")?;
+    say(&format!("  image sha256:{}", pulled.digest));
+    let uki = &pulled.uki;
+    crash("pull")?;
 
     let esp = Esp::mount()?;
-    let new = Uki::new_deployment(&version.edition, version.version, &unpacked.digest);
+    let new = Uki::new_deployment(&version.edition, version.version, &pulled.digest);
     let linux = esp.path().join("EFI/Linux");
     let staged = linux.join(format!("{}.tmp", new.base_name()));
     say(&format!("staging {}", new.file_name()));
@@ -149,7 +137,54 @@ pub fn update(args: &[String]) -> Result<()> {
     sync_dir(&linux)?;
     crash("prune")?;
     esp.unmount()?;
+
+    // The list was read after the commit: the new deployment is in it.
+    let kept: Vec<Uki> = ukis
+        .into_iter()
+        .filter(|u| kept.contains(&u.file_name()))
+        .collect();
+    collect(&kept)?;
+    crash("collect")?;
     say("done; the new system starts at the next boot");
+    Ok(())
+}
+
+/// `hide gc`: removes from the store what no deployment on the ESP uses.
+pub fn gc() -> Result<()> {
+    let esp = Esp::mount()?;
+    let ukis = list(&esp.path().join("EFI/Linux"))?;
+    esp.unmount()?;
+    collect(&ukis)
+}
+
+/// Deletes every object no kept deployment's image uses. composefs walks
+/// the images; the roots are the images of the UKIs on the ESP — running,
+/// the way back, the new one — so nothing a boot can reach is removed. A
+/// power cut part-way leaves objects nobody uses, for the next collection.
+fn collect(kept: &[Uki]) -> Result<()> {
+    use composefs::fsverity::Sha256HashValue;
+    use composefs::repository::Repository;
+
+    let mut roots = Vec::new();
+    for entry in fs::read_dir(Path::new(STORE).join("images"))?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.len() == 64 && kept.iter().any(|u| name.starts_with(&u.digest)) {
+            roots.push(name);
+        }
+    }
+    ensure!(
+        !roots.is_empty(),
+        "no image of a kept deployment found; not collecting anything"
+    );
+    let repo = Repository::<Sha256HashValue>::open_path(rustix::fs::CWD, STORE)
+        .map_err(|e| anyhow::anyhow!("opening the store: {e}"))?;
+    let roots: Vec<&str> = roots.iter().map(String::as_str).collect();
+    let result = repo.gc(&roots)?;
+    say(&format!(
+        "collected {} objects, {} MiB",
+        result.objects_removed,
+        result.objects_bytes >> 20
+    ));
     Ok(())
 }
 
@@ -248,111 +283,187 @@ pub fn rollback() -> Result<()> {
     Ok(())
 }
 
-struct Unpacked {
+struct Pulled {
+    /// The boot image's fs-verity digest: what the UKI boots.
     digest: String,
-    uki: Option<PathBuf>,
-    new_objects: Vec<PathBuf>,
+    /// The UKI, waiting in /run until the ESP takes it.
+    uki: PathBuf,
+    uki_name: String,
 }
 
-/// Unpacks what the store does not have. Objects are named by their
-/// content, so one that exists is the same object. /etc is the machine's:
-/// only files it does not have yet are added. The UKI waits in /run.
-fn unpack(payload: &Path) -> Result<Unpacked> {
-    let file = fs::File::open(payload).with_context(|| format!("opening {}", payload.display()))?;
-    let mut archive = tar::Archive::new(file);
-    archive.set_preserve_permissions(true);
-    archive.set_preserve_mtime(true);
+/// Pulls an OCI image into the store, and checks it against its own UKI.
+///
+/// composefs-oci writes the objects the store lacks, with fs-verity on, and
+/// regenerates the boot image — the root with /boot emptied — from the
+/// layers. The UKI, in the image's /boot, names the digest it boots; the
+/// regenerated image has to have that digest, or nothing is staged. The
+/// client never trusts an image it did not compute: the build signed the
+/// UKI, and the UKI is what the firmware checks.
+fn pull(image: &str, edition: &str) -> Result<Pulled> {
+    use composefs::fsverity::{FsVerityHashValue, Sha256HashValue};
+    use composefs::repository::Repository;
+    use composefs_oci::{BootImageMatch, NullReporter, OciTransformOptions};
+    use std::sync::Arc;
+
+    // The store is fs-verity's: with meta.json sealed, composefs opens it
+    // as a store that requires fs-verity, and seals each object it writes.
+    // Installs made before this did not seal meta.json.
+    enable_verity(&Path::new(STORE).join("meta.json"))?;
+    let repo = Arc::new(
+        Repository::<Sha256HashValue>::open_path(rustix::fs::CWD, STORE)
+            .map_err(|e| anyhow::anyhow!("opening the store: {e}"))?,
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("starting the async runtime composefs needs")?;
+    let options = OciTransformOptions::default();
+    let (result, _) = runtime.block_on(composefs_oci::pull_image(
+        &repo,
+        image,
+        Some(edition),
+        None,
+        Arc::new(NullReporter),
+        Some(&options),
+    ))?;
+
+    let tree = composefs_oci::image::create_filesystem(
+        &repo,
+        &result.config_digest,
+        Some(&result.config_verity),
+        &options,
+    )?;
     let staging = Path::new("/run/hide/update");
     let _ = fs::remove_dir_all(staging);
     fs::create_dir_all(staging)?;
-    let mut digest = None;
-    let mut uki = None;
-    let mut new_objects = Vec::new();
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        let path = entry.path()?.into_owned();
-        let mut parts = path.components();
-        let top = parts
-            .next()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let rest: PathBuf = parts.collect();
-        if top == "image.digest" {
-            let mut text = String::new();
-            entry.read_to_string(&mut text)?;
-            digest = Some(
-                text.trim()
-                    .strip_prefix("sha256:")
-                    .context("image.digest is not sha256:<hex>")?
-                    .to_owned(),
-            );
-            continue;
-        }
-        if rest.as_os_str().is_empty() {
-            continue;
-        }
-        let kind = entry.header().entry_type();
-        let target = match top.as_str() {
-            "repo" => {
-                let target = Path::new(STORE).join(&rest);
-                if rest.starts_with("objects") && kind.is_file() {
-                    if sealed_object(&target) {
-                        continue;
-                    }
-                    // Missing, or left half-written by an update the power
-                    // cut short: written again either way.
-                    let _ = fs::remove_file(&target);
-                    new_objects.push(target.clone());
-                }
-                // The image's name, and the ref naming the edition's latest:
-                // replaced, they name the new image.
-                if target.is_symlink() && !rest.starts_with("objects") {
-                    fs::remove_file(&target)?;
-                }
-                target
-            }
-            "etc" => {
-                let target = Path::new("/etc").join(&rest);
-                // os-release is the image's, linked from /etc since images
-                // carry IMAGE_VERSION; an old machine has a copy.
-                let owned_by_image = rest == Path::new("os-release");
-                if target.symlink_metadata().is_ok() && !owned_by_image {
-                    continue;
-                }
-                if owned_by_image {
-                    let _ = fs::remove_file(&target);
-                }
-                target
-            }
-            "esp" => {
-                if rest.starts_with("EFI/Linux") && kind.is_file() {
-                    let name = rest.file_name().context("a UKI without a name")?;
-                    let target = staging.join(name);
-                    uki = Some(target.clone());
-                    target
-                } else {
-                    // The boot manager stays as installed: replacing it is
-                    // hideBoot's business, with its own way back.
-                    continue;
-                }
-            }
-            other => bail!("unexpected `{other}` in the payload"),
-        };
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        if kind.is_dir() && target.is_dir() {
-            continue;
-        }
-        entry
-            .unpack(&target)
-            .with_context(|| format!("unpacking {}", path.display()))?;
+
+    let linux = tree
+        .root
+        .get_directory(std::ffi::OsStr::new("boot/EFI/Linux"))
+        .context("the image has no /boot/EFI/Linux, so no UKI")?;
+    let mut ukis = linux
+        .entries()
+        .filter(|(name, _)| name.to_string_lossy().ends_with(".efi"));
+    let (name, inode) = ukis.next().context("the image has no UKI")?;
+    ensure!(ukis.next().is_none(), "the image has more than one UKI");
+    let uki_name = name.to_string_lossy().into_owned();
+    let composefs::tree::Inode::Leaf(id, _) = inode else {
+        bail!("the image's {uki_name} is a directory");
+    };
+    let composefs::tree::LeafContent::Regular(file) = &tree.leaf(*id).content else {
+        bail!("the image's {uki_name} is not a file");
+    };
+    let bytes = file_bytes(&repo, file)?;
+    let cmdline = composefs_boot::uki::get_cmdline(&bytes)
+        .map_err(|e| anyhow::anyhow!("reading {uki_name}'s command line: {e}"))?;
+    let digest = cmdline
+        .split_whitespace()
+        .find_map(|w| w.strip_prefix("hideos.image=sha256:"))
+        .context("the UKI boots no hideos.image=")?
+        .to_owned();
+    let uki = staging.join(&uki_name);
+    fs::write(&uki, &bytes)?;
+
+    let expected = Sha256HashValue::from_hex(&digest)
+        .map_err(|e| anyhow::anyhow!("the UKI's hideos.image= is not a digest: {e}"))?;
+    match composefs_oci::find_matching_boot_image(&repo, &result.manifest_digest, &expected)? {
+        BootImageMatch::Found { .. } => {}
+        BootImageMatch::NotFound(tried) => bail!(
+            "the image does not regenerate to what its UKI boots, sha256:{digest} \
+             ({tried} ways tried): refusing it"
+        ),
     }
-    Ok(Unpacked {
-        digest: digest.context("the payload has no image.digest")?,
+    // The kernel's word for it, as hidestage will ask: the image file is
+    // sealed, with the digest the UKI names.
+    let measured = measure(&Path::new(STORE).join("images").join(&digest))?;
+    ensure!(
+        measured == digest,
+        "the new image measures sha256:{measured}, but its kernel expects sha256:{digest}"
+    );
+
+    if let Ok(etc) = tree.root.get_directory(std::ffi::OsStr::new("etc")) {
+        merge_etc(&repo, &tree, etc, Path::new("/etc"), Path::new(""))?;
+    }
+    repo.sync().context("syncing the store")?;
+    sync();
+    Ok(Pulled {
+        digest,
         uki,
-        new_objects,
+        uki_name,
     })
+}
+
+type Repo = composefs::repository::Repository<composefs::fsverity::Sha256HashValue>;
+type Tree = composefs::tree::FileSystem<composefs::fsverity::Sha256HashValue>;
+type TreeFile = composefs::tree::RegularFile<composefs::fsverity::Sha256HashValue>;
+
+fn file_bytes(repo: &Repo, file: &TreeFile) -> Result<Vec<u8>> {
+    use composefs::tree::RegularFile;
+    match file {
+        RegularFile::Inline(data) => Ok(data.to_vec()),
+        RegularFile::External(id, _) | RegularFile::ExternalNoVerity(id, _) => repo.read_object(id),
+        RegularFile::Sparse(_) => bail!("a sparse file where a file was expected"),
+    }
+}
+
+/// Adds to /etc what the new image's /etc has and the machine's does not.
+/// /etc is the machine's: nothing in it is replaced — but os-release, the
+/// image's, linked from /etc since images carry IMAGE_VERSION; an old
+/// machine has a copy.
+fn merge_etc(
+    repo: &Repo,
+    tree: &Tree,
+    dir: &composefs::tree::Directory<composefs::fsverity::Sha256HashValue>,
+    target: &Path,
+    relative: &Path,
+) -> Result<()> {
+    use composefs::tree::{Inode, LeafContent};
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    for (name, inode) in dir.entries() {
+        let path = target.join(name);
+        let relative = relative.join(name);
+        let owned_by_image = relative == Path::new("os-release");
+        let exists = path.symlink_metadata().is_ok();
+        match inode {
+            Inode::Directory(sub) => {
+                if !exists {
+                    fs::create_dir(&path)?;
+                    fs::set_permissions(
+                        &path,
+                        PermissionsExt::from_mode(sub.stat.st_mode & 0o7777),
+                    )?;
+                    std::os::unix::fs::lchown(&path, Some(sub.stat.st_uid), Some(sub.stat.st_gid))?;
+                }
+                if path.is_dir() {
+                    merge_etc(repo, tree, sub, &path, &relative)?;
+                }
+            }
+            Inode::Leaf(id, _) => {
+                if exists && !owned_by_image {
+                    continue;
+                }
+                let leaf = tree.leaf(*id);
+                if exists {
+                    fs::remove_file(&path)?;
+                }
+                match &leaf.content {
+                    LeafContent::Regular(file) => {
+                        fs::write(&path, file_bytes(repo, file)?)?;
+                        fs::set_permissions(
+                            &path,
+                            PermissionsExt::from_mode(leaf.stat.st_mode & 0o7777),
+                        )?;
+                    }
+                    LeafContent::Symlink(to) => symlink(Path::new(to.as_ref()), &path)?,
+                    // Devices, fifos and sockets have no place in /etc.
+                    _ => continue,
+                }
+                std::os::unix::fs::lchown(&path, Some(leaf.stat.st_uid), Some(leaf.stat.st_gid))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The ESP, mounted for as long as this value lives.
@@ -506,22 +617,6 @@ fn enable_verity(path: &Path) -> Result<()> {
     match fs_ioc_enable_verity(file.as_fd(), VERITY_SHA256, VERITY_BLOCK) {
         Ok(()) | Err(EnableVerityError::AlreadyEnabled) => Ok(()),
         Err(error) => bail!("fs-verity on {}: {error}", path.display()),
-    }
-}
-
-/// Whether an object in the store is complete: fs-verity on, with the
-/// digest its name says — composefs names objects by that digest, as
-/// `objects/ab/cdef…`. Anything else cannot be trusted to be what it is
-/// named, and is replaced.
-fn sealed_object(path: &Path) -> bool {
-    let name = path
-        .parent()
-        .and_then(Path::file_name)
-        .zip(path.file_name())
-        .map(|(dir, file)| format!("{}{}", dir.to_string_lossy(), file.to_string_lossy()));
-    match (name, measure(path)) {
-        (Some(name), Ok(digest)) => name == digest,
-        _ => false,
     }
 }
 

@@ -179,6 +179,11 @@ const ROOT_DIRECTORIES: &[(&str, u32)] = &[
     ("root", 0o700),
     ("mnt", 0o755),
     ("hideos", 0o755),
+    // Empty in every boot image: composefs-boot clears both, and requires
+    // them. /boot carries the UKI inside the OCI image (see payload.rs);
+    // /sysroot is a convention of the tools hideOS shares that format with.
+    ("boot", 0o755),
+    ("sysroot", 0o755),
 ];
 
 /// Removes everything the image recipe excludes. Returns how many paths
@@ -358,7 +363,9 @@ fn write_payload(
     }
     fs::create_dir_all(&stage)?;
 
-    let digest = crate::payload::write(root, &stage.join("repo"), name)?;
+    let oci = stage.join("oci");
+    let repo = stage.join("repo");
+    let (image, digest) = crate::payload::write_root(root, &oci, &repo, name, parts.arch)?;
     fs::write(stage.join("image.digest"), format!("sha256:{digest}\n"))?;
     fs::write(output.join("image.digest"), format!("sha256:{digest}\n"))?;
     run(Command::new("cp")
@@ -476,6 +483,13 @@ fn write_payload(
         }
         None => println!("  signed  no: EFI binaries left unsigned"),
     }
+    image.add_uki(
+        root,
+        &esp.join("EFI/Linux").join(&uki_name),
+        &oci,
+        &repo,
+        &digest,
+    )?;
     fs::copy(
         esp.join("EFI/Linux").join(&uki_name),
         output.join(&uki_name),
@@ -499,6 +513,23 @@ fn write_payload(
         "  payload {} (sha256:{digest})",
         output.join("payload.tar").display()
     );
+    // The update: the OCI image, as an oci-archive — what `hide update
+    // --image oci-archive:PATH` takes, and what a registry would serve.
+    let archive = fs::File::create(output.join("image.oci.tar"))?;
+    run(Command::new("tar")
+        .args([
+            "--create",
+            "--sort=name",
+            "--owner=0",
+            "--group=0",
+            "--numeric-owner",
+        ])
+        .args(["--mtime=@0", "--directory"])
+        .arg(&oci)
+        .args(["oci-layout", "index.json", "blobs"])
+        .stdout(archive))
+    .context("archiving the OCI image")?;
+    println!("  oci     {}", output.join("image.oci.tar").display());
     println!("  uki     {}", output.join(&uki_name).display());
     Ok(())
 }

@@ -219,6 +219,19 @@ registry, signatures with existing tooling, and the ability to inspect or run
 any hideOS release as a container. What it does not change: the on-disk format
 is still composefs, regenerated on the client.
 
+**The image.** Two layers: the root, then `/boot/EFI/Linux/<uki>`. The digest
+the UKI carries is that of the *boot* composefs image — the root with `/boot`
+and `/sysroot` emptied, as composefs-boot makes it — so the UKI can travel
+inside the image it seals. hideforge computes that digest by pulling its own
+image into a composefs repository with composefs-oci, the code `hide update`
+runs, and the build fails if adding the UKI layer changed it. The payload
+`hide install` takes carries that same repository, so an installed system
+and an updated one have the same image for the same build.
+
+`hide update` takes `oci-archive:` and `oci:` references, which composefs-oci
+reads without skopeo. Registries come with networking: the same pull, with a
+registry client in front of it.
+
 **Why the client regenerates and the server signs.** composefs image
 generation is deterministic: the same tree produces the same digest. The build
 computes the digest, bakes it into the UKI's command line and signs the UKI.
@@ -243,7 +256,10 @@ the machine's and would otherwise go on naming the installed version.
 **What the user sees.** `hide update` downloads and stages; the change applies
 on the next reboot. Nothing about the running system changes under the user.
 Kept on disk: the booted deployment, the previous one, and any the user pinned.
-Garbage collection removes objects no kept deployment references.
+Garbage collection removes objects no kept deployment references: it runs
+at the end of every update, and its roots are the images named by the UKIs
+on the ESP. The ESP is the list of what can boot, so it is also the list of
+what must stay.
 
 **Channels.** `edge` (every build that passes CI), `beta`, `stable`. A release
 reaches `stable` only after it has been on `beta` machines and the
@@ -550,7 +566,8 @@ kernel is whatever its host provides — Docker Desktop's has no
 written without verity would not mount under `verity=require`.
 
 So hideforge stops at the payload: the composefs repository (objects and the
-EROFS image), the UKI, and the ESP's contents. A disk image is made by
+EROFS image, pulled from the OCI image as a client would), the UKI, and the
+ESP's contents — and at the OCI image itself, as an oci-archive, for updates. A disk image is made by
 booting hideOS Minimal in QEMU with an empty disk and the payload attached,
 and running `hide install` — the same tool, with the same code path, that
 installs hideOS on a real machine in H7. Every disk image the build produces
