@@ -489,6 +489,14 @@ panics, one that hangs. Each must end in the previous deployment.
 - **Secure Boot** with hideOS keys. The installer enrolls them in setup mode,
   or uses the Microsoft-signed `shim` when it cannot — **Proposed**, decided
   when the installer is written.
+- **Until then, a development key.** `cargo xtask image` signs the UKI and
+  systemd-boot with Debian's "snakeoil" key, which Debian's OVMF ships
+  already enrolled, with the private half published so that anyone can sign
+  for it. It proves the mechanism — the firmware refuses a changed or unsigned
+  kernel image — not who made the image; no machine outside QEMU trusts it.
+  x86 Secure Boot keeps its variables in System Management Mode, which
+  macOS's hypervisor does not offer, so on a Mac those boots run on QEMU's
+  emulated CPUs: `--secure-boot` is a flag, and the desktop boots without it.
 - **Measured boot.** The LUKS key is sealed to a TPM2 policy over the hideOS
   signing key (PCR 7 and a signed PCR 11 policy), not over exact hashes, so an
   update does not need re-enrollment.

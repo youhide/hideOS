@@ -28,7 +28,7 @@ cargo xtask image           # build hideOS Minimal from source
 cargo xtask boot            # boot it in QEMU, from RAM
 cargo xtask install         # install it on a disk image, as on a machine
 cargo xtask boot --disk     # boot that disk through UEFI
-cargo xtask seal-test       # try to break the seal
+cargo xtask seal-test       # try to break the seal, under Secure Boot
 ```
 
 The Workstation is the same with `--edition workstation`; it boots only

@@ -73,17 +73,19 @@ console shell runs on a glibc userspace — x86_64 and aarch64.
 
 ## H2 — The seal
 
-**In progress.** Booting sealed works, and was attacked by hand on 2026-10-02:
-`touch /usr/...` fails read-only; an object replaced by a modified copy makes
-reading and running its file fail with `EIO` ("has no fs-verity digest");
-pointing the image at an unsealed file, or at another sealed one, stops the
-boot in hidestage ("expected sha256:a1769d…, found sha256:015c11…"). What is
-left is signing, and making those attacks a test anyone can run.
+**Done on x86_64**, 2026-10-03: `cargo xtask seal-test` passes its ten checks
+under Secure Boot. `/usr` is read-only; an object replaced by a modified copy
+makes reading its file fail with `EIO` ("has no fs-verity digest"); an image
+pointed at another sealed file stops the boot in hidestage ("expected
+sha256:a1769d…, found sha256:015c11…"); and a UKI changed by one byte — the
+only way to change the digest it carries — is refused by the firmware before
+anything in it runs. The key is a development key: see ARCHITECTURE.md,
+"Security".
 
 - [x] composefs image generation in hideforge, deterministic, digest reported.
 - [x] UKI assembly: kernel + initrd + command line with the digest.
-- [ ] Signing the UKI with a development key, and Secure Boot enforcing it in
-      QEMU.
+- [x] Signing the UKI with a development key, and Secure Boot enforcing it in
+      QEMU: `cargo xtask boot --disk --secure-boot`.
 - [x] `hidestage`: mounts, GPT discovery, btrfs, composefs with digest
       verification, bind mounts, `switch_root` into oxinit.
 - [x] `hide install`: partition, btrfs with its subvolumes, objects with
@@ -94,7 +96,7 @@ left is signing, and making those attacks a test anyone can run.
       cannot enable fs-verity. See ARCHITECTURE, "Disk images are installed,
       not assembled". `cargo xtask install`, then `boot --disk`.
 - [x] `cargo xtask seal-test`: the attacks above, scripted, on a disk of
-      their own — seven checks.
+      their own, under Secure Boot — ten checks.
 
 Done when: QEMU boots from a disk into the sealed root; writing to `/usr` fails;
 flipping one byte of one object makes reading that file fail with `EIO`; a UKI
