@@ -16,15 +16,25 @@ use crate::output;
 
 /// Merges the run closure of `name` into a scratch root, archives it as
 /// `output/initramfs.cpio`, and copies `kernel`'s image to `output/vmlinuz`.
+/// What `assemble` writes, besides the image root.
+pub struct Outputs<'a> {
+    pub dir: &'a Path,
+    /// The kernel recipe, whose vmlinuz is copied next to the image.
+    pub kernel: Option<&'a str>,
+    /// The root as an initramfs, for booting from RAM.
+    pub initramfs: bool,
+    /// The root as what `hide install` installs.
+    pub payload: Option<PayloadParts<'a>>,
+}
+
 pub fn assemble(
     set: &RecipeSet,
     layout: &Layout,
     hashes: &BTreeMap<String, InputHash>,
     name: &str,
-    kernel: Option<&str>,
-    output: &Path,
-    payload: bool,
+    outputs: &Outputs,
 ) -> Result<()> {
+    let output = outputs.dir;
     let mut layers = Vec::new();
     for member in set.with_run_closure(&[name])? {
         let recipe = &set.get(&member)?.recipe;
@@ -73,6 +83,14 @@ pub fn assemble(
         .with_context(|| format!("copying {}", layer.name))?;
     }
 
+    for (dir, mode) in ROOT_DIRECTORIES {
+        let path = root.join(dir);
+        if !path.exists() {
+            fs::create_dir(&path)?;
+            fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(*mode))?;
+        }
+    }
+
     let image = &set.get(name)?.recipe.image;
     let excluded = exclude(&root, image)?;
     let stripped = strip(&root)?;
@@ -92,21 +110,23 @@ pub fn assemble(
 
     // Sorted names, fixed owner, reproducible mode: the same closure gives
     // the same archive, byte for byte.
-    let archive = output.join("initramfs.cpio");
-    let file = fs::File::create(&archive)?;
-    run(Command::new("sh")
-        .arg("-c")
-        .arg("find . -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
-        .current_dir(&root)
-        .stdout(file))
-    .context("writing the initramfs")?;
-    println!("  image   {} ({} layers)", archive.display(), layers.len());
-
-    if payload {
-        write_payload(layout, name, &root, output)?;
+    if outputs.initramfs {
+        let archive = output.join("initramfs.cpio");
+        let file = fs::File::create(&archive)?;
+        run(Command::new("sh")
+            .arg("-c")
+            .arg("find . -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
+            .current_dir(&root)
+            .stdout(file))
+        .context("writing the initramfs")?;
+        println!("  image   {} ({} layers)", archive.display(), layers.len());
     }
 
-    if let Some(kernel) = kernel {
+    if let Some(parts) = &outputs.payload {
+        write_payload(set, layout, hashes, name, &root, output, parts)?;
+    }
+
+    if let Some(kernel) = outputs.kernel {
         let recipe = &set.get(kernel)?.recipe;
         let hash = hashes
             .get(kernel)
@@ -127,6 +147,25 @@ pub fn assemble(
     }
     Ok(())
 }
+
+/// The top-level directories of a hideOS root, made here because no recipe
+/// can: a build's sandbox already has every one of them — as a mount point,
+/// or from the build root below it — so a recipe's `mkdir` changes nothing
+/// and its output never has them. On a read-only root, a missing mount point
+/// is a boot that cannot mount /dev.
+const ROOT_DIRECTORIES: &[(&str, u32)] = &[
+    ("dev", 0o755),
+    ("proc", 0o555),
+    ("sys", 0o555),
+    ("run", 0o755),
+    ("tmp", 0o1777),
+    ("etc", 0o755),
+    ("var", 0o755),
+    ("home", 0o755),
+    ("root", 0o700),
+    ("mnt", 0o755),
+    ("hideos", 0o755),
+];
 
 /// Removes everything the image recipe excludes. Returns how many paths
 /// went; a directory counts once, however much was in it.
@@ -253,19 +292,142 @@ pub fn unresolved_libraries(
     Ok(missing)
 }
 
-/// The same root as a composefs repository, archived as `payload.tar` for
-/// `hide install` to read, and its image digest as `image.digest`. The
-/// repository is written in the work directory: objects are named by digest
-/// and would survive a macOS checkout, but there is no reason to make the
-/// checkout hold a second copy of the system.
+/// What a payload needs beyond the root: the kernel to boot it with, and the
+/// recipe whose output holds hidestage.
+pub struct PayloadParts<'a> {
+    pub kernel: &'a str,
+    pub initrd: &'a str,
+    pub arch: hideforge_recipe::Arch,
+}
+
+/// The system as `hide install` takes it, archived as `payload.tar`:
+///
+/// ```text
+/// repo/          the root as a composefs repository: objects and the EROFS image
+/// etc/           the image's /etc, the factory state of the writable /etc
+/// esp/           systemd-boot, and the UKI that boots this image
+/// image.digest   sha256:<the image's fs-verity digest>
+/// ```
+///
+/// The UKI's command line carries the digest, so it boots this image and no
+/// other. Staged in the work directory; only the archive, the digest and the
+/// UKI go to `output`.
 #[cfg(target_os = "linux")]
-fn write_payload(layout: &Layout, name: &str, root: &Path, output: &Path) -> Result<()> {
-    let repo = layout.image_root(&format!("{name}.repo"));
-    if repo.exists() {
-        fs::remove_dir_all(&repo)?;
+fn write_payload(
+    set: &RecipeSet,
+    layout: &Layout,
+    hashes: &BTreeMap<String, InputHash>,
+    name: &str,
+    root: &Path,
+    output: &Path,
+    parts: &PayloadParts,
+) -> Result<()> {
+    let output_of = |recipe: &str| -> Result<std::path::PathBuf> {
+        let hash = hashes
+            .get(recipe)
+            .ok_or_else(|| anyhow!("no hash for {recipe}"))?;
+        Ok(layout.output(hash, &set.get(recipe)?.recipe))
+    };
+
+    let stage = layout.image_root(&format!("{name}.payload"));
+    if stage.exists() {
+        fs::remove_dir_all(&stage)?;
     }
-    let digest = crate::payload::write(root, &repo, name)?;
+    fs::create_dir_all(&stage)?;
+
+    let digest = crate::payload::write(root, &stage.join("repo"), name)?;
+    fs::write(stage.join("image.digest"), format!("sha256:{digest}\n"))?;
     fs::write(output.join("image.digest"), format!("sha256:{digest}\n"))?;
+    run(Command::new("cp")
+        .arg("-a")
+        .arg(root.join("etc"))
+        .arg(stage.join("etc")))
+    .context("copying the factory /etc")?;
+
+    // The initrd: hidestage as /init, and /dev/console, without which the
+    // kernel gives init no stdout and hidestage's messages go nowhere.
+    let initrd_root = stage.join("initrd");
+    fs::create_dir_all(initrd_root.join("dev"))?;
+    fs::copy(
+        output_of(parts.initrd)?.join("usr/lib/hideos/hidestage"),
+        initrd_root.join("init"),
+    )
+    .with_context(|| format!("{} installs no usr/lib/hideos/hidestage", parts.initrd))?;
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        initrd_root.join("dev/console"),
+        rustix::fs::FileType::CharacterDevice,
+        rustix::fs::Mode::from_raw_mode(0o600),
+        rustix::fs::makedev(5, 1),
+    )
+    .context("creating dev/console in the initrd")?;
+    let initrd = stage.join("initrd.cpio");
+    run(Command::new("sh")
+        .arg("-c")
+        .arg("find . -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
+        .current_dir(&initrd_root)
+        .stdout(fs::File::create(&initrd)?))
+    .context("writing the initrd")?;
+
+    // The kernel, from the kernel recipe's output.
+    let modules = output_of(parts.kernel)?.join("usr/lib/modules");
+    let release = fs::read_dir(&modules)?
+        .next()
+        .ok_or_else(|| anyhow!("{} installed no kernel", parts.kernel))??;
+    let vmlinuz = release.path().join("vmlinuz");
+
+    // The serial console last: it becomes /dev/console, which is where
+    // hidestage, oxinit and the tests read.
+    let (stub_name, console, boot_efi) = match parts.arch {
+        hideforge_recipe::Arch::X86_64 => (
+            "linuxx64.efi.stub",
+            "console=tty0 console=ttyS0",
+            "BOOTX64.EFI",
+        ),
+        hideforge_recipe::Arch::Aarch64 => (
+            "linuxaa64.efi.stub",
+            "console=tty0 console=ttyAMA0",
+            "BOOTAA64.EFI",
+        ),
+    };
+    let cmdline = format!("{console} hideos.image=sha256:{digest}");
+    let uki_name = format!("hideos-{name}-{}.efi", digest.get(..12).unwrap_or(&digest));
+    let esp = stage.join("esp");
+    fs::create_dir_all(esp.join("EFI/Linux"))?;
+    crate::uki::build(
+        &Path::new(BOOT_EFI_DIR).join(stub_name),
+        &root.join("etc/os-release"),
+        &cmdline,
+        &initrd,
+        &vmlinuz,
+        &esp.join("EFI/Linux").join(&uki_name),
+    )?;
+
+    // systemd-boot, until hideBoot: it finds UKIs in EFI/Linux by itself.
+    let loader = Path::new(BOOT_EFI_DIR).join(format!(
+        "systemd-boot{}.efi",
+        if parts.arch == hideforge_recipe::Arch::X86_64 {
+            "x64"
+        } else {
+            "aa64"
+        }
+    ));
+    fs::create_dir_all(esp.join("EFI/BOOT"))?;
+    fs::create_dir_all(esp.join("EFI/systemd"))?;
+    fs::create_dir_all(esp.join("loader"))?;
+    fs::copy(&loader, esp.join("EFI/BOOT").join(boot_efi))
+        .with_context(|| format!("copying {}", loader.display()))?;
+    fs::copy(
+        &loader,
+        esp.join("EFI/systemd")
+            .join(loader.file_name().unwrap_or_default()),
+    )?;
+    fs::write(esp.join("loader/loader.conf"), "timeout 3\n")?;
+    fs::copy(
+        esp.join("EFI/Linux").join(&uki_name),
+        output.join(&uki_name),
+    )?;
+
     let tar = fs::File::create(output.join("payload.tar"))?;
     run(Command::new("tar")
         .args([
@@ -276,19 +438,34 @@ fn write_payload(layout: &Layout, name: &str, root: &Path, output: &Path) -> Res
             "--numeric-owner",
         ])
         .args(["--mtime=@0", "--directory"])
-        .arg(&repo)
-        .arg(".")
+        .arg(&stage)
+        .args(["repo", "etc", "esp", "image.digest"])
         .stdout(tar))
     .context("archiving the payload")?;
     println!(
         "  payload {} (sha256:{digest})",
         output.join("payload.tar").display()
     );
+    println!("  uki     {}", output.join(&uki_name).display());
     Ok(())
 }
 
+/// Where the builder's systemd-boot package puts its EFI binaries. The stub
+/// and the boot manager come from the builder until hideBoot (H7) replaces
+/// the boot manager; see ARCHITECTURE.md, "Boot chain".
+#[cfg(target_os = "linux")]
+const BOOT_EFI_DIR: &str = "/usr/lib/systemd/boot/efi";
+
 #[cfg(not(target_os = "linux"))]
-fn write_payload(_: &Layout, _: &str, _: &Path, _: &Path) -> Result<()> {
+fn write_payload(
+    _: &RecipeSet,
+    _: &Layout,
+    _: &BTreeMap<String, InputHash>,
+    _: &str,
+    _: &Path,
+    _: &Path,
+    _: &PayloadParts,
+) -> Result<()> {
     bail!("payloads are written on Linux, in the builder")
 }
 

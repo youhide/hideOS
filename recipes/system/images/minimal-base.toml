@@ -1,0 +1,33 @@
+# What hideOS Minimal is made of: the system with a terminal and nothing
+# else. The base every edition is built on — Workstation depends on this,
+# rather than repeating it, so that the two can never ship different
+# versions of the same thing. See ARCHITECTURE.md, "Editions".
+#
+# Separate from the `minimal` image because an image also decides what the
+# machine boots to, its `default` target, and two editions cannot both ship
+# /usr/lib/oxinit/units/default.toml.
+[package]
+name = "minimal-base"
+version = "1"
+description = "The contents of hideOS Minimal, which every edition shares"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+run = [
+    "filesystem",
+    "glibc",
+    "gcc",
+    "bash",
+    "zsh",
+    "coreutils",
+    "util-linux",
+    "oxinit",
+    "hideos-units",
+    "hide",
+    "btrfs-progs",
+    "dosfstools",
+]
+
+[build]
+script = "true"

@@ -8,10 +8,13 @@
 //!   hash NAME [--explain] NAME's input hash, and what went into it
 //!   fetch NAME...         download and verify sources for NAME and its inputs
 //!   build NAME... [--keep-failed]
-//!   image NAME --output DIR [--kernel NAME] [--payload]
+//!   image NAME --output DIR --kernel NAME [--payload --initrd NAME]
 //!                         build NAME and assemble its run closure into an
 //!                         initramfs, with the kernel next to it; --payload
-//!                         also writes it as a composefs repository
+//!                         also writes what hide install installs: the
+//!                         composefs repository, the UKI, the ESP;
+//!                         --no-initramfs skips the initramfs, for images
+//!                         that boot only from a disk
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -35,6 +38,8 @@ mod sandbox;
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 mod sys;
+#[cfg(target_os = "linux")]
+mod uki;
 mod workspace;
 
 use std::collections::BTreeMap;
@@ -185,29 +190,38 @@ fn run(args: &[String]) -> Result<i32> {
             )?;
         }
         "image" => {
+            let usage = "usage: hideforge image NAME --output DIR --kernel NAME \
+                         [--payload --initrd NAME] [--no-initramfs]";
             let [name] = names.as_slice() else {
-                bail!("usage: hideforge image NAME --output DIR [--kernel NAME] [--payload]");
+                bail!("{usage}");
             };
-            let output = parsed
-                .value("--output")
-                .ok_or_else(|| anyhow!("image needs --output DIR"))?;
+            let output = parsed.value("--output").ok_or_else(|| anyhow!("{usage}"))?;
             let kernel = parsed.value("--kernel");
+            let initrd = parsed.value("--initrd");
+            let payload = match (flag("--payload"), kernel, initrd) {
+                (false, _, _) => None,
+                (true, Some(kernel), Some(initrd)) => Some(image::PayloadParts {
+                    kernel,
+                    initrd,
+                    arch: options.arch,
+                }),
+                (true, _, _) => bail!("--payload needs --kernel and --initrd\n{usage}"),
+            };
             let mut wanted = vec![*name];
             wanted.extend(kernel);
+            wanted.extend(initrd);
             let targets = set.with_run_closure(&wanted)?;
             let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
             let hashes = set.input_hashes(&targets, &context)?;
             let order = set.build_order(&targets)?;
             build(&set, &layout, &context, &hashes, &order, false)?;
-            image::assemble(
-                &set,
-                &layout,
-                &hashes,
-                name,
+            let outputs = image::Outputs {
+                dir: output.as_ref(),
                 kernel,
-                output.as_ref(),
-                flag("--payload"),
-            )?;
+                initramfs: !flag("--no-initramfs"),
+                payload,
+            };
+            image::assemble(&set, &layout, &hashes, name, &outputs)?;
         }
         other => bail!("unknown command `{other}`"),
     }
@@ -231,7 +245,7 @@ impl Args {
 }
 
 /// Options that take a value. Everything else starting with `--` is a flag.
-const VALUE_OPTIONS: &[&str] = &["--output", "--kernel"];
+const VALUE_OPTIONS: &[&str] = &["--output", "--kernel", "--initrd"];
 
 fn parse_args(args: &[String]) -> Result<Args> {
     let mut parsed = Args {

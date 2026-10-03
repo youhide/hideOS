@@ -257,9 +257,24 @@ the same way:
 | **Workstation** | Minimal and the desktop: COSMIC, PipeWire, NetworkManager, Flatpak, containers. The product. | `workstation`  | H5   |
 
 **Workstation is Minimal plus a layer, never a sibling.** Its image recipe
-depends on `minimal` instead of listing the base again, so both ship the same
-build of every shared package, and a fix to the base reaches both in one
-release.
+depends on `minimal-base`, Minimal's contents, instead of listing the base
+again, so both ship the same build of every shared package, and a fix to the
+base reaches both in one release.
+
+**An edition is its contents and what it boots to.** Each image recipe
+installs the oxinit `default` target and nothing else: Minimal's requires
+`multi-user` (setup, the banner, a shell on the console); Workstation's adds
+the desktop's services and the greeter. That one file is why the contents
+are a recipe of their own — oxinit has no drop-ins, so two editions cannot
+share a closure that already decides the default.
+
+**Packages declare what they need in `/etc` and `/var`; the machine makes
+it.** System users come from `sysusers.d`, directories and links from
+`tmpfiles.d` — systemd's formats, because the upstream packages already ship
+them — and `hide setup` applies both, with `/etc/machine-id`, as the first
+unit of every boot. At every boot rather than at install: an update can bring
+a package with a new user, and `/etc` belongs to the machine, not the image.
+Anything that exists is left alone.
 
 **Switching edition is a rebase, not a reinstall.** Both are OCI images over
 the same object store: `hide rebase workstation` downloads only what

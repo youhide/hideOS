@@ -22,6 +22,11 @@ impl Layout {
         self.sources().join(sha256)
     }
 
+    /// cargo's download cache, for the recipes `cargo vendor` vendors.
+    pub fn cargo_home(&self) -> PathBuf {
+        self.root.join("cargo-home")
+    }
+
     pub fn store(&self) -> PathBuf {
         self.root.join("store")
     }

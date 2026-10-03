@@ -1,0 +1,7 @@
+# Reached at the end of boot: hideOS Minimal is the multi-user system.
+[target]
+
+[unit]
+description = "hideOS Minimal"
+requires    = ["multi-user"]
+after       = ["multi-user"]

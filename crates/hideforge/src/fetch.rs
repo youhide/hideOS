@@ -170,19 +170,42 @@ pub struct Crate {
 
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
-/// The crates.io packages a lockfile pins. Workspace members have no source
-/// and are skipped; anything from another registry or from git is an error,
-/// because nothing else gives a checksum to hold the download to.
-pub fn locked_crates(lockfile: &str) -> Result<Vec<Crate>> {
+/// What a lockfile pins, by where it comes from.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Locked {
+    /// crates.io packages, each with the checksum of its `.crate` file.
+    pub crates: Vec<Crate>,
+    /// Packages from git, as `(name, source)`: the source ends in the full
+    /// commit ID, which is what pins them.
+    pub git: Vec<(String, String)>,
+}
+
+/// The packages a lockfile pins. Workspace members have no source and are
+/// skipped. crates.io packages need a checksum, git packages a full commit
+/// ID; anything else, or either without its pin, is an error, because then
+/// nothing holds the download to what the lockfile meant.
+pub fn locked_crates(lockfile: &str) -> Result<Locked> {
     let lock: CargoLock = basic_toml::from_str(lockfile).context("parsing Cargo.lock")?;
-    let mut crates = Vec::new();
+    let mut locked = Locked::default();
     for package in lock.package {
         let Some(source) = package.source else {
             continue;
         };
+        if source.starts_with("git+https://") {
+            let commit = source.rsplit_once('#').map(|(_, c)| c).unwrap_or("");
+            if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+                bail!(
+                    "{} {} comes from {source}, which names no full commit",
+                    package.name,
+                    package.version
+                );
+            }
+            locked.git.push((package.name, source));
+            continue;
+        }
         if source != CRATES_IO {
             bail!(
-                "{} {} comes from {source}; only crates.io packages can be vendored",
+                "{} {} comes from {source}; only crates.io and git over https can be vendored",
                 package.name,
                 package.version
             );
@@ -194,13 +217,13 @@ pub fn locked_crates(lockfile: &str) -> Result<Vec<Crate>> {
                 package.version
             )
         })?;
-        crates.push(Crate {
+        locked.crates.push(Crate {
             name: package.name,
             version: package.version,
             sha256,
         });
     }
-    Ok(crates)
+    Ok(locked)
 }
 
 /// Downloads and unpacks every crate in `src/Cargo.lock` into
@@ -210,7 +233,11 @@ pub fn locked_crates(lockfile: &str) -> Result<Vec<Crate>> {
 fn vendor_cargo(layout: &Layout, src: &Path) -> Result<()> {
     let lockfile = fs::read_to_string(src.join("Cargo.lock"))
         .context("vendor = \"cargo\" needs a Cargo.lock at the top of the source")?;
-    let crates = locked_crates(&lockfile)?;
+    let locked = locked_crates(&lockfile)?;
+    if !locked.git.is_empty() {
+        return vendor_cargo_git(layout, src, locked.git.len());
+    }
+    let crates = locked.crates;
     let vendor = src.join(".hideforge-vendor");
     fs::create_dir_all(&vendor)?;
     eprintln!("  vendor {} crates", crates.len());
@@ -250,6 +277,53 @@ fn vendor_cargo(layout: &Layout, src: &Path) -> Result<()> {
         "[source.crates-io]\nreplace-with = \"hideforge-vendor\"\n\n\
          [source.hideforge-vendor]\ndirectory = \"/build/src/.hideforge-vendor\"\n\n\
          [net]\noffline = true\n",
+    )?;
+    Ok(())
+}
+
+/// Vendoring for lockfiles with git dependencies, which is most of COSMIC:
+/// `cargo vendor`, run here, where the network is allowed.
+///
+/// A crate in a git repository is not a directory that can be copied. Its
+/// manifest inherits from the repository's workspace, its path dependencies
+/// point at siblings, and cargo turns all that into a standalone package when
+/// it vendors. Doing that by hand would be reimplementing cargo, so cargo
+/// does it. What is vendored is still pinned: git packages by the full commit
+/// in Cargo.lock, crates.io packages by checksum, which cargo verifies, and
+/// Cargo.lock by the recipe's digest of the source. The builder's cargo
+/// shapes only how the vendored manifests are written.
+fn vendor_cargo_git(layout: &Layout, src: &Path, git: usize) -> Result<()> {
+    eprintln!("  vendor with cargo ({git} packages from git)");
+    let vendor = src.join(".hideforge-vendor");
+    let output = Command::new("cargo")
+        .args(["vendor", "--locked", "--versioned-dirs", "--quiet"])
+        .arg(&vendor)
+        .current_dir(src)
+        // A cache that outlives the build, so a rebuild does not download
+        // everything again. Not trusted: cargo checks every crate it takes
+        // from it against the lockfile.
+        .env("CARGO_HOME", layout.cargo_home())
+        .output()
+        .context("running cargo vendor")?;
+    if !output.status.success() {
+        bail!(
+            "cargo vendor failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    // What cargo prints is the configuration that uses what it vendored,
+    // with the path as it was given; inside the sandbox the source is at
+    // /build/src.
+    let config = String::from_utf8(output.stdout)
+        .context("cargo vendor printed something that is not UTF-8")?
+        .replace(
+            &vendor.display().to_string(),
+            "/build/src/.hideforge-vendor",
+        );
+    fs::create_dir_all(src.join(".cargo"))?;
+    fs::write(
+        src.join(".cargo/config.toml"),
+        format!("{config}\n[net]\noffline = true\n"),
     )?;
     Ok(())
 }
@@ -348,7 +422,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aaaa"
 "#;
         assert_eq!(
-            locked_crates(lock).unwrap(),
+            locked_crates(lock).unwrap().crates,
             [Crate {
                 name: "rustix".to_owned(),
                 version: "1.1.4".to_owned(),
@@ -358,14 +432,28 @@ checksum = "aaaa"
     }
 
     #[test]
-    fn git_dependencies_cannot_be_vendored() {
-        let lock = r#"
+    fn git_dependencies_must_name_a_full_commit() {
+        let pinned = r#"
+[[package]]
+name = "thing"
+version = "0.1.0"
+source = "git+https://example.com/thing?rev=abc#0123456789abcdef0123456789abcdef01234567"
+"#;
+        assert_eq!(locked_crates(pinned).unwrap().git.len(), 1);
+        let short = r#"
 [[package]]
 name = "thing"
 version = "0.1.0"
 source = "git+https://example.com/thing#abc"
 "#;
-        assert!(locked_crates(lock).is_err());
+        assert!(locked_crates(short).is_err());
+        let insecure = r#"
+[[package]]
+name = "thing"
+version = "0.1.0"
+source = "git+http://example.com/thing#0123456789abcdef0123456789abcdef01234567"
+"#;
+        assert!(locked_crates(insecure).is_err());
     }
 
     #[test]

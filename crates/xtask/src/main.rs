@@ -38,6 +38,7 @@ fn main() -> ExitCode {
         Some("forge") => forge(args.get(1..).unwrap_or_default()),
         Some("forge-selftest") => forge_selftest(),
         Some("image") => image(args.get(1..).unwrap_or_default()),
+        Some("install") => install(args.get(1..).unwrap_or_default()),
         Some("boot") => boot(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
         Some("publish-site") => publish_site(),
@@ -67,9 +68,17 @@ fn usage() -> &'static str {
     firmware-smoke [--arch ARCH]  boot UEFI firmware in QEMU (x86_64, aarch64)
     forge -- ARG...               run hideforge in the builder
     forge-selftest                check the sandbox's guarantees
-    image [--arch ARCH]           build hideOS Minimal into target/images
-    boot [--arch ARCH] [--test]   boot it in QEMU; --test waits for the banner
-    screenshot [--arch ARCH]      boot it, type a few commands, save a PNG
+    image [--arch ARCH] [--edition E]
+                                  build an edition (minimal, workstation)
+                                  into target/images
+    install [--arch ARCH] [--edition E]
+                                  install it on target/images/.../disk.raw
+    boot [--arch ARCH] [--edition E] [--test] [--disk]
+                                  boot it in QEMU; --test waits for the
+                                  banner; --disk boots disk.raw through UEFI
+                                  (Workstation always does)
+    screenshot [--arch ARCH] [--edition E]
+                                  boot it and save a PNG of the screen
     publish-site                  push site/ and the screenshot to gh-pages
 "
 }
@@ -494,25 +503,62 @@ echo "ok    no build directories left behind"
 // ---------------------------------------------------------------------------
 // image and boot
 
-/// The edition `image`, `boot` and `screenshot` work with. Workstation joins
-/// it in H5.
-const EDITION: &str = "minimal";
+/// An edition of hideOS. See ARCHITECTURE.md, "Editions".
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Edition {
+    /// The image recipe, and the name of its directory in target/images.
+    name: &'static str,
+    /// Whether it also boots from RAM. Minimal does, and has to: it is what
+    /// `install` boots to run the installer. Workstation is too big to be
+    /// worth it; it boots from its disk.
+    ram: bool,
+    /// Guest memory.
+    memory: &'static str,
+}
 
-/// Where `image` puts an architecture's kernel and initramfs: in the
-/// checkout, so QEMU on the host can read them. Two files, so the
+const MINIMAL: Edition = Edition {
+    name: "minimal",
+    ram: true,
+    memory: "2048",
+};
+
+const EDITIONS: &[Edition] = &[
+    MINIMAL,
+    Edition {
+        name: "workstation",
+        ram: false,
+        memory: "4096",
+    },
+];
+
+fn find_edition(args: &[String]) -> Result<Edition, String> {
+    let wanted = flag(args, "--edition")?.unwrap_or(MINIMAL.name);
+    EDITIONS
+        .iter()
+        .find(|e| e.name == wanted)
+        .copied()
+        .ok_or_else(|| {
+            let known: Vec<&str> = EDITIONS.iter().map(|e| e.name).collect();
+            format!("unknown --edition `{wanted}`; known: {}", known.join(", "))
+        })
+}
+
+/// Where `image` puts an edition's files for an architecture: in the
+/// checkout, so QEMU on the host can read them. A few large files, so the
 /// case-insensitivity that rules out building here does not matter.
-fn image_dir(arch: Arch) -> Result<PathBuf, String> {
+fn image_dir(edition: Edition, arch: Arch) -> Result<PathBuf, String> {
     Ok(workspace_root()?
         .join("target")
         .join("images")
-        .join(format!("{EDITION}-{}", arch.name)))
+        .join(format!("{}-{}", edition.name, arch.name)))
 }
 
 fn image(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
+    let edition = find_edition(args)?;
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
     let root = workspace_root()?;
-    let output = format!("/src/target/images/{EDITION}-{}", arch.name);
+    let output = format!("/src/target/images/{}-{}", edition.name, arch.name);
     run(builder_command(&runtime, &root, false)
         .args([
             "cargo",
@@ -523,7 +569,20 @@ fn image(args: &[String]) -> Result<(), String> {
             "hideforge",
             "--",
         ])
-        .args(["--arch", arch.name, "image", EDITION, "--kernel", "linux"])
+        .args([
+            "--arch",
+            arch.name,
+            "image",
+            edition.name,
+            "--kernel",
+            "linux",
+        ])
+        .args(["--payload", "--initrd", "hidestage"])
+        .args(if edition.ram {
+            &[][..]
+        } else {
+            &["--no-initramfs"][..]
+        })
         .args(["--output", &output]))
 }
 
@@ -532,10 +591,28 @@ fn image(args: &[String]) -> Result<(), String> {
 /// the glibc userspace.
 const BOOT_MARKER: &str = "hideOS: booted on";
 
-fn boot(args: &[String]) -> Result<(), String> {
-    let arch = find_arch(args)?;
-    let test = args.iter().any(|a| a == "--test");
-    let dir = image_dir(arch)?;
+/// The QEMU every boot starts from: the architecture's machine, the best
+/// accelerator, no network, and `-no-reboot`, so that a guest rebooting —
+/// after a panic, or hidestage giving up — ends the run instead of looping.
+fn qemu(arch: Arch, edition: Edition) -> Command {
+    let mut command = Command::new(arch.qemu);
+    for accel in accelerators(arch) {
+        command.args(["-accel", accel]);
+    }
+    command.args(arch.machine).args([
+        "-m",
+        edition.memory,
+        "-smp",
+        "2",
+        "-no-reboot",
+        "-nic",
+        "none",
+    ]);
+    command
+}
+
+/// The image's kernel and initramfs, checked to exist.
+fn ram_image(arch: Arch, dir: &Path) -> Result<(PathBuf, PathBuf), String> {
     let kernel = dir.join("vmlinuz");
     let initrd = dir.join("initramfs.cpio");
     if !kernel.is_file() || !initrd.is_file() {
@@ -545,36 +622,105 @@ fn boot(args: &[String]) -> Result<(), String> {
             arch.name
         ));
     }
+    Ok((kernel, initrd))
+}
 
-    let mut command = Command::new(arch.qemu);
-    for accel in accelerators(arch) {
-        command.args(["-accel", accel]);
+/// The account on disks `install` makes, with itself as the password. A
+/// development disk, for QEMU: the greeter needs someone to log in as, and
+/// a test needs to know the password. An installed machine gets the
+/// account its owner chooses.
+const DEV_USER: &str = "hide";
+
+/// How big `install` makes the disk. Sparse, so it costs what is written.
+const DISK_SIZE: u64 = 16 << 30;
+/// What `hide install` prints when it is done.
+const INSTALL_MARKER: &str = "hide install: installed";
+const INSTALL_FAILED: &str = "hide install: FAILED";
+
+/// Makes `disk.raw` the way hideOS is installed on a machine: boots the
+/// Minimal image from RAM with `hide install` as PID 1, the payload as one
+/// virtio disk and the empty disk as the other. See ARCHITECTURE.md, "Disk
+/// images are installed, not assembled": the builder's kernel cannot enable
+/// fs-verity, a hideOS kernel can.
+fn install(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let edition = find_edition(args)?;
+    let dir = image_dir(edition, arch)?;
+    // Every edition is installed by Minimal, as on a real machine.
+    let (kernel, initrd) = ram_image(arch, &image_dir(MINIMAL, arch)?)?;
+    let payload = dir.join("payload.tar");
+    if !payload.is_file() {
+        return Err(format!(
+            "no payload in {}; run `cargo xtask image --arch {} --edition {}` first",
+            dir.display(),
+            arch.name,
+            edition.name
+        ));
     }
+    let disk = dir.join("disk.raw");
+    let _ = fs::remove_file(&disk);
+    fs::File::create(&disk)
+        .and_then(|f| f.set_len(DISK_SIZE))
+        .map_err(|e| format!("creating {}: {e}", disk.display()))?;
+
+    let log = dir.join("install.log");
+    let _ = fs::remove_file(&log);
+    let mut command = qemu(arch, MINIMAL);
     command
-        .args(arch.machine)
-        .args(["-m", "2048", "-smp", "2", "-no-reboot", "-nic", "none"])
         .arg("-kernel")
         .arg(&kernel)
         .arg("-initrd")
         .arg(&initrd)
-        // rdinit, not init: in an initramfs the kernel runs rdinit, and the
-        // default /init does not exist in a hideOS root. panic=-1: reboot at
-        // once on a panic, which -no-reboot turns into QEMU exiting, so a
-        // failed boot ends instead of hanging.
+        // Everything after `--` is the init's argv. Drives are numbered in
+        // the order they are given: the disk is vda, the payload vdb.
         .arg("-append")
         .arg(format!(
-            "console={} rdinit=/usr/bin/oxinit panic=-1",
+            "console={} rdinit=/usr/bin/hide panic=-1 -- \
+             install --payload /dev/vdb --disk /dev/vda --poweroff \
+             --user {DEV_USER} --password {DEV_USER}",
             arch.console
+        ))
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .arg("-drive")
+        .arg(format!(
+            "if=virtio,format=raw,readonly=on,file={}",
+            payload.display()
         ));
-
-    if !test {
-        println!("booting hideOS {} (quit QEMU with Ctrl-A X)", arch.name);
-        command.arg("-nographic");
-        return run(&mut command);
+    println!(
+        "installing hideOS {} {} on {}",
+        edition.name,
+        arch.name,
+        disk.display()
+    );
+    let serial = run_headless(
+        command,
+        &log,
+        Duration::from_secs(900),
+        &[INSTALL_MARKER, INSTALL_FAILED],
+    )?;
+    for line in serial.lines().filter(|l| l.contains("hide install:")) {
+        println!("  {}", line.trim());
     }
+    if serial.contains(INSTALL_MARKER) {
+        Ok(())
+    } else {
+        Err(format!(
+            "the install failed; serial log in {}",
+            log.display()
+        ))
+    }
+}
 
-    let log = dir.join("serial.log");
-    let _ = fs::remove_file(&log);
+/// Runs QEMU with no display and the serial console in `log`, until the
+/// guest exits, a line containing one of `stop_at` appears, or `timeout`.
+/// Returns what the serial console printed.
+fn run_headless(
+    mut command: Command,
+    log: &Path,
+    timeout: Duration,
+    stop_at: &[&str],
+) -> Result<String, String> {
     command
         .args(["-display", "none", "-monitor", "none"])
         .arg("-serial")
@@ -582,48 +728,193 @@ fn boot(args: &[String]) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    println!(
-        "booting hideOS {} (timeout {}s)",
-        arch.name,
-        arch.timeout.as_secs()
-    );
     let started = Instant::now();
     let mut child = command
         .spawn()
-        .map_err(|e| format!("could not start {}: {e}", arch.qemu))?;
-    let outcome = loop {
-        let serial = fs::read(&log)
+        .map_err(|e| format!("could not start QEMU: {e}"))?;
+    let read = || {
+        fs::read(log)
             .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .unwrap_or_default();
-        if let Some(line) = serial.lines().find(|l| l.contains(BOOT_MARKER)) {
-            break Ok(format!(
-                "{} in {:.1}s",
-                line.trim(),
-                started.elapsed().as_secs_f64()
+            .unwrap_or_default()
+    };
+    let outcome = loop {
+        let serial = without_kernel_messages(&read());
+        if stop_at.iter().any(|m| serial.contains(m)) {
+            // Give a powering-off guest a moment to finish on its own.
+            thread::sleep(Duration::from_secs(2));
+            break Ok(());
+        }
+        if let Ok(Some(_)) = child.try_wait() {
+            break Ok(());
+        }
+        if started.elapsed() > timeout {
+            break Err(format!(
+                "nothing after {}s; serial log in {}",
+                timeout.as_secs(),
+                log.display()
             ));
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            break Err(format!("QEMU exited ({status}) before the banner"));
-        }
-        if started.elapsed() > arch.timeout {
-            break Err(format!("no banner after {}s", arch.timeout.as_secs()));
         }
         thread::sleep(Duration::from_millis(200));
     };
     let _ = child.kill();
     let _ = child.wait();
-    match outcome {
-        Ok(message) => {
-            println!("{}: {message}", arch.name);
+    outcome.map(|()| without_kernel_messages(&read()))
+}
+
+/// The serial console without the kernel's own messages. They are written
+/// whenever the kernel has something to say, including into the middle of a
+/// line a program is printing, which would hide that line from a search.
+fn without_kernel_messages(serial: &str) -> String {
+    let mut out = String::with_capacity(serial.len());
+    let mut rest = serial;
+    while let Some(start) = rest.find('[') {
+        let (before, from) = rest.split_at(start);
+        out.push_str(before);
+        // "[   12.345678] ...\n"
+        let stamp = from.find(']').and_then(|end| from.get(1..end)).filter(|t| {
+            let t = t.trim_start();
+            !t.is_empty() && t.chars().all(|c| c.is_ascii_digit() || c == '.') && t.contains('.')
+        });
+        match stamp {
+            Some(_) => {
+                rest = match from.find('\n') {
+                    Some(newline) => from.get(newline + 1..).unwrap_or(""),
+                    None => "",
+                };
+            }
+            None => {
+                out.push('[');
+                rest = from.get(1..).unwrap_or("");
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A writable copy of the firmware's variable store, and the two pflash
+/// drives that give QEMU the firmware.
+fn uefi_firmware(arch: Arch, command: &mut Command, dir: &Path) -> Result<(), String> {
+    let (code, vars_template) = find_firmware(arch).ok_or_else(|| {
+        format!(
+            "no {} UEFI firmware found; `cargo xtask doctor` says where it was looked for",
+            arch.name
+        )
+    })?;
+    let vars = dir.join("efivars.fd");
+    fs::copy(&vars_template, &vars).map_err(|e| format!("copying the variable store: {e}"))?;
+    command
+        .arg("-drive")
+        .arg(format!(
+            "if=pflash,format=raw,unit=0,readonly=on,file={}",
+            code.display()
+        ))
+        .arg("-drive")
+        .arg(format!(
+            "if=pflash,format=raw,unit=1,file={}",
+            vars.display()
+        ));
+    Ok(())
+}
+
+fn boot(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let edition = find_edition(args)?;
+    let test = args.iter().any(|a| a == "--test");
+    let from_disk = args.iter().any(|a| a == "--disk") || !edition.ram;
+    let dir = image_dir(edition, arch)?;
+
+    let mut command = qemu(arch, edition);
+    if from_disk {
+        // The real chain: firmware, systemd-boot, the UKI, hidestage
+        // checking the seal, oxinit.
+        let disk = dir.join("disk.raw");
+        if !disk.is_file() {
+            return Err(format!(
+                "no disk in {}; run `cargo xtask install --arch {} --edition {}` first",
+                dir.display(),
+                arch.name,
+                edition.name
+            ));
+        }
+        uefi_firmware(arch, &mut command, &dir)?;
+        command
+            .arg("-drive")
+            .arg(format!("if=virtio,format=raw,file={}", disk.display()));
+        if !edition.ram && !test {
+            // The desktop: a GPU without 3D, which Mesa drives with
+            // llvmpipe, and a tablet, so the pointer follows the host's.
+            command.args(DESKTOP_DEVICES).args(["-serial", "stdio"]);
+            println!(
+                "booting hideOS {} {} in a window; the serial console is here",
+                edition.name, arch.name
+            );
+            return run(&mut command);
+        }
+    } else {
+        let (kernel, initrd) = ram_image(arch, &dir)?;
+        command
+            .arg("-kernel")
+            .arg(&kernel)
+            .arg("-initrd")
+            .arg(&initrd)
+            // rdinit, not init: in an initramfs the kernel runs rdinit, and
+            // the default /init does not exist in a hideOS root. panic=-1:
+            // reboot at once on a panic, which -no-reboot turns into QEMU
+            // exiting, so a failed boot ends instead of hanging.
+            .arg("-append")
+            .arg(format!(
+                "console={} rdinit=/usr/bin/oxinit panic=-1",
+                arch.console
+            ));
+    }
+
+    if !test {
+        println!(
+            "booting hideOS {} {} (quit QEMU with Ctrl-A X)",
+            edition.name, arch.name
+        );
+        command.arg("-nographic");
+        return run(&mut command);
+    }
+
+    let log = dir.join("serial.log");
+    let _ = fs::remove_file(&log);
+    let from = if from_disk { "disk" } else { "RAM" };
+    println!(
+        "booting hideOS {} from {from} (timeout {}s)",
+        arch.name,
+        arch.timeout.as_secs()
+    );
+    let started = Instant::now();
+    let serial = run_headless(command, &log, arch.timeout, &[BOOT_MARKER])?;
+    match serial.lines().find(|l| l.contains(BOOT_MARKER)) {
+        Some(line) => {
+            println!(
+                "{}: {} in {:.1}s",
+                arch.name,
+                line.trim(),
+                started.elapsed().as_secs_f64()
+            );
             Ok(())
         }
-        Err(message) => Err(format!(
-            "{}: {message}; serial log in {}",
+        None => Err(format!(
+            "{}: no banner; serial log in {}",
             arch.name,
             log.display()
         )),
     }
 }
+
+/// What a desktop guest gets: virtio-gpu, keyboard and tablet.
+const DESKTOP_DEVICES: &[&str] = &[
+    "-device",
+    "virtio-gpu-pci",
+    "-device",
+    "virtio-keyboard-pci",
+    "-device",
+    "virtio-tablet-pci",
+];
 
 /// What `screenshot` types at the console, one command per entry.
 const SCREENSHOT_COMMANDS: &[&str] = &[
@@ -642,7 +933,11 @@ fn screenshot(args: &[String]) -> Result<(), String> {
     use std::os::unix::net::UnixStream;
 
     let arch = find_arch(args)?;
-    let dir = image_dir(arch)?;
+    let edition = find_edition(args)?;
+    if !edition.ram {
+        return desktop_screenshot(arch, edition);
+    }
+    let dir = image_dir(edition, arch)?;
     let kernel = dir.join("vmlinuz");
     let initrd = dir.join("initramfs.cpio");
     if !kernel.is_file() || !initrd.is_file() {
@@ -730,19 +1025,95 @@ fn screenshot(args: &[String]) -> Result<(), String> {
             send("sendkey ret")?;
             thread::sleep(Duration::from_millis(1200));
         }
-        send(&format!("screendump {} -f png", png.display()))?;
+        let shot = monitor_path("screenshot.png");
+        send(&format!("screendump {} -f png", shot.display()))?;
         thread::sleep(Duration::from_secs(2));
-        if png.is_file() {
-            Ok(())
-        } else {
-            Err("QEMU did not write the screenshot".to_owned())
-        }
+        fs::rename(&shot, &png)
+            .or_else(|_| fs::copy(&shot, &png).map(|_| ()))
+            .map_err(|e| format!("QEMU did not write the screenshot: {e}"))
     })();
 
     let _ = child.kill();
     let _ = child.wait();
     let _ = fs::remove_file(&socket);
     result?;
+    println!("{}: {}", arch.name, png.display());
+    Ok(())
+}
+
+/// A path QEMU's monitor can be given: its commands are split on spaces, and
+/// the checkout's path may have them.
+fn monitor_path(name: &str) -> PathBuf {
+    env::temp_dir().join(format!("hideos-{}-{name}", std::process::id()))
+}
+
+/// How long the desktop gets to reach the greeter before the picture.
+/// llvmpipe on two CPUs is slow to draw the first frame.
+const DESKTOP_WAIT: Duration = Duration::from_secs(90);
+
+/// Boots a desktop edition from its disk, waits for the greeter, and saves
+/// the screen.
+fn desktop_screenshot(arch: Arch, edition: Edition) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    let dir = image_dir(edition, arch)?;
+    let disk = dir.join("disk.raw");
+    if !disk.is_file() {
+        return Err(format!(
+            "no disk in {}; run `cargo xtask install --edition {}` first",
+            dir.display(),
+            edition.name
+        ));
+    }
+    let socket = dir.join("monitor.sock");
+    let _ = fs::remove_file(&socket);
+    let png = dir.join("screenshot.png");
+    let _ = fs::remove_file(&png);
+    let log = dir.join("serial.log");
+
+    let mut command = qemu(arch, edition);
+    uefi_firmware(arch, &mut command, &dir)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(DESKTOP_DEVICES)
+        .args(["-display", "none"])
+        .arg("-serial")
+        .arg(format!("file:{}", log.display()))
+        .arg("-monitor")
+        .arg(format!("unix:{},server,nowait", socket.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", arch.qemu))?;
+    println!(
+        "booting hideOS {} {}; picture in {}s",
+        edition.name,
+        arch.name,
+        DESKTOP_WAIT.as_secs()
+    );
+    thread::sleep(DESKTOP_WAIT);
+    let shot = monitor_path("screenshot.png");
+    let result = UnixStream::connect(&socket)
+        .and_then(|mut monitor| {
+            monitor.write_all(format!("screendump {} -f png\n", shot.display()).as_bytes())
+        })
+        .map_err(|e| format!("QEMU monitor: {e}"));
+    thread::sleep(Duration::from_secs(3));
+    let _ = fs::rename(&shot, &png).or_else(|_| fs::copy(&shot, &png).map(|_| ()));
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = fs::remove_file(&socket);
+    result?;
+    if !png.is_file() {
+        return Err(format!(
+            "QEMU did not write the screenshot; serial log in {}",
+            log.display()
+        ));
+    }
     println!("{}: {}", arch.name, png.display());
     Ok(())
 }
@@ -755,7 +1126,7 @@ fn publish_site() -> Result<(), String> {
     let root = workspace_root()?;
     let screenshot = root
         .join("target/images")
-        .join(format!("{EDITION}-x86_64"))
+        .join(format!("{}-x86_64", MINIMAL.name))
         .join("screenshot.png");
     // Without a screenshot the page still publishes, and shows the image's
     // description in its place until the next publish after one is taken.
@@ -987,5 +1358,22 @@ fn run(command: &mut Command) -> Result<(), String> {
         // Pass the child's own exit code through where there is one, so
         // `builder run -- false` behaves like `false`.
         process::exit(status.code().unwrap_or(1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_kernel_messages;
+
+    #[test]
+    fn kernel_messages_come_out_even_mid_line() {
+        let serial = "[    1.405627] Run /usr/bin/oxinit as init process\n\
+                      hideOS: booted o[    1.422250] echo (76) used greatest stack depth\n\
+                      n hideos\n\
+                      a [bracket] stays\n";
+        assert_eq!(
+            without_kernel_messages(serial),
+            "hideOS: booted on hideos\na [bracket] stays\n"
+        );
     }
 }

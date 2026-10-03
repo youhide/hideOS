@@ -1,7 +1,9 @@
 //! hide: hideOS's command line.
 //!
 //! ```text
-//! hide install --payload FILE --disk DEVICE [--poweroff]
+//! hide install --payload FILE --disk DEVICE [--poweroff] [--user NAME --password PASS]
+//! hide setup [--root DIR]
+//! poweroff | reboot | halt     (hide under those names)
 //! ```
 //!
 //! `update`, `rollback`, `status`, `rebase` and `shell` come with H3 and H5.
@@ -11,10 +13,30 @@
 
 #[cfg(target_os = "linux")]
 mod install;
+#[cfg(target_os = "linux")]
+mod setup;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // Called as poweroff, reboot or halt — the names elogind, and people,
+    // reach for — ask oxinit to do it. oxinit takes those requests as
+    // signals: see its ARCHITECTURE, "Shutdown".
+    #[cfg(target_os = "linux")]
+    if let Some(signal) = std::env::args()
+        .next()
+        .as_deref()
+        .and_then(|a| a.rsplit('/').next())
+        .and_then(shutdown_signal)
+    {
+        return match rustix::process::kill_process(rustix::process::Pid::INIT, signal) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("hide: asking init to shut down: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
@@ -25,10 +47,23 @@ fn main() -> ExitCode {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn shutdown_signal(name: &str) -> Option<rustix::process::Signal> {
+    use rustix::process::Signal;
+    match name {
+        "poweroff" => Some(Signal::TERM),
+        "reboot" => Some(Signal::INT),
+        "halt" => Some(Signal::USR1),
+        _ => None,
+    }
+}
+
 fn run(args: &[String]) -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         #[cfg(target_os = "linux")]
         Some("install") => install::run(args.get(1..).unwrap_or_default()),
+        #[cfg(target_os = "linux")]
+        Some("setup") => setup::run(args.get(1..).unwrap_or_default()),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", USAGE);
             Ok(())
@@ -39,6 +74,11 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 
 const USAGE: &str = "usage: hide <command>
 
-    install --payload FILE --disk DEVICE [--poweroff]
-        Install hideOS on DEVICE, erasing it, from a payload hideforge built.
+    install --payload FILE --disk DEVICE [--poweroff] [--user NAME --password PASS]
+        Install hideOS on DEVICE, erasing it, from a payload hideforge built,
+        and create the first account, an administrator.
+
+    setup [--root DIR]
+        Create /etc/machine-id, the system users in sysusers.d and the paths
+        in tmpfiles.d that do not exist yet. Run at every boot.
 ";

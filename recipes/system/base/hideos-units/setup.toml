@@ -1,0 +1,8 @@
+# machine-id, system users and the paths packages need in /etc, /var and
+# /run, before anything that uses them starts. See `hide setup`.
+[unit]
+description = "Prepare /etc, /var and /run"
+
+[service]
+type = "oneshot"
+exec = "/usr/bin/hide setup"

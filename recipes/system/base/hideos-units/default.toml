@@ -1,9 +1,0 @@
-# Reached at the end of boot. Everything that should run is reachable from
-# here.
-[target]
-
-[unit]
-description = "hideOS default target"
-requires    = ["console"]
-wants       = ["banner"]
-after       = ["console", "banner"]

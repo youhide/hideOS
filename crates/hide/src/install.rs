@@ -39,11 +39,18 @@ const WORK: &str = "/run/hide-install";
 /// fs-verity: SHA-256 over 4 KiB blocks, what composefs repositories use.
 const VERITY_SHA256: u8 = 1;
 const VERITY_BLOCK: u32 = 4096;
+/// The kernel starts PID 1 with no PATH, so the tools are looked up here
+/// rather than in the environment. Merged /usr: everything is in /usr/bin.
+const PATH: &str = "/usr/bin:/usr/sbin";
 
 struct Options {
     payload: PathBuf,
     disk: PathBuf,
     poweroff: bool,
+    /// The first account, `NAME` and password. Without one, the machine has
+    /// only root, with no password: fine for Minimal at a console, not for
+    /// a greeter.
+    user: Option<(String, String)>,
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -69,19 +76,31 @@ fn parse(args: &[String]) -> Result<Options> {
     let mut payload = None;
     let mut disk = None;
     let mut poweroff = false;
+    let mut user = None;
+    let mut password = None;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--payload" => payload = iter.next().map(PathBuf::from),
             "--disk" => disk = iter.next().map(PathBuf::from),
             "--poweroff" => poweroff = true,
+            "--user" => user = iter.next().cloned(),
+            // On the command line, so only for disks made for development:
+            // the installer proper asks for it.
+            "--password" => password = iter.next().cloned(),
             other => bail!("unknown argument `{other}`"),
         }
     }
+    let user = match (user, password) {
+        (Some(name), Some(password)) => Some((name, password)),
+        (None, None) => None,
+        _ => bail!("--user and --password go together"),
+    };
     Ok(Options {
         payload: payload.context("--payload FILE is required")?,
         disk: disk.context("--disk DEVICE is required")?,
         poweroff,
+        user,
     })
 }
 
@@ -94,12 +113,12 @@ fn install(options: &Options) -> Result<()> {
 
     say("creating filesystems");
     exec(
-        Command::new("mkfs.vfat")
+        tool("mkfs.vfat")
             .args(["-F", "32", "-n", "HIDEOS-ESP"])
             .arg(&esp),
     )?;
     exec(
-        Command::new("mkfs.btrfs")
+        tool("mkfs.btrfs")
             .args(["-f", "-q", "-L", "hideos"])
             .arg(&root),
     )?;
@@ -110,11 +129,19 @@ fn install(options: &Options) -> Result<()> {
     fs::create_dir_all(&esp_mount)?;
     mount(&root, &root_mount, "btrfs", MountFlags::NOATIME, None)
         .with_context(|| format!("mounting {}", root.display()))?;
-    mount(&esp, &esp_mount, "vfat", MountFlags::empty(), None)
-        .with_context(|| format!("mounting {}", esp.display()))?;
+    // quiet: FAT has no permissions, and without it the chmods unpacking
+    // makes are errors rather than no-ops.
+    mount(
+        &esp,
+        &esp_mount,
+        "vfat",
+        MountFlags::empty(),
+        Some(c"quiet"),
+    )
+    .with_context(|| format!("mounting {}", esp.display()))?;
     for subvolume in SUBVOLUMES {
         exec(
-            Command::new("btrfs")
+            tool("btrfs")
                 .args(["-q", "subvolume", "create"])
                 .arg(root_mount.join(subvolume)),
         )?;
@@ -135,12 +162,19 @@ fn install(options: &Options) -> Result<()> {
         .with_context(|| format!("opening {}", image.display()))?;
     let measured: [u8; 32] = fs_ioc_measure_verity(file.as_fd(), VERITY_SHA256)
         .map_err(|e| anyhow::anyhow!("measuring the image: {e}"))?;
+    // Closed now: an open file keeps the filesystem from unmounting.
+    drop(file);
     ensure!(
         hex(&measured) == digest,
         "the image measures sha256:{}, but the payload says sha256:{digest}",
         hex(&measured)
     );
     say(&format!("image sealed: sha256:{digest}"));
+
+    if let Some((name, password)) = &options.user {
+        add_user(&root_mount, name, password)?;
+        say(&format!("user {name} created"));
+    }
 
     rustix::fs::sync();
     unmount(&esp_mount, UnmountFlags::empty()).context("unmounting the ESP")?;
@@ -158,7 +192,7 @@ fn partition(disk: &Path) -> Result<()> {
          type={}, name=\"{ROOT_NAME}\"\n",
         root_type()
     );
-    let mut child = Command::new("sfdisk")
+    let mut child = tool("sfdisk")
         .args(["--quiet", "--wipe", "always", "--wipe-partitions", "always"])
         .arg(disk)
         .stdin(Stdio::piped())
@@ -279,6 +313,34 @@ fn enable_verity(objects: &Path) -> Result<usize> {
     Ok(count)
 }
 
+/// The first account, in @etc, with its home in @home.
+fn add_user(root: &Path, name: &str, password: &str) -> Result<()> {
+    let etc = root.join("@etc");
+    let read = |file: &str| fs::read_to_string(etc.join(file)).unwrap_or_default();
+    let files = hide::account::Files {
+        passwd: read("passwd"),
+        group: read("group"),
+        shadow: read("shadow"),
+    };
+    let files = hide::account::add_first_user(&files, name, name, password)?;
+    fs::write(etc.join("passwd"), files.passwd)?;
+    fs::write(etc.join("group"), files.group)?;
+    let shadow = etc.join("shadow");
+    fs::write(&shadow, files.shadow)?;
+    fs::set_permissions(&shadow, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+
+    let home = root.join("@home").join(name);
+    fs::create_dir(&home)?;
+    fs::set_permissions(&home, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    let id = hide::account::FIRST_UID;
+    rustix::fs::chown(
+        &home,
+        Some(rustix::fs::Uid::from_raw(id)),
+        Some(rustix::fs::Gid::from_raw(id)),
+    )?;
+    Ok(())
+}
+
 fn mount_pseudo_filesystems() -> Result<()> {
     for (source, target, fstype) in [
         ("proc", "/proc", "proc"),
@@ -293,6 +355,12 @@ fn mount_pseudo_filesystems() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn tool(name: &str) -> Command {
+    let mut command = Command::new(name);
+    command.env("PATH", PATH);
+    command
 }
 
 fn exec(command: &mut Command) -> Result<()> {

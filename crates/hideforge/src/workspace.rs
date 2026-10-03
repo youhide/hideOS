@@ -34,15 +34,32 @@ pub fn snapshot(root: &Path, layout: &Layout) -> Result<Option<String>> {
         return Ok(None);
     }
 
+    // Untracked files are left out, so that a scratch file cannot change a
+    // build. A new source file is one too, until it is added; say so, or the
+    // build fails much later on a missing module.
+    let untracked = Command::new("git")
+        .args(["-c", "safe.directory=*", "-C"])
+        .arg(root)
+        .args(["ls-files", "--others", "--exclude-standard", "--"])
+        .args(PATHS)
+        .output()
+        .context("running git")?;
+    for path in String::from_utf8_lossy(&untracked.stdout).lines() {
+        eprintln!("  warning: {path} is untracked and not in the workspace snapshot; `git add` it");
+    }
+
     fs::create_dir_all(layout.sources())?;
     let partial = layout
         .sources()
         .join(format!(".workspace-{}", std::process::id()));
+    // --directory first: GNU tar applies it only to the names after it, and
+    // the names come from --files-from.
     let mut tar = Command::new("tar")
-        .args(["--create", "--null", "--files-from=-", "--sort=name"])
-        .args(["--owner=0", "--group=0", "--numeric-owner", "--mtime=@0"])
         .arg("--directory")
         .arg(root)
+        .args(["--create", "--sort=name"])
+        .args(["--owner=0", "--group=0", "--numeric-owner", "--mtime=@0"])
+        .args(["--null", "--files-from=-"])
         .arg("--file")
         .arg(&partial)
         .stdin(Stdio::piped())

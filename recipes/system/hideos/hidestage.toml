@@ -1,0 +1,24 @@
+# hidestage, the initrd's /init: crates/hidestage in this repository.
+# Statically linked, so the initrd is this one file and the directories it
+# mounts on, with no C library to keep in step with the system's.
+[package]
+name = "hidestage"
+version = "0.0.0"
+description = "hideOS initrd: checks the seal, starts oxinit"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/youhide/hideOS"
+
+[depends]
+build = ["toolchain", "stage1-rust"]
+
+[build]
+workspace = true
+vendor = "cargo"
+script = """
+# --target, so that crt-static applies to hidestage and not to the build
+# scripts and procedural macros cargo compiles for itself.
+target="$ARCH-unknown-linux-gnu"
+RUSTFLAGS="-C target-feature=+crt-static" \\
+    cargo build --release --locked --package hidestage --target "$target"
+install -Dm755 "target/$target/release/hidestage" /usr/lib/hideos/hidestage
+"""

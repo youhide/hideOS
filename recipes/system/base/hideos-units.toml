@@ -1,5 +1,6 @@
-# What oxinit starts on a hideOS machine. For now: a banner, and a login
-# shell on the console.
+# What oxinit starts on every hideOS machine: `hide setup`, a banner, and a
+# login shell on the console, grouped as the multi-user target. Which
+# target the machine boots to is the edition's; see recipes/system/images.
 [package]
 name = "hideos-units"
 version = "1"
@@ -8,7 +9,7 @@ license = "MIT"
 
 [depends]
 build = ["toolchain"]
-run = ["oxinit", "zsh"]
+run = ["oxinit", "zsh", "hide"]
 
 [build]
 script = """

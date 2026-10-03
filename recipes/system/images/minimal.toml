@@ -1,7 +1,5 @@
-# hideOS Minimal: the system with a terminal and nothing else. The base every
-# edition is built on — Workstation depends on this, rather than repeating
-# it, so that the two can never ship different versions of the same thing.
-# See ARCHITECTURE.md, "Editions".
+# hideOS Minimal: kernel, oxinit, zsh and the core utilities, booting to a
+# shell on the console.
 #
 # Everything in its run closure is stage 2; hideforge refuses otherwise.
 [package]
@@ -12,20 +10,13 @@ license = "MIT"
 
 [depends]
 build = ["toolchain"]
-run = [
-    "filesystem",
-    "glibc",
-    "gcc",
-    "bash",
-    "zsh",
-    "coreutils",
-    "util-linux",
-    "oxinit",
-    "hideos-units",
-]
+run = ["minimal-base"]
 
 [build]
-script = "true"
+# The edition's default target: the multi-user system, nothing more.
+script = """
+install -Dm644 "$FILES/default.toml" /usr/lib/oxinit/units/default.toml
+"""
 
 # hideOS ships no compiler: development happens in containers. GCC and
 # binutils are in this closure for their runtime libraries — libgcc_s,

@@ -285,14 +285,14 @@
           <circle cx="200" cy="200" r="126" fill="none" stroke="#44475a" stroke-width="1" stroke-dasharray="2 5"/>
           <g class="seal__ring">
             <text fill="#6272a4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.2" letter-spacing="1.1">
-              <textPath href="#ring" textLength="985" lengthAdjust="spacing">d601ed782b132ffcf9b054d01006ba6e426b57ba5262847081def2fbd12f8ce9</textPath>
+              <textPath href="#ring" textLength="985" lengthAdjust="spacing">a1769de2c221fdf627add148b1581aa1ed0dd83a4477d4ccc9ca845a40a3a54e</textPath>
             </text>
           </g>
           <text x="200" y="190" text-anchor="middle" fill="#bd93f9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="800" font-size="50" letter-spacing="-2">hideOS</text>
           <text x="200" y="228" text-anchor="middle" fill="#8be9fd" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">minimal/x86_64</text>
           <text x="200" y="254" text-anchor="middle" fill="#50fa7b" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">sealed</text>
         </svg>
-        <p class="seal__caption"># the ring is the input hash of the image in the screenshot below. change one byte of any recipe, and it changes.</p>
+        <p class="seal__caption"># the ring is the fs-verity digest of the image in the screenshot below. its kernel boots that image and no other; change one byte of it, and the boot stops.</p>
       </div>
     </div>
     <div class="term__accent"></div>
@@ -343,7 +343,7 @@
         <span class="term__path">qemu-system-x86_64: hideOS minimal</span>
       </div>
       <div class="term__body">
-        <img src="screenshot.png" width="720" height="400" alt="The hideOS console: os-release reads hideOS (pre-alpha), uname reports Linux 7.2.8-hideos, oxctl list shows the banner, console and default units, and ls / shows the merged /usr layout.">
+        <img src="screenshot.png" width="720" height="400" alt="The hideOS console: os-release reads hideOS (pre-alpha), uname reports Linux 7.2.8-hideos, oxctl list shows the setup, banner and console services and the multi-user and default targets, and ls / shows the merged /usr layout.">
       </div>
     </div>
     <p class="shot__caption"># the login shell a few seconds after boot: cat /etc/os-release, uname -sr, oxctl list, ls /</p>
@@ -375,11 +375,11 @@
     <p class="comment"># each milestone ends with something that boots and is checked, not with code that compiles.</p>
     <ol class="roadmap">
       <li class="is-done"><span class="roadmap__id">H0</span><span class="roadmap__what">Repository, architecture, build environment</span><span class="roadmap__state">done</span></li>
-      <li class="is-now"><span class="roadmap__id">H1</span><span class="roadmap__what">hideforge builds hideOS Minimal, which boots to a shell</span><span class="roadmap__state">finishing</span></li>
-      <li class="is-next"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">next</span></li>
+      <li class="is-done"><span class="roadmap__id">H1</span><span class="roadmap__what">hideforge builds hideOS Minimal, which boots to a shell</span><span class="roadmap__state">done on x86_64</span></li>
+      <li class="is-now"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">boots sealed; signing next</span></li>
       <li><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">planned</span></li>
       <li><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">planned</span></li>
-      <li><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">planned</span></li>
+      <li class="is-next"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">building</span></li>
       <li><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">planned</span></li>
       <li><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideboot</span><span class="roadmap__state">planned</span></li>
       <li><span class="roadmap__id">H8</span><span class="roadmap__what">Rust replacements for the device manager and login daemon</span><span class="roadmap__state">planned</span></li>

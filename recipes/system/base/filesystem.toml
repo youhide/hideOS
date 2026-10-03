@@ -21,7 +21,8 @@ ln -sfn bin /usr/sbin
 ln -sfn usr/lib /lib
 if [ "$ARCH" = x86_64 ]; then ln -sfn usr/lib /lib64; fi
 
-mkdir -p /etc /var /home /root /run /tmp /proc /sys /dev /mnt
+# /hideos: where the object store is bound, for the updater to reach.
+mkdir -p /etc /var /home /root /run /tmp /proc /sys /dev /mnt /hideos
 chmod 0700 /root
 chmod 1777 /tmp
 

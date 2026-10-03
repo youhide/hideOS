@@ -1,0 +1,10 @@
+# The system up, for a person at the console: what every edition boots to,
+# or builds on. The edition's `default` target pulls this in; see the image
+# recipes in recipes/system/images.
+[target]
+
+[unit]
+description = "hideOS multi-user target"
+requires    = ["console"]
+wants       = ["setup", "banner"]
+after       = ["setup", "console", "banner"]

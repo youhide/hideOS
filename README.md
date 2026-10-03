@@ -8,7 +8,27 @@ COSMIC is protected against crashing because it is written in Rust. hideOS
 takes that from the desktop down to the boot: Rust underneath, a sealed system
 that cannot be corrupted, and updates that roll themselves back when they fail.
 
-**Pre-alpha. Nothing boots yet.** See [ROADMAP.md](ROADMAP.md).
+**Pre-alpha.** hideOS builds itself from source, installs itself on a disk,
+and boots it sealed — UEFI, systemd-boot, a kernel image carrying the
+system's digest, a read-only root checked by fs-verity — to a shell under
+oxinit, in QEMU. The desktop comes in milestone H5; see
+[ROADMAP.md](ROADMAP.md). Site: <https://youhide.github.io/hideOS/>.
+
+![hideOS Minimal booted in QEMU: os-release, uname, oxctl list and the merged /usr layout on the console](docs/images/minimal-console.png)
+
+That screenshot is not a mock-up: `cargo xtask screenshot` boots the image
+hideforge built and types those commands at its console.
+
+```bash
+cargo xtask builder build   # the Linux build environment, once
+cargo xtask image           # build hideOS Minimal from source
+cargo xtask boot            # boot it in QEMU, from RAM
+cargo xtask install         # install it on a disk image, as on a machine
+cargo xtask boot --disk     # boot that disk through UEFI
+```
+
+The first `image` bootstraps a toolchain and the whole system from source,
+about two hours on a 2018 laptop; after that, only what changed rebuilds.
 
 ## The idea
 

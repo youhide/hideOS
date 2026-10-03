@@ -1,0 +1,22 @@
+# hide, hideOS's command line: crates/hide in this repository.
+[package]
+name = "hide"
+version = "0.0.0"
+description = "hideOS command line: install, and later update and rollback"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/youhide/hideOS"
+
+[depends]
+build = ["toolchain", "stage1-rust"]
+# install partitions with sfdisk and makes filesystems with mkfs.btrfs and
+# mkfs.vfat.
+run = ["glibc", "gcc", "util-linux", "btrfs-progs", "dosfstools"]
+
+[build]
+workspace = true
+vendor = "cargo"
+script = """
+cargo build --release --locked --package hide
+install -Dm755 target/release/hide /usr/bin/hide
+for name in poweroff reboot halt; do ln -s hide /usr/bin/$name; done
+"""

@@ -44,7 +44,10 @@ Two things the environment taught, both now written down in CONTRIBUTING:
 
 ## H1 — hideforge builds a system
 
-**In progress.**
+**Done on x86_64**, 2026-10-02: `cargo xtask boot --test` boots the kernel and
+root hideforge built, with oxinit as PID 1, `hide setup` and a zsh login shell
+on glibc, in 4.7 seconds. aarch64 remains: the recipes take `$ARCH`, nothing
+has been built for it yet.
 
 The smallest image this project built entirely itself.
 
@@ -55,30 +58,42 @@ The smallest image this project built entirely itself.
       an overlay whose upper layer is the output; no network; declared
       inputs only; `SOURCE_DATE_EPOCH` from the sources. Checked by
       `cargo xtask forge-selftest`.
-- [ ] Bootstrap stages 0 → 1 → 2: cross toolchain, native toolchain, final
-      system. Nothing from the host in the output.
-- [ ] Recipes: Linux, glibc, GCC/LLVM runtime, Rust, uutils, bash, zsh,
-      util-linux, kmod, oxinit.
-- [ ] Output: hideOS Minimal, a root tree packed as an initramfs, with the
+- [x] Bootstrap stages 0 → 1 → 2: cross toolchain, native toolchain, final
+      system. Nothing from the host in the output: every stage-2 file's
+      libraries are checked to come from stage 2, at build and at image time.
+- [x] Recipes: Linux, glibc, GCC runtime, Rust, uutils, bash, zsh,
+      util-linux, oxinit. (kmod waits for modules; the kernel has what it
+      needs built in.)
+- [x] Output: hideOS Minimal, a root tree packed as an initramfs, with the
       kernel next to it.
+- [ ] The same on aarch64.
 
 Done when: QEMU boots the kernel this project compiled, oxinit is PID 1, and a
 console shell runs on a glibc userspace — x86_64 and aarch64.
 
 ## H2 — The seal
 
-- [ ] composefs image generation in hideforge, deterministic, digest reported.
-- [ ] UKI assembly: kernel + initrd + command line with the digest; signing
-      with a development key.
-- [ ] `hidestage`: mounts, GPT discovery, btrfs, composefs with digest
+**In progress.** Booting sealed works, and was attacked by hand on 2026-10-02:
+`touch /usr/...` fails read-only; an object replaced by a modified copy makes
+reading and running its file fail with `EIO` ("has no fs-verity digest");
+pointing the image at an unsealed file, or at another sealed one, stops the
+boot in hidestage ("expected sha256:a1769d…, found sha256:015c11…"). What is
+left is signing, and making those attacks a test anyone can run.
+
+- [x] composefs image generation in hideforge, deterministic, digest reported.
+- [x] UKI assembly: kernel + initrd + command line with the digest.
+- [ ] Signing the UKI with a development key, and Secure Boot enforcing it in
+      QEMU.
+- [x] `hidestage`: mounts, GPT discovery, btrfs, composefs with digest
       verification, bind mounts, `switch_root` into oxinit.
-- [ ] `hide install`: partition, btrfs with its subvolumes, objects with
+- [x] `hide install`: partition, btrfs with its subvolumes, objects with
       fs-verity enabled, ESP with the UKI and `systemd-boot` as the stopgap
-      boot manager. No LUKS yet.
-- [ ] A disk image, made by booting Minimal in QEMU with an empty disk and
+      boot manager, the first account. No LUKS yet.
+- [x] A disk image, made by booting Minimal in QEMU with an empty disk and
       the payload attached and running `hide install` — the builder's kernel
       cannot enable fs-verity. See ARCHITECTURE, "Disk images are installed,
-      not assembled".
+      not assembled". `cargo xtask install`, then `boot --disk`.
+- [ ] `cargo xtask seal-test`: the attacks above, scripted.
 
 Done when: QEMU boots from a disk into the sealed root; writing to `/usr` fails;
 flipping one byte of one object makes reading that file fail with `EIO`; a UKI
