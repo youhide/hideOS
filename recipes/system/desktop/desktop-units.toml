@@ -1,6 +1,7 @@
 # What the Workstation adds to boot: device management, the system bus,
 # seats, and the login screen, as oxinit units; the PAM stacks and the greetd
-# configuration they use. See recipes/system/images/workstation.toml.
+# configuration they use, and hideOS's defaults for COSMIC. See
+# recipes/system/images/workstation.toml.
 [package]
 name = "desktop-units"
 version = "1"
@@ -15,6 +16,9 @@ run = [
     "eudev",
     "dbus",
     "elogind",
+    "polkit",
+    "pipewire",
+    "wireplumber",
     "linux-pam",
     "greetd",
     "cosmic-greeter",
@@ -26,4 +30,10 @@ install -Dm644 -t /usr/lib/oxinit/units "$FILES"/units/*.toml
 install -Dm644 -t /usr/lib/pam.d "$FILES"/pam.d/*
 install -Dm644 -t /usr/lib/greetd "$FILES"/greetd/config.toml
 install -Dm644 -t /usr/lib/sysusers.d "$FILES"/sysusers.d/*.conf
+install -Dm644 -t /usr/share/hideos/xdg/autostart "$FILES"/autostart/*.desktop
+# hideOS's COSMIC defaults, found before COSMIC's own because start-cosmic
+# puts /usr/share/hideos first in XDG_DATA_DIRS. The dock lists what is
+# installed.
+mkdir -p /usr/share/hideos
+cp -r "$FILES/cosmic" /usr/share/hideos/
 """

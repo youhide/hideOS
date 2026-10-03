@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=wireplumber
+Comment=Started for the session by hideOS until oxinit runs per-user services
+Exec=/usr/bin/wireplumber
+NoDisplay=true

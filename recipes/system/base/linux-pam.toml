@@ -47,4 +47,8 @@ meson install -C build
 # and only root can read /etc/shadow. Upstream's install
 # leaves the bit to the packager.
 chmod 4755 /usr/sbin/unix_chkpwd
+# Every PAM session's locale, from pam_env's vendor file:
+# the greeter's and the desktop's alike. /etc/environment,
+# when an administrator writes one, takes its place.
+echo 'LANG=en_US.UTF-8' >> /usr/lib/environment
 """

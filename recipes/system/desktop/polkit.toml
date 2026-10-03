@@ -1,0 +1,50 @@
+# Who may do what: elogind asks it before suspending or locking for a
+# user, COSMIC Settings before changing the machine. cosmic-osd is the
+# agent that asks for the password. polkitd runs as polkitd; the
+# helper that checks passwords is setuid, as everywhere.
+[package]
+name = "polkit"
+version = "127"
+description = "Authorization for unprivileged programs"
+license = "LGPL-2.0-or-later"
+homepage = "https://github.com/polkit-org/polkit"
+
+[[source]]
+url = "https://github.com/polkit-org/polkit/archive/refs/tags/127.tar.gz"
+sha256 = "9b7bc16f086479dcc626c575976568ba4a85d34297a750d8ab3d2e57f6d8b988"
+
+[depends]
+build = ["buildtools", "glib", "expat", "duktape", "linux-pam", "elogind"]
+run = ["glibc", "glib", "expat", "duktape", "linux-pam", "elogind"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dman=false \\
+    -Dgtk_doc=false \\
+    -Dintrospection=false \\
+    -Dtests=false \\
+    -Dexamples=false \\
+    -Dsession_tracking=elogind \\
+    -Dauthfw=pam \\
+    -Dos_type=lfs \\
+    -Dpam_prefix=/usr/lib/pam.d \\
+    -Dpolkitd_user=polkitd \\
+    -Dprivileged_group=wheel
+meson compile -C build -j "$JOBS"
+meson install -C build
+chmod 4755 /usr/lib/polkit-1/polkit-agent-helper-1
+install -Dm644 /dev/stdin /usr/lib/sysusers.d/polkit.conf <<'END'
+u polkitd - "polkit daemon" /var/lib/polkit-1
+END
+install -Dm644 /dev/stdin /usr/lib/tmpfiles.d/polkit.conf <<'END'
+d /etc/polkit-1/rules.d 0700 polkitd root -
+d /var/lib/polkit-1 0700 polkitd polkitd -
+END
+"""

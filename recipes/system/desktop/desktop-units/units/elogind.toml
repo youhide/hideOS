@@ -3,7 +3,8 @@
 [unit]
 description = "Login and seat manager"
 requires    = ["dbus"]
-after       = ["dbus", "udev-settle"]
+wants       = ["polkit"]
+after       = ["dbus", "polkit", "udev-settle"]
 
 [service]
 exec    = "/usr/libexec/elogind"

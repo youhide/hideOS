@@ -1,0 +1,11 @@
+# Answers "may this user do that?" for elogind and COSMIC. Started here,
+# not by D-Bus activation: that goes through a setuid helper hideOS does not
+# ship. polkitd drops to the polkitd user by itself.
+[unit]
+description = "Authorization manager"
+requires    = ["dbus"]
+after       = ["dbus", "setup"]
+
+[service]
+exec    = "/usr/lib/polkit-1/polkitd --no-debug"
+restart = "on-failure"

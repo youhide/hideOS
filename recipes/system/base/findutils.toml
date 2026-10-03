@@ -1,0 +1,27 @@
+[package]
+name = "findutils"
+version = "4.11.0"
+description = "find and xargs"
+license = "GPL-3.0-or-later"
+homepage = "https://www.gnu.org/software/findutils/"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/findutils/findutils-4.11.0.tar.xz"
+sha256 = "bfd19cb06cc71f3352d567e90284d8cdac02ac89774bbeadf0b533b0c11432fd"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static \\
+    --localstatedir=/var/lib/locate
+make -j"$JOBS"
+make install
+"""

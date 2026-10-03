@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=pipewire
+Comment=Started for the session by hideOS until oxinit runs per-user services
+Exec=/usr/bin/pipewire
+NoDisplay=true

@@ -1,4 +1,6 @@
 # COSMIC asks logind for its seat, its session and the power buttons.
+# With polkit: what an unprivileged session may do — lock, suspend —
+# is polkit's to answer, asked over D-Bus, so nothing here links it.
 # cgroup-controller set by hand: left unset, the build reads the build
 # machine's /proc/self/cgroup. Shutdown goes to oxinit through hide's
 # poweroff, reboot and halt; hide is the desktop units' dependency, not
@@ -39,7 +41,7 @@ meson setup build . \\
     -Dxenctrl=disabled \\
     -Dsmack=false \\
     -Dpam=enabled \\
-    -Dpolkit=disabled \\
+    -Dpolkit=enabled \\
     -Dutmp=false \\
     -Dmode=release \\
     -Ddbus=enabled \\

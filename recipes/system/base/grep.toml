@@ -1,0 +1,27 @@
+[package]
+name = "grep"
+version = "3.12"
+description = "Pattern search"
+license = "GPL-3.0-or-later"
+homepage = "https://www.gnu.org/software/grep/"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/grep/grep-3.12.tar.xz"
+sha256 = "2649b27c0e90e632eadcd757be06c6e9a4f48d941de51e7c0f83ff76408a07b9"
+
+[depends]
+build = ["toolchain", "pcre2"]
+run = ["glibc", "pcre2"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static \\
+    --enable-perl-regexp
+make -j"$JOBS"
+make install
+"""

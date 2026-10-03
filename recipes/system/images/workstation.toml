@@ -15,6 +15,8 @@ run = [
     "minimal-base",
     "desktop-units",
     "fonts",
+    "hicolor-icon-theme",
+    "polkit",
     "mesa",
     "cosmic-comp",
     "cosmic-session",

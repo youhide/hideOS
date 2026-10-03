@@ -1,0 +1,20 @@
+[package]
+name = "duktape"
+version = "2.7.0"
+description = "Embeddable JavaScript engine, for polkit's rules"
+license = "MIT"
+homepage = "https://duktape.org"
+
+[[source]]
+url = "https://github.com/svaarala/duktape/releases/download/v2.7.0/duktape-2.7.0.tar.xz"
+sha256 = "90f8d2fa8b5567c6899830ddef2c03f3c27960b11aca222fa17aa7ac613c2890"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+make -f Makefile.sharedlibrary INSTALL_PREFIX=/usr -j"$JOBS"
+make -f Makefile.sharedlibrary INSTALL_PREFIX=/usr install
+"""

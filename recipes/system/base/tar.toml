@@ -1,0 +1,29 @@
+[package]
+name = "tar"
+version = "1.35"
+description = "Archiver"
+license = "GPL-3.0-or-later"
+homepage = "https://www.gnu.org/software/tar/"
+
+[[source]]
+url = "https://ftp.gnu.org/gnu/tar/tar-1.35.tar.xz"
+sha256 = "4d62ff37342ec7aed748535323930c7cf94acf71c3591882b26a7ea50f3edc16"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static \\
+    --without-selinux \\
+    --without-posix-acls \\
+    --without-xattrs
+make -j"$JOBS"
+make install
+"""

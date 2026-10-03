@@ -1,0 +1,28 @@
+# Applications install their own icons into hicolor; without its
+# index.theme, icon lookup ignores them, and COSMIC's dock shows gears.
+[package]
+name = "hicolor-icon-theme"
+version = "0.18"
+description = "The base icon theme every other inherits"
+license = "GPL-2.0-only"
+homepage = "https://www.freedesktop.org/wiki/Software/icon-theme/"
+
+[[source]]
+url = "https://icon-theme.freedesktop.org/releases/hicolor-icon-theme-0.18.tar.xz"
+sha256 = "db0e50a80aa3bf64bb45cbca5cf9f75efd9348cf2ac690b907435238c3cf81d7"
+
+[depends]
+build = ["buildtools"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

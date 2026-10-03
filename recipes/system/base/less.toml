@@ -1,0 +1,26 @@
+[package]
+name = "less"
+version = "710"
+description = "Pager"
+license = "GPL-3.0-or-later OR BSD-2-Clause"
+homepage = "https://www.greenwoodsoftware.com/less/"
+
+[[source]]
+url = "https://www.greenwoodsoftware.com/less/less-710.tar.gz"
+sha256 = "d1008fb78dcae1323ddab664bcb352a61f022b1b131bd8018548e021d975ec7a"
+
+[depends]
+build = ["toolchain", "ncurses"]
+run = ["glibc", "ncurses"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static
+make -j"$JOBS"
+make install
+"""

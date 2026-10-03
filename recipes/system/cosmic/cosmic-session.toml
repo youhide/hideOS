@@ -25,14 +25,19 @@ just rootdir=/ prefix=/usr install
 rm -rf /usr/lib/systemd
 # The session's output, to a file in the user's state directory: with
 # no journald, and greetd keeping nothing a session prints, a desktop
-# that fails to start would otherwise leave no trace. Until oxinit
-# runs per-user services and oxlogd keeps their logs.
+# that fails to start would otherwise leave no trace. And hideOS's
+# autostart directory, which starts PipeWire for the session; both
+# until oxinit runs per-user services and oxlogd keeps their logs.
+# And hideOS's defaults first among the data directories, where
+# COSMIC looks for its default configuration.
 test "$(sed -n 3p /usr/bin/start-cosmic)" = "set -e"
 {
     head -n 3 /usr/bin/start-cosmic
     cat <<'END'
 state="${XDG_STATE_HOME:-$HOME/.local/state}"
 mkdir -p "$state" && exec >>"$state/cosmic-session.log" 2>&1
+export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-/etc/xdg}:/usr/share/hideos/xdg"
+export XDG_DATA_DIRS="/usr/share/hideos:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 END
     tail -n +4 /usr/bin/start-cosmic
 } > start-cosmic

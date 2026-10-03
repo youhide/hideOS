@@ -129,13 +129,15 @@ TPM2, joins Wi-Fi, suspends and resumes.
 **In progress.** On 2026-10-03 the `workstation` image — 118 recipes, LLVM,
 Mesa and COSMIC epoch 1.9 built from source — installed with `cargo xtask
 install --edition workstation`, booted sealed to cosmic-greeter, and logged
-in to the COSMIC desktop, drawn by llvmpipe on QEMU's virtio-gpu. Missing
-yet: polkit (the lock screen), sound, the base icon theme, a locale.
+in to the COSMIC desktop, drawn by llvmpipe on QEMU's virtio-gpu. Since then: polkit, PipeWire for the session, the base
+icon theme, a locale for every login, and grep, sed, find and less in
+Minimal.
 
-- [x] dbus-daemon, elogind. [ ] polkit.
+- [x] dbus-daemon, elogind, polkit.
 - [x] Mesa (llvmpipe, softpipe, virgl, radeonsi). [ ] Intel's iris, which
       needs clang's OpenCL front end and the SPIR-V tools.
-- [ ] PipeWire and WirePlumber started for the session: built, not started.
+- [x] PipeWire and WirePlumber, started for the session through XDG
+      autostart until oxinit runs per-user services.
 - [ ] Per-user services in oxinit (oxinit-side work). Until then the
       session's output goes to `~/.local/state/cosmic-session.log`.
 - [x] greetd + cosmic-greeter, the COSMIC session and applications.
