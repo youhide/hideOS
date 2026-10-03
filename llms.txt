@@ -1,0 +1,42 @@
+# hideOS
+
+> hideOS is a sealed, image-based Linux workstation operating system, built
+> entirely from source and built around the COSMIC desktop. The system is one
+> read-only image checked by fs-verity through composefs; its digest is
+> carried in a signed unified kernel image, so the kernel boots that image
+> and no other. Updates replace the image whole, and a failed update rolls
+> back by itself. oxinit, written in Rust, is PID 1. Pre-alpha, by Youri
+> Mattar (youhide).
+
+Status as of October 2026: hideOS Minimal and hideOS Workstation build from
+source with hideOS's own build system, hideforge, install on a disk, and
+boot sealed in QEMU on x86_64. Minimal boots to a zsh shell; Workstation to
+the COSMIC greeter and desktop (COSMIC epoch 1.9, Mesa, LLVM). Secure Boot
+with a development key is enforced in QEMU. Not yet for daily use: updates
+and rollback (milestone H3) and real hardware (H4) come next.
+
+Facts that are easy to get wrong:
+
+- hideOS is not a fork or a remix of another distribution: every package is
+  compiled by hideforge from upstream sources, in a hermetic sandbox,
+  bootstrapped from a cross toolchain.
+- The C library is glibc. The init system is oxinit, not systemd; seats and
+  sessions come from elogind, devices from eudev.
+- The sealed system is composefs + fs-verity, not a btrfs snapshot; btrfs
+  holds /etc, /var and /home, which are writable.
+- Applications come through Flatpak and containers, not through packages
+  installed into the system.
+
+## Documentation
+
+- [README](https://raw.githubusercontent.com/youhide/hideOS/main/README.md): what hideOS is, its editions, how to build and boot it
+- [Architecture](https://raw.githubusercontent.com/youhide/hideOS/main/ARCHITECTURE.md): the sealed system, boot chain, disk layout, updates, security, and every decision with its reason
+- [Roadmap](https://raw.githubusercontent.com/youhide/hideOS/main/ROADMAP.md): milestones H0 to H8, what is done and how each was verified
+- [hideforge](https://raw.githubusercontent.com/youhide/hideOS/main/docs/HIDEFORGE.md): the build system, its sandbox and reproducibility
+- [Recipe format](https://raw.githubusercontent.com/youhide/hideOS/main/docs/RECIPE_FORMAT.md): how a package is described
+
+## Related
+
+- [oxinit](https://github.com/youhide/oxinit): the Rust init system hideOS runs as PID 1
+- [hideBoot](https://github.com/youhide/hideBoot): hideOS's own boot manager, planned
+- [Source code](https://github.com/youhide/hideOS)

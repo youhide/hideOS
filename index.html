@@ -3,9 +3,78 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>hideOS</title>
-<meta name="description" content="A Linux workstation built from source and sealed: one signed system image, updated whole, rolled back by itself when an update fails. Built around COSMIC, with oxinit as PID 1.">
+<title>hideOS: a sealed Linux workstation built around COSMIC</title>
+<meta name="description" content="A Linux workstation built from source and sealed: one signed image, updated whole, rolled back by itself. COSMIC desktop, oxinit as PID 1.">
+<meta name="author" content="Youri Mattar">
+<meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<link rel="alternate" type="text/plain" href="llms.txt" title="hideOS for language models">
+
+<!-- How the page looks when it is shared: WhatsApp, Telegram, Slack,
+     Discord, LinkedIn and X read these. Absolute URLs, which they need. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="hideOS">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://youhide.github.io/hideOS/">
+<meta property="og:title" content="hideOS: a sealed Linux workstation">
+<meta property="og:description" content="A Linux workstation built from source and sealed: one signed image, updated whole, rolled back by itself. COSMIC desktop, oxinit as PID 1.">
+<meta property="og:image" content="https://youhide.github.io/hideOS/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The hideOS seal, ringed with the system image's fs-verity digest, next to the words: a Linux workstation built from source and sealed.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="hideOS: a sealed Linux workstation">
+<meta name="twitter:description" content="A Linux workstation built from source and sealed: one signed image, updated whole, rolled back by itself. COSMIC desktop, oxinit as PID 1.">
+<meta name="twitter:image" content="https://youhide.github.io/hideOS/og.png">
+<meta name="twitter:image:alt" content="The hideOS seal, ringed with the system image's fs-verity digest.">
+
+<!-- What the page is about, for search engines and the language models
+     that answer from them. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://youhide.github.io/hideOS/#software",
+      "name": "hideOS",
+      "url": "https://youhide.github.io/hideOS/",
+      "description": "A Linux workstation built from source and sealed: one signed system image, updated whole, rolled back by itself when an update fails. Built around COSMIC, with oxinit as PID 1.",
+      "applicationCategory": "Operating system",
+      "operatingSystem": "Linux",
+      "softwareVersion": "pre-alpha",
+      "image": "https://youhide.github.io/hideOS/og.png",
+      "screenshot": "https://youhide.github.io/hideOS/desktop.jpg",
+      "license": "https://github.com/youhide/hideOS#license",
+      "isAccessibleForFree": true,
+      "author": { "@id": "https://youhide.com.br/#person" },
+      "sameAs": ["https://github.com/youhide/hideOS"]
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "name": "hideOS",
+      "codeRepository": "https://github.com/youhide/hideOS",
+      "programmingLanguage": ["Rust"],
+      "license": "https://github.com/youhide/hideOS#license",
+      "targetProduct": { "@id": "https://youhide.github.io/hideOS/#software" },
+      "author": { "@id": "https://youhide.com.br/#person" }
+    },
+    {
+      "@type": "Person",
+      "@id": "https://youhide.com.br/#person",
+      "name": "Youri Mattar",
+      "url": "https://youhide.com.br",
+      "sameAs": ["https://github.com/youhide"]
+    }
+  ]
+}
+</script>
 <style>
   /* youhide.com.br's Dracula terminal identity: the same tokens, the same
      system monospace, no external requests. */
@@ -272,7 +341,7 @@
       </div>
       <div class="seal-wrap">
         <svg class="seal" viewBox="0 0 400 400" role="img" aria-labelledby="seal-title">
-          <title id="seal-title">A seal ringed with the input hash of the hideOS Minimal image shown on this page</title>
+          <title id="seal-title">A seal ringed with the fs-verity digest of the hideOS Minimal image shown on this page</title>
           <defs>
             <linearGradient id="seal-accent" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0" stop-color="#bd93f9"/>
@@ -344,7 +413,7 @@
         <span class="term__path">qemu-system-x86_64: hideOS workstation</span>
       </div>
       <div class="term__body">
-        <img src="desktop.png" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS: the top panel with Workspaces, Applications, the clock and status applets, the Orion nebula wallpaper, and the dock at the bottom.">
+        <img src="desktop.jpg" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS: the top panel with Workspaces, Applications, the clock and status applets, the Orion nebula wallpaper, and the dock at the bottom.">
       </div>
     </div>
     <p class="shot__caption"># the dock holds what hideOS ships: files, terminal, text editor, settings. sound and polkit run behind the panel.</p>
