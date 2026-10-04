@@ -111,8 +111,9 @@ good, and a rollback; an image changed after it was built, refused before
 anything is staged; an N+1 that cannot mount, one whose kernel panics and
 one that hangs, each tried three times before the machine goes back to N
 by itself; and a power cut after each of the update's five steps, which
-leaves N booting before the commit and N+1 after. Getting images from a
-registry is left, and waits for networking (H4).
+leaves N booting before the commit and N+1 after. `cargo xtask
+registry-test` takes plain `hide update` to the channel's image in a
+registry.
 
 - [x] OCI image output from hideforge: the root and the UKI as two layers,
       with the boot digest computed by pulling the image as a client does.
@@ -145,8 +146,10 @@ in hidestage's own Rust: `installer-test` installs it encrypted and boots it
 with the recovery key, and `crypt-test` opens it with the TPM. The rest
 needs a laptop.
 
-- [ ] eudev ✓, linux-firmware, microcode — with kernel modules, for real
-      hardware.
+- [x] eudev, linux-firmware, microcode, with kernel modules: Arch's
+      configuration for the kernel; `cargo xtask hw-test` finds udev loading
+      a NIC's module, modprobe resolving dependencies, the firmware in the
+      image and the microcode leading the initrd.
 - [x] LUKS2 in hidestage, with a passphrase or a recovery key; dm-crypt
       mapped by its own ioctls (crates/hidecrypt).
 - [x] TPM2 unlock, sealed to PCR 7 at the first boot (`hide tpm-enroll`):
@@ -154,7 +157,9 @@ needs a laptop.
       when the boot chain changes, and falls back to the passphrase.
 - [x] NetworkManager + iwd, ntpd-rs; sudo-rs in the Workstation.
 - [x] Suspend and resume, hibernation to the swap file.
-- [ ] Hardware watchdog fed by oxinit (oxinit-side work).
+- [x] Hardware watchdog fed by oxinit (oxinit M17), with a deadline on
+      `boot-ok`: `update-test`'s hanging N+1 is reset by it, three times,
+      and N boots.
 
 Done when: one AMD or Intel laptop boots hideOS from its own disk, unlocks with
 TPM2, joins Wi-Fi, suspends and resumes.
@@ -169,8 +174,8 @@ icon theme, a locale for every login, and grep, sed, find and less in
 Minimal.
 
 - [x] dbus-daemon, elogind, polkit.
-- [x] Mesa (llvmpipe, softpipe, virgl, radeonsi). [ ] Intel's iris, which
-      needs clang's OpenCL front end and the SPIR-V tools.
+- [x] Mesa (llvmpipe, softpipe, virgl, radeonsi, and Intel's iris, with
+      the SPIR-V tools and the LLVM translator).
 - [x] PipeWire, WirePlumber and pipewire-pulse, as units of the session's
       own `oxinit --user` (oxinit M18), their output in
       `~/.local/state/oxinit/log`; RealtimeKit for their threads.
@@ -214,7 +219,10 @@ reaching for another machine. CI boots to the greeter and logs in.
 - [x] Installer medium (a disk image for a USB stick rather than an ISO):
       partitioning, LUKS2 with a recovery key, the first user —
       `cargo xtask installer`, tested by `cargo xtask installer-test`.
-- [ ] Secure Boot key enrollment, or shim — whichever H0 decided.
+- [x] Secure Boot with hideOS's own keys, Microsoft's certificates beside
+      them: the installer enrolls them on a firmware in setup mode, and
+      `cargo xtask secureboot-test` boots under them and is refused a
+      changed UKI.
 - [x] Recovery system on the ESP, from hideBoot's menu or when nothing else
       starts: choose what boots next, or a shell. Reinstall keeping `/home`
       is the installer's, which carries a payload — see ARCHITECTURE,
