@@ -19,7 +19,7 @@ ghcr.io/youhide/hideos and rolls back by itself, with a hardware watchdog
 for a boot that hangs. Not yet for daily use; see [ROADMAP.md](ROADMAP.md). Site and wiki:
 <https://youhide.github.io/hideOS/>.
 
-![hideOS Workstation: the COSMIC desktop in hideOS's Dracula theme, a terminal showing `hide status` — the running deployment, the disk, and updates from ghcr.io/youhide/hideos:workstation-edge](docs/images/workstation-desktop.png)
+![hideOS Workstation: the COSMIC desktop in hideOS's Dracula theme, its menu bar laid out like a Mac's, a terminal showing `hide status` — the running deployment, the disk, and updates from ghcr.io/youhide/hideos:workstation-edge](docs/images/workstation-desktop.png)
 
 ![Settings → System → Updates: updates from the edge channel with "Update now", the deployment that runs, and going back to the previous one](docs/images/workstation-updates.png)
 
