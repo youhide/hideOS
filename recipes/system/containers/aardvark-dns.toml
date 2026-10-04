@@ -1,0 +1,26 @@
+# The DNS server netavark starts for a network made with `podman network
+# create`, so that containers on it find each other by name. Not used by
+# containers on the default network. In /usr/libexec/podman, where
+# netavark looks for it.
+[package]
+name = "aardvark-dns"
+version = "2.1.0"
+description = "Authoritative DNS server for Podman container networks"
+license = "Apache-2.0"
+homepage = "https://github.com/containers/aardvark-dns"
+
+# TLS from GitHub, as netavark's (see netavark.toml).
+[[source]]
+url = "https://github.com/containers/aardvark-dns/archive/refs/tags/v2.1.0.tar.gz"
+sha256 = "daf871488603e659b0501224cf0731ac317809b1d1701fc061cb4f6ae39a894f"
+
+[depends]
+build = ["toolchain", "stage1-rust"]
+run = ["glibc", "gcc"]
+
+[build]
+vendor = "cargo"
+script = """
+cargo build --release --frozen --bin aardvark-dns
+install -Dm755 target/release/aardvark-dns /usr/libexec/podman/aardvark-dns
+"""

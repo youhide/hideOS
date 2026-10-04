@@ -1,0 +1,60 @@
+# newuidmap and newgidmap, from shadow, and nothing else of it: the two
+# setuid helpers that let an unprivileged user map more than their own ID
+# into a user namespace — the ranges /etc/subuid and /etc/subgid grant
+# them. Rootless Podman needs them for any image with files owned by more
+# than one user, which is nearly every image. Accounts are hide's and
+# sysusers.d's on hideOS (crates/hide), so useradd, passwd and the rest
+# are not installed; neither is libsubid, which only Podman's optional
+# `libsubid` build tag would use.
+#
+# The ranges are the machine's, in /etc, which is writable; without them
+# newuidmap refuses and Podman falls back to mapping the user alone.
+# Writing them is hide's job, for the accounts it makes. /etc/login.defs
+# is read only when it exists.
+[package]
+name = "shadow"
+version = "4.20.3"
+description = "newuidmap and newgidmap, for rootless user namespaces"
+license = "BSD-3-Clause"
+homepage = "https://github.com/shadow-maint/shadow"
+
+# Checked against the .asc, signed by Alejandro Colomar
+# (A9348594CE31283A826FBDD8D57633D441E25BB5, subkey
+# 4BB26DF6EF466E6956003022EB89995CC290C2A9).
+[[source]]
+url = "https://github.com/shadow-maint/shadow/releases/download/4.20.3/shadow-4.20.3.tar.xz"
+sha256 = "623be9429f64fa2165bfc5957c6a642ec309c5cf23c0d53855c99f7591922297"
+
+[depends]
+# libxcrypt: configure insists on crypt(), which these two never call.
+build = ["toolchain", "libxcrypt"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --bindir=/usr/bin \\
+    --sbindir=/usr/bin \\
+    --disable-shared \\
+    --disable-nls \\
+    --disable-logind \\
+    --enable-subordinate-ids \\
+    --without-libpam \\
+    --without-audit \\
+    --without-selinux \\
+    --without-acl \\
+    --without-tcb \\
+    --without-btrfs \\
+    --without-nscd \\
+    --without-sssd \\
+    --without-libbsd \\
+    --without-su
+make -j"$JOBS" -C lib
+make -j"$JOBS" -C src newuidmap newgidmap
+# Setuid root, as everywhere: the kernel lets only a privileged process
+# write another range into a user namespace's maps.
+install -Dm4755 -t /usr/bin src/newuidmap src/newgidmap
+"""

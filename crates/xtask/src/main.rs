@@ -50,11 +50,15 @@ fn main() -> ExitCode {
         Some("sysext-test") => sysext_test(args.get(1..).unwrap_or_default()),
         Some("desktop-test") => desktop_test(args.get(1..).unwrap_or_default()),
         Some("hw-test") => hw_test(args.get(1..).unwrap_or_default()),
+        Some("registry-test") => registry_test(args.get(1..).unwrap_or_default()),
+        Some("secureboot-keys") => secureboot_keys().map(|_| ()),
+        Some("secureboot-test") => secureboot_test(args.get(1..).unwrap_or_default()),
         Some("installer") => installer(args.get(1..).unwrap_or_default()).map(|_| ()),
         Some("installer-test") => installer_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
         Some("hideboot-screenshot") => hideboot_screenshot(args.get(1..).unwrap_or_default()),
         Some("publish-site") => publish_site(),
+        Some("publish") => publish(args.get(1..).unwrap_or_default()),
         Some("wiki") => wiki::run(),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", usage());
@@ -116,6 +120,12 @@ fn usage() -> &'static str {
     crypt-test [--arch ARCH]      install Minimal encrypted, and open it by
                                   passphrase, by TPM, and by passphrase again
                                   when the boot chain changes (needs swtpm)
+    secureboot-keys               make hideOS's development Secure Boot keys and
+                                  the signed lists the installer enrolls
+    secureboot-test [--arch ARCH] from a firmware with no keys: enroll hideOS's,
+                                  then boot under them and refuse a changed UKI
+    registry-test [--arch ARCH]   update Minimal N to N+1 from a registry, by
+                                  channel alone: plain `hide update`
     hw-test [--arch ARCH]         install Minimal and check what real hardware
                                   needs: udev loads drivers as modules, the
                                   firmware is there, microcode leads the initrd
@@ -130,6 +140,9 @@ fn usage() -> &'static str {
                                   install Minimal, give its ESP an entry in
                                   each state and the recovery system, and
                                   save PNGs of hideBoot's menu
+    publish --edition E --channel C [--arch ARCH]
+                                  push the built image to
+                                  ghcr.io/youhide/hideos:E-C, with gh's token
     publish-site                  push site/ and the screenshots to gh-pages
     wiki                          render docs/wiki into site/wiki
 "
@@ -642,6 +655,19 @@ fn build_image(
     sub: &str,
     cmdline: Option<&str>,
 ) -> Result<(), String> {
+    build_image_signed(arch, edition, version, sub, cmdline, DEV_KEYS)
+}
+
+/// `build_image`, signed with the keys in `keys`, a directory in the
+/// builder: hideOS's own development keys for `secureboot-test`.
+fn build_image_signed(
+    arch: Arch,
+    edition: Edition,
+    version: u64,
+    sub: &str,
+    cmdline: Option<&str>,
+    keys: &str,
+) -> Result<(), String> {
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
     let root = workspace_root()?;
     let mut output = format!("/src/target/images/{}-{}", edition.name, arch.name);
@@ -674,7 +700,7 @@ fn build_image(
             "--kernel",
             "linux",
         ])
-        .args(["--payload", "--initrd", "hidestage", "--sign", DEV_KEYS])
+        .args(["--payload", "--initrd", "hidestage", "--sign", keys])
         .args(["--boot-manager", "hideboot"])
         // Early microcode: x86 only, where the kernel reads it.
         .args(if arch.name == "x86_64" {
@@ -794,6 +820,18 @@ fn fresh_firmware_variables(dir: &Path) {
 /// `install_disk`, with more arguments for `hide install`.
 fn install_disk_with(arch: Arch, edition: Edition, disk: &Path, extra: &str) -> Result<(), String> {
     let dir = image_dir(edition, arch)?;
+    install_payload(arch, edition, &dir, disk, extra)
+}
+
+/// `install_disk_with`, from the payload in `dir`.
+fn install_payload(
+    arch: Arch,
+    edition: Edition,
+    dir: &Path,
+    disk: &Path,
+    extra: &str,
+) -> Result<(), String> {
+    let dir = dir.to_path_buf();
     // Every edition is installed by Minimal, as on a real machine.
     let (kernel, initrd) = ram_image(arch, &image_dir(MINIMAL, arch)?)?;
     let payload = dir.join("payload.tar");
@@ -1551,11 +1589,17 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
     };
     let minute = Duration::from_secs(60);
 
+    // A monitor besides the serial console: the greeter is typed at
+    // through it, as a person would, and the screen saved from it.
+    let socket = monitor_path("desktop-test.sock");
+    let _ = fs::remove_file(&socket);
     let mut command = disk_qemu(arch, edition, &dir, false)?;
     command
         .arg("-drive")
         .arg(format!("if=virtio,format=raw,file={}", disk.display()))
-        .args(DESKTOP_DEVICES);
+        .args(DESKTOP_DEVICES)
+        .arg("-monitor")
+        .arg(format!("unix:{},server,nowait", socket.display()));
     let mut guest = Guest::spawn(arch, command)?;
     if !guest.wait_for(
         "reached target default",
@@ -1620,6 +1664,70 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
         !out.contains("No such file") && out.lines().last().is_some_and(|l| l.trim() != "0"),
         &out,
     );
+
+    // The desktop itself: logged in at the greeter, an application started
+    // in the session — the terminal — kept up, and the screen saved while
+    // it is.
+    {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+        let mut monitor = UnixStream::connect(&socket).map_err(|e| format!("QEMU monitor: {e}"))?;
+        let mut send = |line: &str| -> Result<(), String> {
+            monitor
+                .write_all(format!("{line}\n").as_bytes())
+                .map_err(|e| format!("QEMU monitor: {e}"))
+        };
+        for c in DEV_USER.chars() {
+            send(&format!("sendkey {}", qcode(c)?))?;
+            thread::sleep(Duration::from_millis(100));
+        }
+        send("sendkey ret")?;
+        let out = guest.run(
+            &format!(
+                "for i in {{1..120}}; do ls /run/user/1000/wayland-? >/dev/null 2>&1 && break; \
+                 sleep 1; done; sleep 20; \
+                 ( USERNAME={DEV_USER}; export XDG_RUNTIME_DIR=/run/user/1000 \
+                 WAYLAND_DISPLAY=$(cd /run/user/1000 && ls wayland-? | head -n 1) \
+                 XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=COSMIC; \
+                 cosmic-term > /tmp/term.log 2>&1 & print $! > /tmp/term.pid ); \
+                 sleep 60; kill -0 $(</tmp/term.pid) && print term-alive; \
+                 grep -v DEBUG /tmp/term.log | tail -n 30"
+            ),
+            Duration::from_secs(300),
+        )?;
+        let shot = monitor_path("desktop-test.png");
+        send(&format!("screendump {} -f png", shot.display()))?;
+        thread::sleep(Duration::from_secs(3));
+        let png = dir.join("desktop-test.png");
+        let _ = fs::rename(&shot, &png).or_else(|_| fs::copy(&shot, &png).map(|_| ()));
+        check(
+            "an application started in the session stays up",
+            out.contains("term-alive"),
+            &out,
+        );
+
+        // `hide shell`, as the person, from a small image the test picks:
+        // a container sharing the home, entered, a command run in it.
+        let out = guest.run(
+            &format!(
+                "mkdir -p /etc/hide && print 'image = docker.io/library/alpine:latest' \
+                 > /etc/hide/shell.conf; \
+                 ( USERNAME={DEV_USER}; export HOME=/home/{DEV_USER} USER={DEV_USER} \
+                 XDG_RUNTIME_DIR=/run/user/1000; cd; print hello > from-the-host; \
+                 print 'cat /etc/os-release | head -n 1; cat ~/from-the-host; id -un; exit' \
+                 | script -qc 'hide shell' /dev/null )"
+            ),
+            Duration::from_secs(600),
+        )?;
+        check(
+            "hide shell enters a container that shares the home, as the same person",
+            out.contains("Alpine") && out.contains("hello") && out.contains(DEV_USER),
+            &out,
+        );
+        println!("        screen: {}", png.display());
+        println!("        {}", out.replace('\n', "\n        "));
+    }
+    let _ = fs::remove_file(&socket);
     guest.type_line("poweroff")?;
     let started = Instant::now();
     while !guest.exited() && started.elapsed() < minute {
@@ -2606,6 +2714,371 @@ fn reboot(mut guest: Guest) -> Result<(), String> {
     Ok(())
 }
 
+/// hideOS's development Secure Boot keys, in the builder's work volume:
+/// PK, KEK and db, and the signed EFI signature lists the installer
+/// enrolls — Microsoft's certificates beside hideOS's in KEK and db, from
+/// tools/secureboot/microsoft. Made once; the lists are remade every time,
+/// which is cheap. efitools is installed in a throwaway container: adding
+/// it to the builder image would change the image's ID, which the
+/// bootstrap's host-built stages hash, and rebuild everything.
+const HIDEOS_KEYS: &str = "/work/keys/hideos-dev";
+const SECUREBOOT_KEYS_SCRIPT: &str = r#"set -eu
+out=/work/keys/hideos-dev
+ms=/src/tools/secureboot/microsoft
+mkdir -p "$out/enroll"
+cd "$out"
+command -v sign-efi-sig-list >/dev/null || {
+    apt-get update -qq >/dev/null && apt-get install -y -qq efitools >/dev/null
+}
+[ -f owner ] || cat /proc/sys/kernel/random/uuid > owner
+owner=$(cat owner)
+for k in PK KEK db; do
+    [ -f "$k.key" ] || openssl req -new -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes         -subj "/CN=hideOS development $k/" -keyout "$k.key" -out "$k.crt" 2>/dev/null
+    cert-to-efi-sig-list -g "$owner" "$k.crt" "$k.esl"
+done
+microsoft=77fa9abd-0359-4d32-bd60-28f4e78f784b
+list() {
+    for c in "$@"; do
+        openssl x509 -inform DER -in "$ms/$c.der" -out "/tmp/$c.pem"
+        cert-to-efi-sig-list -g "$microsoft" "/tmp/$c.pem" "/tmp/$c.esl"
+        cat "/tmp/$c.esl"
+    done
+}
+cat KEK.esl > KEK-all.esl; list kek-2011 kek-2023 >> KEK-all.esl
+cat db.esl > db-all.esl
+list uefi-ca-2011 uefi-ca-2023 option-rom-ca-2023 windows-pca-2011 windows-uefi-ca-2023 >> db-all.esl
+sign-efi-sig-list -g "$owner" -k PK.key -c PK.crt PK PK.esl enroll/PK.auth >/dev/null
+sign-efi-sig-list -g "$owner" -k PK.key -c PK.crt KEK KEK-all.esl enroll/KEK.auth >/dev/null
+sign-efi-sig-list -g "$owner" -k KEK.key -c KEK.crt db db-all.esl enroll/db.auth >/dev/null
+ls -l enroll
+"#;
+
+fn secureboot_keys() -> Result<&'static str, String> {
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    run(builder_command(&runtime, &workspace_root()?, false).args([
+        "sh",
+        "-c",
+        SECUREBOOT_KEYS_SCRIPT,
+    ]))?;
+    Ok(HIDEOS_KEYS)
+}
+
+/// H7's Secure Boot: a firmware with no keys at all, in setup mode, as a
+/// machine is once its factory keys are cleared; hideOS installed, signed
+/// with its own development keys; `hide secureboot enroll`; then the next
+/// boot under those keys, enforced, and a changed UKI refused.
+fn secureboot_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    if arch.name != "x86_64" {
+        return Err("secureboot-test is x86_64 only, for now".to_owned());
+    }
+    let keys = secureboot_keys()?;
+    let base = image_dir(MINIMAL, arch)?;
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
+    build_image_signed(arch, MINIMAL, image_version()?, "secureboot", None, keys)?;
+    let dir = base.join("secureboot");
+    let disk = dir.join("secureboot-test.raw");
+    install_payload(arch, MINIMAL, &dir, &disk, "")?;
+    let (code, _) = secure_firmware(arch)?.ok_or("no Secure Boot firmware")?;
+    // OVMF's variable store with no keys: setup mode.
+    let empty = workspace_root()?.join("target/firmware/OVMF_VARS_4M.fd");
+    if !empty.is_file() {
+        let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+        run(builder_command(&runtime, &workspace_root()?, false).args([
+            "sh",
+            "-c",
+            "mkdir -p /src/target/firmware && cp /usr/share/OVMF/OVMF_VARS_4M.fd /src/target/firmware/",
+        ]))?;
+    }
+    fresh_firmware_variables(&dir);
+    let boot = || -> Result<Guest, String> {
+        let mut command = qemu_with(arch, MINIMAL, true);
+        uefi_firmware(
+            arch,
+            &mut command,
+            &dir,
+            Some((code.clone(), empty.clone())),
+        )?;
+        command
+            .arg("-drive")
+            .arg(format!("if=virtio,format=raw,file={}", disk.display()));
+        Guest::spawn(arch, command)
+    };
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let timeout = Duration::from_secs(900);
+
+    println!("boot 1: setup mode");
+    let mut guest = boot()?;
+    if !guest.wait_for("reached target default", timeout) {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    let out = guest.run(
+        "hide secureboot status; hide secureboot enroll; hide secureboot status",
+        minute,
+    )?;
+    check(
+        "a firmware in setup mode takes hideOS's keys",
+        out.contains("in setup mode") && out.contains("PK enrolled") && !out.contains("hide: "),
+        &out,
+    );
+    reboot(guest)?;
+
+    println!("boot 2: under hideOS's keys");
+    let mut guest = boot()?;
+    let up = guest.wait_for("reached target default", timeout);
+    let out = if up {
+        guest.shell()?;
+        guest.run("hide secureboot status", minute)?
+    } else {
+        guest.output()
+    };
+    check(
+        "it boots under them, with Secure Boot on",
+        up && out.contains("Secure Boot: on"),
+        &out,
+    );
+    if up {
+        // The UKI changed by a byte, past its signature: what an attacker
+        // with the disk would do.
+        let out = guest.run(
+            "mkdir -p /run/esp && mount /dev/disk/by-partlabel/hideos-esp /run/esp && \
+             for f in /run/esp/EFI/Linux/*.efi; do printf X | dd of=$f bs=1 seek=4096 \
+             conv=notrunc status=none; done && umount /run/esp && print changed",
+            minute,
+        )?;
+        check("the UKI can be changed", out.contains("changed"), &out);
+        reboot(guest)?;
+        println!("boot 3: the changed UKI");
+        let guest = boot()?;
+        let started = Instant::now();
+        let refused = loop {
+            let output = guest.output();
+            if ["Security Violation", "Access Denied", "ACCESS_DENIED"]
+                .iter()
+                .any(|w| output.contains(w))
+            {
+                break true;
+            }
+            if started.elapsed() > timeout || output.contains("hidestage: starting") {
+                break false;
+            }
+            thread::sleep(Duration::from_millis(500));
+        };
+        check(
+            "the firmware refuses the changed UKI",
+            refused,
+            &guest.output(),
+        );
+    }
+    let _ = fs::remove_file(&disk);
+    if failures.is_empty() {
+        println!("{}: Secure Boot is hideOS's", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
+/// An update from a registry, the way a machine gets one: N+1 served as a
+/// registry serves it, the channel pointed at it in /etc/hide/update.conf,
+/// and `hide update` with nothing else. The registry is xtask's own, below:
+/// read-only, plain HTTP, on the host, which QEMU's user network reaches at
+/// 10.0.2.2.
+fn registry_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    let version = image_version()?;
+    println!("building N (version {version})");
+    build_image(arch, MINIMAL, version, "", None)?;
+    let short = |path: &Path| -> Result<String, String> {
+        let digest = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        Ok(digest
+            .trim()
+            .trim_start_matches("sha256:")
+            .chars()
+            .take(12)
+            .collect())
+    };
+    let n = short(&dir.join("image.digest"))?;
+    println!("building N+1 (version {})", version + 1);
+    build_image(arch, MINIMAL, version + 1, "next", None)?;
+    let next_dir = dir.join("next");
+    let n1 = short(&next_dir.join("image.digest"))?;
+    println!("N is {n}, N+1 is {n1}");
+
+    // N+1's OCI archive, unpacked: the layout the registry serves from.
+    let layout = dir.join("registry");
+    let _ = fs::remove_dir_all(&layout);
+    fs::create_dir_all(&layout).map_err(|e| e.to_string())?;
+    run(Command::new("tar")
+        .arg("-xf")
+        .arg(next_dir.join("image.oci.tar"))
+        .arg("-C")
+        .arg(&layout))?;
+    let port = serve_registry(&layout)?;
+    println!("registry on port {port}");
+
+    let disk = dir.join("registry-test.raw");
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let mut log = String::new();
+    fresh_firmware_variables(&dir);
+    install_disk(arch, MINIMAL, &disk)?;
+    let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
+    check("N boots", running_digest(&mut guest)? == n, &log);
+    let out = guest.run(
+        &format!(
+            "mkdir -p /etc/hide && print 'registry = http://10.0.2.2:{port}/hideos\nchannel = edge' \
+             > /etc/hide/update.conf && hide update"
+        ),
+        Duration::from_secs(600),
+    )?;
+    check(
+        "plain `hide update` fetches the channel's image from the registry and stages it",
+        out.contains("fetched http://10.0.2.2")
+            && out.contains("minimal-edge")
+            && out.contains("committed"),
+        &out,
+    );
+    reboot(guest)?;
+    let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
+    check(
+        "N+1 boots after the update",
+        running_digest(&mut guest)? == n1,
+        &log,
+    );
+    guest.type_line("poweroff")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < Duration::from_secs(60) {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    if failures.is_empty() {
+        println!("{}: updates come from a registry", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
+/// A read-only OCI distribution registry over plain HTTP, serving the image
+/// in the OCI layout `layout` under any repository name and any tag: the
+/// endpoints a pull uses — `/v2/`, a manifest by tag or digest, a blob by
+/// digest — and nothing else. On a thread, for the life of xtask. Returns
+/// the port, on every interface, so that QEMU's guests reach it.
+fn serve_registry(layout: &Path) -> Result<u16, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    let index = fs::read_to_string(layout.join("index.json")).map_err(|e| e.to_string())?;
+    // The first manifest of the layout's index: hideforge's layouts have one.
+    let digest = index
+        .split("\"digest\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').nth(1))
+        .ok_or("the layout's index names no manifest")?
+        .to_owned();
+    let listener = TcpListener::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let layout = layout.to_path_buf();
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(&stream);
+            let mut request = String::new();
+            if reader.read_line(&mut request).is_err() {
+                continue;
+            }
+            // The headers, read and ignored.
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                line.clear();
+            }
+            let mut parts = request.split_whitespace();
+            let method = parts.next().unwrap_or_default().to_owned();
+            let path = parts.next().unwrap_or_default().to_owned();
+            let blob = |d: &str| {
+                d.strip_prefix("sha256:")
+                    .map(|hex| layout.join("blobs/sha256").join(hex))
+            };
+            let (status, kind, file, digest_header) = if path == "/v2/" || path == "/v2" {
+                ("200 OK", "application/json", None, None)
+            } else if let Some((_, reference)) = path.split_once("/manifests/") {
+                let wanted = if reference.starts_with("sha256:") {
+                    reference.to_owned()
+                } else {
+                    digest.clone()
+                };
+                match blob(&wanted).filter(|p| p.is_file()) {
+                    Some(p) => (
+                        "200 OK",
+                        "application/vnd.oci.image.manifest.v1+json",
+                        Some(p),
+                        Some(wanted),
+                    ),
+                    None => ("404 Not Found", "text/plain", None, None),
+                }
+            } else if let Some((_, d)) = path.split_once("/blobs/") {
+                match blob(d).filter(|p| p.is_file()) {
+                    Some(p) => (
+                        "200 OK",
+                        "application/octet-stream",
+                        Some(p),
+                        Some(d.to_owned()),
+                    ),
+                    None => ("404 Not Found", "text/plain", None, None),
+                }
+            } else {
+                ("404 Not Found", "text/plain", None, None)
+            };
+            let length = file
+                .as_ref()
+                .and_then(|p| fs::metadata(p).ok())
+                .map(|m| m.len())
+                .unwrap_or(if status.starts_with("200") { 2 } else { 0 });
+            let mut out = &stream;
+            let mut head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {length}\r\nConnection: close\r\n"
+            );
+            if let Some(d) = digest_header {
+                head.push_str(&format!("Docker-Content-Digest: {d}\r\n"));
+            }
+            head.push_str("\r\n");
+            let _ = out.write_all(head.as_bytes());
+            if method != "HEAD" {
+                match file {
+                    Some(p) => {
+                        if let Ok(mut f) = fs::File::open(p) {
+                            let _ = std::io::copy(&mut f, &mut out);
+                        }
+                    }
+                    None if status.starts_with("200") => {
+                        let _ = out.write_all(b"{}");
+                    }
+                    None => {}
+                }
+            }
+        }
+    });
+    Ok(port)
+}
+
 /// H3's "done when", on scratch disks. See ROADMAP, "H3".
 fn update_test(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
@@ -3360,6 +3833,100 @@ fn desktop_screenshot(arch: Arch, edition: Edition, login: bool, then: &str) -> 
     Ok(())
 }
 
+/// `cargo xtask publish`: the image `cargo xtask image` last built for an
+/// edition, pushed to the channel's tag on GitHub's registry, by hand. The
+/// token is gh's — `gh auth refresh -s write:packages` once — written for
+/// skopeo into a file only the builder reads, and removed after.
+fn publish(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let edition = find_edition(args)?;
+    let channel = flag(args, "--channel")?.ok_or("--channel stable|beta|edge is required")?;
+    if !["stable", "beta", "edge"].contains(&channel) {
+        return Err(format!(
+            "`{channel}` is not a channel: stable, beta or edge"
+        ));
+    }
+    if arch.name != "x86_64" {
+        return Err("only x86_64 is published for now".to_owned());
+    }
+    let dir = image_dir(edition, arch)?;
+    let archive = dir.join("image.oci.tar");
+    if !archive.is_file() {
+        return Err(format!(
+            "no image in {}; run `cargo xtask image --edition {}`",
+            dir.display(),
+            edition.name
+        ));
+    }
+    let token = Command::new("gh")
+        .args(["auth", "token"])
+        .output()
+        .map_err(|e| format!("running gh: {e}"))?;
+    if !token.status.success() {
+        return Err("gh has no token: `gh auth login`".to_owned());
+    }
+    let token = String::from_utf8_lossy(&token.stdout).trim().to_owned();
+    let root = workspace_root()?;
+    let auth = root.join("target/.ghcr-auth.json");
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let encoded = base64_encode(format!("youhide:{token}").as_bytes());
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&auth)
+            .map_err(|e| e.to_string())?;
+        std::io::Write::write_all(
+            &mut file,
+            format!("{{\"auths\":{{\"ghcr.io\":{{\"auth\":\"{encoded}\"}}}}}}").as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let target = format!("docker://ghcr.io/youhide/hideos:{}-{channel}", edition.name);
+    let relative = archive
+        .strip_prefix(&root)
+        .map_err(|_| "the image is outside the workspace".to_owned())?;
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    let result = run(builder_command(&runtime, &root, false)
+        .args([
+            "skopeo",
+            "copy",
+            "--authfile",
+            "/src/target/.ghcr-auth.json",
+        ])
+        .arg(format!("oci-archive:/src/{}", relative.display()))
+        .arg(&target));
+    let _ = fs::remove_file(&auth);
+    result?;
+    println!("published {target}");
+    Ok(())
+}
+
+/// Standard base64, for the registry auth file: the one place xtask needs it.
+fn base64_encode(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let b = [
+            chunk.first().copied().unwrap_or(0),
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                let index = ((n >> (18 - 6 * i)) & 63) as usize;
+                out.push(char::from(TABLE[index]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// Publishes `site/` and the latest x86_64 screenshot to the `gh-pages`
 /// branch, which GitHub Pages serves. By hand, on purpose: nothing deploys
 /// on push. The branch holds only the built site, one commit per publish,
@@ -3599,6 +4166,14 @@ fn run(command: &mut Command) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn base64_as_registries_read_it() {
+        assert_eq!(super::base64_encode(b"youhide:abc"), "eW91aGlkZTphYmM=");
+        assert_eq!(super::base64_encode(b"ab"), "YWI=");
+        assert_eq!(super::base64_encode(b"abc"), "YWJj");
+        assert_eq!(super::base64_encode(b""), "");
+    }
+
     use super::without_kernel_messages;
 
     #[test]

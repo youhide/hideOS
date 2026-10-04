@@ -10,8 +10,9 @@ homepage = "https://github.com/youhide/hideOS"
 build = ["toolchain", "stage1-rust"]
 # install partitions with sfdisk and makes filesystems with mkfs.btrfs and
 # mkfs.vfat; it encrypts the root with cryptsetup, and reads the volume key
-# back with dmsetup when sealing it to the TPM.
-run = ["glibc", "gcc", "util-linux", "btrfs-progs", "dosfstools", "cryptsetup", "lvm2"]
+# back with dmsetup when sealing it to the TPM. Updates from a registry
+# check its certificate against the system's CA certificates.
+run = ["glibc", "gcc", "util-linux", "btrfs-progs", "dosfstools", "cryptsetup", "lvm2", "ca-certificates"]
 
 [build]
 workspace = true
@@ -21,5 +22,7 @@ cargo build --release --locked --package hide
 install -Dm755 target/release/hide /usr/bin/hide
 install -Dm644 -t /usr/share/dbus-1/system.d crates/hide/data/os.hide.Update1.conf
 install -Dm644 -t /usr/share/polkit-1/actions crates/hide/data/os.hide.update.policy
+install -Dm644 crates/hide/data/update.conf /usr/lib/hide/update.conf
+install -Dm644 crates/hide/data/shell.conf /usr/lib/hide/shell.conf
 for name in poweroff reboot halt; do ln -s hide /usr/bin/$name; done
 """

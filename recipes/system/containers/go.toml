@@ -1,0 +1,53 @@
+# Go, for building Podman: built from source by go-bootstrap. A build
+# tool, like cmake — no package has it as a run dependency, so it is in no
+# image; Go for development lives in a `hide shell` container.
+#
+# GOROOT is /usr/lib/go, with /usr/bin/go and /usr/bin/gofmt linking into
+# it. GOTOOLCHAIN=local in GOROOT's go.env, as distributions set it: with
+# upstream's `auto`, a go.mod asking for a newer Go makes the go command
+# download that toolchain and run it instead of itself. Recipes that
+# build Go set GOPROXY=off and -mod=vendor themselves, so that a missing
+# module is an error at once rather than a download that cannot happen in
+# the sandbox.
+[package]
+name = "go"
+version = "1.27.1"
+description = "Go compiler and tools"
+license = "BSD-3-Clause"
+homepage = "https://go.dev"
+
+# Checked against the SHA-256 go.dev/dl publishes.
+[[source]]
+url = "https://dl.google.com/go/go1.27.1.src.tar.gz"
+sha256 = "4e408abae126d916b6164627193f2c54f0e3ca1312d693b86db45f862ab238b1"
+
+[depends]
+build = ["toolchain", "go-bootstrap"]
+run = ["glibc"]
+
+[build]
+script = """
+export GOROOT_BOOTSTRAP=/usr/lib/go-bootstrap GOTOOLCHAIN=local GOPROXY=off
+unset GOFLAGS GOROOT GOPATH
+# cgo on: Podman is cgo, and the standard library's cgo packages are
+# built with it.
+export CGO_ENABLED=1
+(cd src && ./make.bash)
+
+sed -i 's/^GOTOOLCHAIN=.*/GOTOOLCHAIN=local/' go.env
+grep -qx 'GOTOOLCHAIN=local' go.env
+
+# What the go command needs at run time: the tools, the standard library's
+# sources (there is no precompiled standard library since Go 1.20), the
+# runtime's assembly headers, the time zone database, and go.env. Not the
+# test suite, the API history or the documentation, and not the standard
+# library's testdata: its sample ELF files name libraries no hideOS output
+# has (libtiff), which hideforge rightly refuses in an output.
+mkdir -p /usr/lib/go
+cp -a bin lib pkg src go.env VERSION /usr/lib/go/
+rm -rf /usr/lib/go/pkg/obj
+find /usr/lib/go/src -type d -name testdata -prune -exec rm -rf {} +
+ln -s ../lib/go/bin/go /usr/bin/go
+ln -s ../lib/go/bin/gofmt /usr/bin/gofmt
+/usr/bin/go version
+"""

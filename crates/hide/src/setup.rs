@@ -3,7 +3,8 @@
 //! `hideos-units` recipe.
 //!
 //! In order: `/etc/machine-id`, then system users and groups from
-//! `sysusers.d`, then paths from `tmpfiles.d` — which may name those users.
+//! `sysusers.d`, then paths from `tmpfiles.d` — which may name those users —
+//! then a range of subordinate IDs for each person without one.
 //! Each step leaves what already exists alone, so running it again is a
 //! no-op.
 
@@ -25,6 +26,26 @@ pub fn run(args: &[String]) -> Result<()> {
     machine_id(&root)?;
     users(&root)?;
     paths(&root)?;
+    subordinate_ids(&root)?;
+    Ok(())
+}
+
+/// `/etc/subuid` and `/etc/subgid`: a range for each person, for rootless
+/// containers. See hide::subid.
+fn subordinate_ids(root: &Path) -> Result<()> {
+    let passwd = fs::read_to_string(root.join("etc/passwd")).unwrap_or_default();
+    for name in ["subuid", "subgid"] {
+        let path = root.join("etc").join(name);
+        let current = fs::read_to_string(&path).unwrap_or_default();
+        let added = hide::subid::additions(&passwd, &current);
+        if added.is_empty() {
+            continue;
+        }
+        write_atomically(&path, &format!("{current}{added}"), 0o644)?;
+        for line in added.lines() {
+            say(&format!("{name} {line}"));
+        }
+    }
     Ok(())
 }
 

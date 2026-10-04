@@ -246,8 +246,14 @@ runs, and the build fails if adding the UKI layer changed it. The payload
 and an updated one have the same image for the same build.
 
 `hide update` takes `oci-archive:` and `oci:` references, which composefs-oci
-reads without skopeo. Registries come with networking: the same pull, with a
-registry client in front of it.
+reads without skopeo, and registry references. **The registry is GitHub's**:
+`ghcr.io/youhide/hideos`, one tag per edition and channel
+(`workstation-stable`, `minimal-edge`, …). A registry reference is fetched
+by `hide`'s own client, in Rust, into an OCI layout under `/var/cache/hide`,
+and pulled from there with the same code as a local image: no skopeo, and
+nothing about verification changes — the digest the signed UKI carries is
+still what decides. The release workflow pushes with the repository's own
+token, on a `v*` tag or by hand.
 
 **Why the client regenerates and the server signs.** composefs image
 generation is deterministic: the same tree produces the same digest. The build
@@ -577,9 +583,16 @@ panics, one that hangs. Each must end in the previous deployment.
 
 ## Security
 
-- **Secure Boot** with hideOS keys. The installer enrolls them in setup mode,
-  or uses the Microsoft-signed `shim` when it cannot — **Proposed**, decided
-  when the installer is written.
+- **Secure Boot with hideOS's own keys** — decided. hideOS has its own
+  platform key, KEK and db key; the installer enrolls them when the
+  firmware is in setup mode, which on most PCs means clearing the factory
+  keys in its setup screen first. Microsoft's KEK and db certificates are
+  enrolled beside them: option ROMs — a discrete GPU's firmware — are
+  signed by Microsoft, and a machine whose db lacks them can lose its
+  display before anything boots. Nothing Microsoft signs is in hideOS's
+  boot chain; trusting their db only keeps the hardware's own firmware
+  working. A Microsoft-signed `shim`, for machines whose firmware cannot be
+  put in setup mode, may come later; it is not the default.
 - **Until then, a development key.** `cargo xtask image` signs the UKI and
   the boot manager with Debian's "snakeoil" key, which Debian's OVMF ships
   already enrolled, with the private half published so that anyone can sign
@@ -702,7 +715,8 @@ is therefore also a test of the installer.
 | Only hideOS-signed sysexts                   | **Decided**  | Like Cryptexes: extensions are part of the system, not the user's |
 | OCI as update transport                      | **Decided**  | Deltas, registries and signing tooling for free                 |
 | Own UEFI boot manager (`hideboot`), in H7    | **Decided**  | Boot counting is the rollback; it should be ours and in Rust    |
-| Secure Boot via own keys vs. shim            | **Proposed** | Decided with the installer, by what laptops in setup mode allow |
+| Secure Boot with hideOS's own keys           | **Decided**  | The chain is hideOS's alone; Microsoft's db kept for option ROMs; shim maybe later |
+| Updates published on ghcr.io/youhide/hideos  | **Decided**  | Free for a public repository; the release workflow's token pushes |
 | Device manager and logind in Rust            | **Later**    | eudev and elogind work; replace after the desktop is daily-driven |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI

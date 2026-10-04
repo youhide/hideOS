@@ -58,11 +58,7 @@ pub fn update(args: &[String]) -> Result<()> {
             other => bail!("unknown argument `{other}`"),
         }
     }
-    let image = image.context("usage: hide update --image oci-archive:PATH | oci:DIR[:TAG]")?;
-    ensure!(
-        image.starts_with("oci-archive:") || image.starts_with("oci:"),
-        "hide update takes oci-archive:PATH or oci:DIR[:TAG]; pulling from a registry needs a network, which hideOS does not have yet"
-    );
+
     if let Some(step) = &crash_after {
         ensure!(
             STEPS.contains(&step.as_str()),
@@ -82,8 +78,20 @@ pub fn update(args: &[String]) -> Result<()> {
     let booted = booted_digest()?;
     let edition = booted_edition()?;
 
+    // No image: this edition's on the configured channel.
+    let image = match image {
+        Some(image) => image,
+        None => channel()?.image(&edition),
+    };
+    let local = if crate::registry::is_registry(&image) {
+        crate::registry::fetch(&image)?
+    } else {
+        image.clone()
+    };
     say(&format!("pulling {image}"));
-    let pulled = pull(&image, &edition)?;
+    let pulled = pull(&local, &edition);
+    crate::registry::clean();
+    let pulled = pulled?;
     ensure!(
         pulled.digest != booted,
         "this image is the system that is running, sha256:{booted}"
@@ -571,6 +579,15 @@ fn booted_digest() -> Result<String> {
         .find_map(|w| w.strip_prefix("hideos.image=sha256:"))
         .map(str::to_owned)
         .context("not running from a sealed image: no hideos.image= on the command line")
+}
+
+/// The registry and channel, from /usr/lib/hide/update.conf and
+/// /etc/hide/update.conf. See hide::channel.
+fn channel() -> Result<hide::channel::Settings> {
+    let vendor = fs::read_to_string("/usr/lib/hide/update.conf")
+        .context("reading /usr/lib/hide/update.conf")?;
+    let overrides = fs::read_to_string("/etc/hide/update.conf").unwrap_or_default();
+    Ok(hide::channel::read(&vendor, &overrides)?)
 }
 
 fn booted_edition() -> Result<String> {

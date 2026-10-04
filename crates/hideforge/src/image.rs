@@ -518,6 +518,20 @@ fn write_payload(
                 sign_efi(keys, file)?;
             }
             println!("  signed  with {}", keys.join("db.crt").display());
+            // The keys themselves, for the firmware to trust, where the
+            // signing key comes with them: PK, KEK and db as signed EFI
+            // signature lists, which `hide secureboot enroll` writes into
+            // a firmware in setup mode. See ARCHITECTURE.md, "Security".
+            let enroll = keys.join("enroll");
+            if enroll.is_dir() {
+                let dir = esp.join("EFI/hideos/keys");
+                fs::create_dir_all(&dir)?;
+                for name in ["PK.auth", "KEK.auth", "db.auth"] {
+                    fs::copy(enroll.join(name), dir.join(name))
+                        .with_context(|| format!("copying {name}"))?;
+                }
+                println!("  keys    {} for enrollment", dir.display());
+            }
         }
         None => println!("  signed  no: EFI binaries left unsigned"),
     }

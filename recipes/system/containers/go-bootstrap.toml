@@ -1,0 +1,111 @@
+# The Go that builds Go. Go's compiler is written in Go, so the first one
+# has to come from somewhere; on x86_64 it comes from source, by the chain
+# the Go project documents (go.dev/doc/install/source): Go 1.4, the last
+# release whose toolchain is written in C and built by GCC, then each
+# release built by the oldest one it accepts. The minimum each step needs,
+# from its src/cmd/dist/notgo*.go:
+#
+#   1.17.13  needs 1.4      1.20.14  needs 1.17.13   1.22.12  needs 1.20.6
+#   1.24.13  needs 1.22.6   1.27.1 (the `go` recipe)  needs 1.24.6
+#
+# The output is that Go 1.24, in /usr/lib/go-bootstrap, for the `go` recipe
+# and nothing else: it is no package's run dependency, so it is in no image.
+#
+# One recipe, not one per step: a recipe's dependencies cannot depend on the
+# architecture, and the chain cannot start on aarch64 — Go 1.4 has no arm64
+# port; linux/arm64 arrived in 1.5. There, as for Rust (docs/HIDEFORGE.md,
+# "What is not bootstrapped from source"), the start is the Go project's
+# own Go 1.24 binary, pinned by the SHA-256 go.dev publishes. The chain
+# changes once a year at most, when the `go` recipe needs a newer
+# bootstrap; bumping `go` does not rebuild it.
+#
+# Every step without cgo: they only have to build the next compiler. No
+# step runs its tests (make.bash, not all.bash): the compiler that ships
+# is the `go` recipe's, built by this one.
+[package]
+name = "go-bootstrap"
+version = "1.24.13"
+description = "Go bootstrap toolchain, built from Go 1.4 by way of every required release"
+license = "BSD-3-Clause"
+homepage = "https://go.dev"
+
+# Checked against the SHA-256 that go.dev/dl publishes, except Go 1.4's
+# bootstrap snapshot, for which the Go project publishes none: over TLS
+# from dl.google.com, the URL go.dev/doc/install/source links, and the same
+# digest Nixpkgs pinned for this file (go_1_4,
+# 0liybk5z00hizsb5ypkbhqcawnwwa6mkwgvjjg4y3jm3ndg5pzzl in Nix's base32).
+[[source]]
+url = "https://dl.google.com/go/go1.4-bootstrap-20171003.tar.gz"
+sha256 = "f4ff5b5eb3a3cae1c993723f3eab519c5bae18866b5e5f96fe1102f0cb5c3e52"
+dest = "go1.4"
+arch = "x86_64"
+
+[[source]]
+url = "https://dl.google.com/go/go1.17.13.src.tar.gz"
+sha256 = "a1a48b23afb206f95e7bbaa9b898d965f90826f6f1d1fc0c1d784ada0cd300fd"
+dest = "go1.17"
+arch = "x86_64"
+
+[[source]]
+url = "https://dl.google.com/go/go1.20.14.src.tar.gz"
+sha256 = "1aef321a0e3e38b7e91d2d7eb64040666cabdcc77d383de3c9522d0d69b67f4e"
+dest = "go1.20"
+arch = "x86_64"
+
+[[source]]
+url = "https://dl.google.com/go/go1.22.12.src.tar.gz"
+sha256 = "012a7e1f37f362c0918c1dfa3334458ac2da1628c4b9cf4d9ca02db986e17d71"
+dest = "go1.22"
+arch = "x86_64"
+
+[[source]]
+url = "https://dl.google.com/go/go1.24.13.src.tar.gz"
+sha256 = "639a6204c2486b137df1eb6e78ee3ed038f9877d0e4b5a465e796a2153f858d7"
+dest = "go1.24"
+arch = "x86_64"
+
+# aarch64: the Go project's binary distribution of the same release.
+[[source]]
+url = "https://dl.google.com/go/go1.24.13.linux-arm64.tar.gz"
+sha256 = "74d97be1cc3a474129590c67ebf748a96e72d9f3a2b6fef3ed3275de591d49b3"
+dest = "go1.24"
+arch = "aarch64"
+
+[depends]
+build = ["toolchain"]
+run = []
+
+[build]
+script = """
+export CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off
+unset GOFLAGS GOROOT GOPATH
+
+if [ "$ARCH" = x86_64 ]; then
+    # Go 1.4's tools are C from 2014, built here by GCC 16. -std=gnu99:
+    # GCC's default is C23 now, where cmd/dist's `typedef int bool` is an
+    # error. -fpermissive turns what GCC 14 made errors in old C (implicit
+    # declarations, int/pointer conversions) back into warnings, and
+    # -Werror goes from make.bash's one command line that has it, which
+    # would make them errors again. Warnings in a compiler written for
+    # another decade's GCC say nothing about the Go it compiles.
+    sed -i 's/ -Wall -Werror / -Wall /' go1.4/src/make.bash
+    grep -q -- ' -Wall -o cmd/dist/dist' go1.4/src/make.bash
+    (cd go1.4/src && CC="gcc -std=gnu99 -fpermissive" ./make.bash)
+
+    previous=/build/src/go1.4
+    for step in go1.17 go1.20 go1.22 go1.24; do
+        (cd "$step/src" && GOROOT_BOOTSTRAP="$previous" ./make.bash)
+        previous="/build/src/$step"
+    done
+fi
+
+# Go finds its GOROOT from where the go binary is, so the tree works from
+# wherever it is copied. What building Go needs of it, as the `go` recipe
+# installs its own; not the standard library's testdata, whose sample ELF
+# files name libraries no hideOS output has (libtiff), which hideforge
+# rightly refuses in an output.
+/build/src/go1.24/bin/go version
+mkdir -p /usr/lib/go-bootstrap
+(cd go1.24 && cp -a bin lib pkg src go.env VERSION /usr/lib/go-bootstrap/)
+find /usr/lib/go-bootstrap/src -type d -name testdata -prune -exec rm -rf {} +
+"""

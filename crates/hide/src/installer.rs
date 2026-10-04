@@ -156,6 +156,13 @@ fn interact() -> Result<()> {
     install(&options)?;
     copy_recovery()?;
 
+    // hideOS's Secure Boot keys, when the firmware will take them.
+    println!();
+    match crate::secureboot::run(&["enroll".to_owned()]) {
+        Ok(()) => println!("Secure Boot is on with hideOS's keys from the next start."),
+        Err(why) => println!("Secure Boot keys not enrolled: {why:#}"),
+    }
+
     println!();
     if keep_home {
         println!("hideOS is installed. /home is as it was.");

@@ -11,7 +11,7 @@
 //! poweroff | reboot | halt     (hide under those names)
 //! ```
 //!
-//! `rebase` and `shell` come with H5.
+//! `rebase` comes later.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -35,7 +35,13 @@ mod power;
 #[cfg(target_os = "linux")]
 mod recovery_system;
 #[cfg(target_os = "linux")]
+mod registry;
+#[cfg(target_os = "linux")]
+mod secureboot;
+#[cfg(target_os = "linux")]
 mod setup;
+#[cfg(target_os = "linux")]
+mod shell;
 
 use std::process::ExitCode;
 
@@ -113,6 +119,10 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         Some("ext") => ext::run(args.get(1..).unwrap_or_default()),
         #[cfg(target_os = "linux")]
         Some("daemon") => daemon::run(),
+        #[cfg(target_os = "linux")]
+        Some("shell") => shell::run(args.get(1..).unwrap_or_default()),
+        #[cfg(target_os = "linux")]
+        Some("secureboot") => secureboot::run(args.get(1..).unwrap_or_default()),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", USAGE);
             Ok(())
@@ -144,6 +154,8 @@ fn through_daemon(args: &[String]) -> Option<anyhow::Result<()>> {
             image = absolute(given);
             Operation::Update(&image)
         }
+        // The channel's image: hideupd works it out, as `hide update` would.
+        [cmd] if cmd == "update" => Operation::Update(""),
         [cmd] if cmd == "rollback" => Operation::Rollback,
         [cmd] if cmd == "gc" => Operation::Collect,
         [cmd, sub, given] if cmd == "ext" && sub == "add" => {
@@ -215,9 +227,12 @@ const USAGE: &str = "usage: hide <command>
         Turn the swap file on, and record where a hibernated system will be
         found. Run at every boot.
 
-    update --image oci-archive:PATH | oci:DIR[:TAG]
-        Stage a new system from the OCI image hideforge built. It starts at
-        the next boot, with three attempts before the machine goes back.
+    update [--image REFERENCE]
+        Stage a new system: this edition's image on the channel in
+        /usr/lib/hide/update.conf (overridden in /etc/hide/update.conf), or
+        REFERENCE — a registry's (ghcr.io/youhide/hideos:workstation-stable),
+        oci-archive:PATH or oci:DIR[:TAG]. It starts at the next boot, with
+        three attempts before the machine goes back.
 
     status [--porcelain]
         The deployments on this machine, in the order they boot.
@@ -235,6 +250,15 @@ const USAGE: &str = "usage: hide <command>
     gc
         Remove from the store what no deployment on the ESP uses. An update
         does this by itself.
+
+    secureboot status | enroll
+        Whether the firmware enforces Secure Boot; enroll hideOS's keys, with
+        Microsoft's beside them, into a firmware in setup mode.
+
+    shell [NAME] | --remove NAME
+        A shell in a container that shares your home, display and sound,
+        where development tools are installed: made the first time from the
+        image in /usr/lib/hide/shell.conf, kept until removed. Workstation.
 
     daemon
         hideupd: offer update, rollback, gc and ext add|remove on the system

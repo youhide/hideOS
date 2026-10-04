@@ -136,7 +136,16 @@ impl Image {
         let config = ImageConfigurationBuilder::default()
             .architecture(platform.architecture().clone())
             .os(Os::Linux)
-            .config(ConfigBuilder::default().build()?)
+            // The repository the image is built from: what GitHub's registry
+            // links the package to.
+            .config(
+                ConfigBuilder::default()
+                    .labels(std::collections::HashMap::from([(
+                        "org.opencontainers.image.source".to_owned(),
+                        "https://github.com/youhide/hideOS".to_owned(),
+                    )]))
+                    .build()?,
+            )
             .build()?;
         let manifest = oci_dir.new_empty_manifest()?.build()?;
         Ok(Image {

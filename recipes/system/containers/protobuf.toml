@@ -1,0 +1,49 @@
+# protoc, the Protocol Buffers compiler, and only that: netavark's build
+# script generates its DHCP proxy's gRPC code with prost-build, which runs
+# protoc. A build tool, in no image.
+#
+# Abseil is protobuf's one outside dependency, and its build would clone
+# it from GitHub when no installed copy is found. The release protobuf
+# pins (cmake/dependencies.cmake) is a second source instead, which
+# CMake's FetchContent takes from the source tree, disconnected. Static
+# libraries, linked into protoc, and nothing installed but protoc itself.
+[package]
+name = "protobuf"
+version = "36.2"
+description = "Protocol Buffers compiler (protoc)"
+license = "BSD-3-Clause AND Apache-2.0"
+homepage = "https://protobuf.dev"
+
+# Neither project signs its releases or publishes a digest for these
+# archives: TLS from GitHub's release assets.
+[[source]]
+url = "https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protobuf-36.2.tar.gz"
+sha256 = "3d9642a662d10e68ebae5e53f14dcce5105684212d5078f8e0d47d1ab3ae6b64"
+
+[[source]]
+url = "https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
+sha256 = "9b7a064305e9fd94d124ffa6cc358592eb42b5da588fb4e07d09254aa40086db"
+dest = "abseil-cpp"
+
+[depends]
+build = ["toolchain", "cmake", "ninja"]
+run = ["glibc", "gcc"]
+
+[build]
+script = """
+cmake -G Ninja -S . -B build \\
+    -DCMAKE_BUILD_TYPE=Release \\
+    -DBUILD_SHARED_LIBS=OFF \\
+    -Dprotobuf_BUILD_SHARED_LIBS=OFF \\
+    -Dprotobuf_BUILD_TESTS=OFF \\
+    -Dprotobuf_BUILD_CONFORMANCE=OFF \\
+    -Dprotobuf_BUILD_EXAMPLES=OFF \\
+    -Dprotobuf_WITH_ZLIB=OFF \\
+    -Dprotobuf_INSTALL=OFF \\
+    -DABSL_PROPAGATE_CXX_STD=ON \\
+    -DFETCHCONTENT_FULLY_DISCONNECTED=ON \\
+    -DFETCHCONTENT_SOURCE_DIR_ABSL=/build/src/abseil-cpp
+ninja -C build -j "$JOBS" protoc
+install -Dm755 build/protoc /usr/bin/protoc
+/usr/bin/protoc --version
+"""

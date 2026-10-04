@@ -1,0 +1,35 @@
+# The monitor Podman puts between itself and every container: it holds
+# the container's terminal and logs, and reports its exit after Podman has
+# gone. Without journald (hideOS has none), so container logs are files,
+# Podman's k8s-file driver. In /usr/libexec/podman, where Podman looks
+# first.
+#
+# Upstream's Makefile, not its meson.build: meson adds -Werror to the
+# compiler's command line unconditionally, and a warning a newer GCC
+# learns would then fail the build. The Makefile's flags are a default
+# that CFLAGS replaces — the same ones, without -Werror.
+[package]
+name = "conmon"
+version = "2.2.1"
+description = "OCI container runtime monitor"
+license = "Apache-2.0"
+homepage = "https://github.com/containers/conmon"
+
+# Releases are tags with binaries attached and no signed source archive:
+# TLS from GitHub.
+[[source]]
+url = "https://github.com/containers/conmon/archive/refs/tags/v2.2.1.tar.gz"
+sha256 = "814fb5979a3a4b8576b1f901e606b482bebb41cb7e57926e6d5765ee786b96d3"
+
+[depends]
+build = ["toolchain", "glib", "libseccomp"]
+run = ["glibc", "glib", "libseccomp"]
+
+[build]
+script = """
+make -j"$JOBS" bin/conmon \\
+    DISABLE_SYSTEMD=1 \\
+    GIT_COMMIT=v2.2.1 \\
+    CFLAGS="-std=c99 -O2 -Wall -Wextra"
+install -Dm755 bin/conmon /usr/libexec/podman/conmon
+"""

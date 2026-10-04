@@ -59,7 +59,8 @@ struct Update1 {
 
 #[interface(name = "os.hide.Update1")]
 impl Update1 {
-    /// Stage the system in an OCI image; `hide update --image IMAGE`.
+    /// Stage the system in an OCI image; `hide update --image IMAGE`, or with
+    /// IMAGE empty, `hide update`: the channel's.
     async fn update(
         &self,
         #[zbus(header)] header: Header<'_>,
@@ -68,7 +69,12 @@ impl Update1 {
         image: String,
     ) -> fdo::Result<u32> {
         authorize(connection, &header, "os.hide.update.update").await?;
-        self.start(emitter, vec!["update".into(), "--image".into(), image])
+        // Empty: the configured channel's image.
+        let mut args = vec!["update".into()];
+        if !image.is_empty() {
+            args.extend(["--image".into(), image]);
+        }
+        self.start(emitter, args)
     }
 
     /// Boot the previous deployment next; `hide rollback`.

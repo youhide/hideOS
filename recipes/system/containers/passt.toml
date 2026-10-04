@@ -1,0 +1,39 @@
+# pasta, the network of rootless containers: it connects a container's
+# network namespace to the host's through a tap device, translating to
+# ordinary sockets, so no privilege is needed. Podman's default for
+# rootless containers since 5.0, and the only choice since slirp4netns
+# went. Also passt, the same for virtual machines, and passt-repair and
+# pesto, which come with it.
+#
+# pasta opens /dev/net/tun, so the node must exist before anything asks
+# for it. With TUN as a module, nothing on hideOS creates it — systemd's
+# `kmod static-nodes` would, eudev does not — so the kernel needs
+# CONFIG_TUN=y (linux/hideos.config); eudev's default rules then make it
+# 0666 at coldplug.
+#
+# Releases are git tags named by date; the version is the tag, given to
+# make, which would otherwise ask git.
+[package]
+name = "passt"
+version = "2026_10_02.cba3570"
+description = "User-mode networking for containers (pasta) and virtual machines (passt)"
+license = "GPL-2.0-or-later AND BSD-3-Clause"
+homepage = "https://passt.top"
+
+# The project's cgit snapshot of the tag: no signed archive is published.
+# Over TLS, and fetched twice with the same digest.
+[[source]]
+url = "https://passt.top/passt/snapshot/passt-2026_10_02.cba3570.tar.xz"
+sha256 = "aa75616cc43925f0bd6c05bcfbbaecd77397c03d7bd23591b34ef535be5dfcdc"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+make -j"$JOBS" prefix=/usr VERSION=2026_10_02.cba3570
+make prefix=/usr VERSION=2026_10_02.cba3570 install
+# A README and a demo script.
+rm -rf /usr/share/doc/passt
+"""

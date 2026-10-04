@@ -36,6 +36,8 @@ run = [
     "flatpak",
     "xdg-desktop-portal",
     "xdg-desktop-portal-cosmic",
+    # `hide shell`: development tools in containers, not in the system.
+    "podman",
     "cosmic-randr",
     "cosmic-workspaces",
     "cosmic-app-library",

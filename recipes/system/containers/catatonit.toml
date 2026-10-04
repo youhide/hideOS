@@ -1,0 +1,41 @@
+# The init Podman runs as PID 1 of a container given --init, and of the
+# pause container that holds a pod's namespaces: it reaps zombies and
+# forwards signals. Podman bind-mounts it from the host into containers
+# of any distribution, so it is linked statically — it cannot assume the
+# container has a C library, let alone this one. In /usr/libexec/podman,
+# Podman's default init_path.
+#
+# One C file. The release archive is the git tree, without a generated
+# configure script, and hideOS has no autotools; what configure would do
+# is fill four strings into config.h and detect close_range(2), which
+# glibc 2.34 and later have. So the script does that.
+[package]
+name = "catatonit"
+version = "0.2.1"
+description = "Container init that reaps zombies and forwards signals"
+license = "GPL-2.0-or-later"
+homepage = "https://github.com/openSUSE/catatonit"
+
+# Checked against the .asc, signed by Aleksa Sarai
+# (5F36C6C61B5460124A75F5A69E18AA267DDB8DB4).
+[[source]]
+url = "https://github.com/openSUSE/catatonit/releases/download/v0.2.1/catatonit.tar.xz"
+sha256 = "9950425501af862e12f618bdc930ea755c46db6a16072a1462b4fc93b2bd59bc"
+
+[depends]
+build = ["toolchain"]
+run = []
+
+[build]
+script = """
+sed -e 's|@PACKAGE_NAME@|catatonit|' \\
+    -e 's|@PACKAGE_VERSION@|0.2.1|' \\
+    -e 's|@PACKAGE_BUGREPORT@|https://bugs.opensuse.org/|' \\
+    -e 's|@PACKAGE_URL@|https://github.com/openSUSE/catatonit/|' \\
+    config.h.in > config.h
+! grep -q @ config.h
+gcc -O2 -Wall -static \\
+    -DHAVE_LINUX_CLOSE_RANGE_H=1 -DHAVE_CLOSE_RANGE=1 \\
+    -o catatonit catatonit.c
+install -Dm755 catatonit /usr/libexec/podman/catatonit
+"""

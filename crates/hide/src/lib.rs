@@ -11,8 +11,10 @@
 )]
 
 pub mod account;
+pub mod channel;
 pub mod config;
 pub mod deployment;
 pub mod recovery;
+pub mod subid;
 pub mod sysusers;
 pub mod tmpfiles;

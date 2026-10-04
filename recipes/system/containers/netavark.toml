@@ -1,0 +1,37 @@
+# Podman's network backend, and its only one since CNI went: Podman will
+# not start without it. Rootless containers on the default network do not
+# use it — pasta is their network — but networks made with `podman network
+# create`, and the containers on them, do.
+#
+# Those networks' firewall rules are nftables, which netavark writes by
+# running `nft`; hideOS does not ship nftables yet, so custom networks
+# fail when netavark sets them up. Containers on the default network and
+# on --network host, which is what `hide shell` uses, do not need it.
+#
+# Installed where Podman looks for its helpers, /usr/libexec/podman.
+[package]
+name = "netavark"
+version = "2.1.0"
+description = "Container network stack for Podman"
+license = "Apache-2.0"
+homepage = "https://github.com/containers/netavark"
+
+# TLS from GitHub: the release's sha256sum file covers its binaries and
+# its vendor tarball, not this archive. The dependencies come from
+# crates.io through hideforge's cargo vendoring, each checked against
+# Cargo.lock, rather than from that vendor tarball.
+[[source]]
+url = "https://github.com/containers/netavark/archive/refs/tags/v2.1.0.tar.gz"
+sha256 = "96677048168ddd1abe313e4c2e17f1cace72b60ee1bac8ca12a4bd7dfcadfbbb"
+
+[depends]
+build = ["toolchain", "stage1-rust", "protobuf"]
+run = ["glibc", "gcc"]
+
+[build]
+vendor = "cargo"
+script = """
+export PROTOC=/usr/bin/protoc
+cargo build --release --frozen --bin netavark
+install -Dm755 target/release/netavark /usr/libexec/podman/netavark
+"""

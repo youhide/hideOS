@@ -1,0 +1,39 @@
+# The OCI runtime Podman runs containers with: the one upstream supports,
+# and the one that does what rootless containers on cgroup v2 need —
+# `--group-add keep-groups`, eBPF device rules — without systemd. Built
+# against libcap, libseccomp and json-c, which replaced yajl in crun 1.28;
+# BLAKE3 from crun's own copy. No systemd, no
+# CRIU checkpointing, no WebAssembly handlers, no libcrun for others to
+# link.
+[package]
+name = "crun"
+version = "1.30.1"
+description = "Lightweight OCI container runtime"
+license = "GPL-2.0-or-later"
+homepage = "https://github.com/containers/crun"
+
+# Checked against the .asc, signed by Giuseppe Scrivano
+# (AC404C1C0BF735C63FF4D562263D6DF2E163E1EA, subkey
+# AF60FCA3CDAA6DEAD157EA3A67E38F7A8BA21772).
+[[source]]
+url = "https://github.com/containers/crun/releases/download/1.30.1/crun-1.30.1.tar.gz"
+sha256 = "99d036d95113552b6df66c7c879432835504bf0e525fc0372745071df129527b"
+
+[depends]
+# python: configure requires it, for libocispec's generator, although the
+# release archive carries the generated sources.
+build = ["toolchain", "python", "json-c", "libcap", "libseccomp"]
+run = ["glibc", "json-c", "libcap", "libseccomp"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-systemd \\
+    --disable-criu \\
+    --disable-libcrun \\
+    --enable-embedded-blake3
+make -j"$JOBS"
+make install
+"""

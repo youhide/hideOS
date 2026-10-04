@@ -1,0 +1,29 @@
+# The configuration Podman and the libraries it is built from read:
+# registries, the image trust policy, storage, and the engine — hideOS's
+# own, written for it, in /usr/share/containers. That is where those
+# libraries look for distribution defaults (go.podman.io/storage's
+# configfile package: ~/.config/containers, then /etc/containers, then
+# /usr/share/containers), so nothing is needed in /etc. An administrator
+# adds to them with drop-ins in /etc/containers/<name>.conf.d/.
+#
+# No seccomp.json: without one, Podman applies the default profile it is
+# compiled with, which is the same profile. No mounts.conf, no
+# registries.d: they have nothing to say on hideOS.
+[package]
+name = "containers-common"
+version = "1"
+description = "hideOS's configuration for Podman: registries, trust policy, storage, engine"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+run = []
+
+[build]
+script = """
+install -Dm644 -t /usr/share/containers \\
+    "$FILES/registries.conf" \\
+    "$FILES/policy.json" \\
+    "$FILES/storage.conf" \\
+    "$FILES/containers.conf"
+"""
