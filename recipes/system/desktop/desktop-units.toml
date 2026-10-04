@@ -10,7 +10,8 @@ description = "hideOS desktop services for oxinit, PAM and greetd configuration"
 license = "MIT"
 
 [depends]
-build = ["toolchain"]
+# COSMIC's own defaults for the components hideOS changes a key of.
+build = ["toolchain", "cosmic-panel", "cosmic-applets"]
 run = [
     "hideos-units",
     "hide",
@@ -35,8 +36,22 @@ install -Dm644 -t /usr/lib/greetd "$FILES"/greetd/config.toml
 install -Dm644 -t /usr/share/hideos/xdg/autostart "$FILES"/autostart/*.desktop
 # hideOS's COSMIC defaults, found before COSMIC's own because start-cosmic
 # puts /usr/share/hideos first in XDG_DATA_DIRS. The dock lists what is
-# installed. The theme is Dracula (draculatheme.com, MIT), computed by
+# installed. The panel is laid out as a Mac's menu bar is: thin, the
+# system menu (lock, log out, restart, shut down) and Applications on the
+# left, status and the update applet on the right, the weekday, date and
+# time in the corner; nothing the dock already has. The theme is Dracula (draculatheme.com, MIT), computed by
 # COSMIC's own theme builder: tools/cosmic-dracula writes it.
-mkdir -p /usr/share/hideos
-cp -r "$FILES/cosmic" /usr/share/hideos/
+#
+# COSMIC takes a component's defaults from the first data directory that
+# has the component at all, not key by key: a panel with only its applet
+# list here lost its size, its clock and its button labels to the
+# built-in fallbacks. So a component hideOS changes is copied whole from
+# its package first, and hideOS's keys laid over it.
+mkdir -p /usr/share/hideos/cosmic
+for component in com.system76.CosmicPanel.Panel com.system76.CosmicAppList; do
+    cp -r "/usr/share/cosmic/$component" /usr/share/hideos/cosmic/
+done
+cp -r "$FILES/cosmic/." /usr/share/hideos/cosmic/
+test -f /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/size
+grep -q os.hide.UpdateApplet /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings
 """
