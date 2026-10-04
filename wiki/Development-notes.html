@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Development notes · hideOS wiki</title>
+<meta name="description" content="Things this tree learned the hard way, one entry each, with the reason. Add an entry in the commit that learned it; remove one when the code it describes goes…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/Development-notes.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>Development notes</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html" aria-current="page">Development notes</a>
+<ol class="toc__sections">
+<li><a href="#one-image-build-at-a-time">One image build at a time</a></li>
+<li><a href="#firmware-variables-persist-per-disk">Firmware variables persist per disk</a></li>
+<li><a href="#qemus-bootindex-rewrites-bootorder">QEMU’s bootindex rewrites BootOrder</a></li>
+<li><a href="#firmware-lists-display-modes-the-display-does-not-have">Firmware lists display modes the display does not have</a></li>
+<li><a href="#find-an-image-by-its-manifest-digest-after-a-pull">Find an image by its manifest digest after a pull</a></li>
+<li><a href="#networkmanager-needs-gettextdatadirs-and-pythondontwritebytecode">NetworkManager needs GETTEXTDATADIRS and PYTHONDONTWRITEBYTECODE</a></li>
+<li><a href="#hide-install-reads-memory-at-install-time">hide install reads memory at install time</a></li>
+<li><a href="#the-screen-is-the-console-tests-append-the-serial-port">The screen is the console; tests append the serial port</a></li>
+<li><a href="#the-dbus-launch-helper-is-4755">The dbus launch helper is 4755</a></li>
+<li><a href="#a-rename-on-fat-is-not-durable-by-itself">A rename on FAT is not durable by itself</a></li>
+<li><a href="#stopping-cargo-xtask-leaves-the-builder-running">Stopping cargo xtask leaves the builder running</a></li>
+<li><a href="#source_date_epoch-counts-unpacked-files-only">SOURCE_DATE_EPOCH counts unpacked files only</a></li>
+<li><a href="#the-kernels-modules-are-indexed-after-they-are-installed">The kernel’s modules are indexed after they are installed</a></li>
+<li><a href="#daemons-that-leave-their-cgroup">Daemons that leave their cgroup</a></li>
+</ol>
+</li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html" aria-current="page">Development notes</a>
+<ol class="toc__sections">
+<li><a href="#one-image-build-at-a-time">One image build at a time</a></li>
+<li><a href="#firmware-variables-persist-per-disk">Firmware variables persist per disk</a></li>
+<li><a href="#qemus-bootindex-rewrites-bootorder">QEMU’s bootindex rewrites BootOrder</a></li>
+<li><a href="#firmware-lists-display-modes-the-display-does-not-have">Firmware lists display modes the display does not have</a></li>
+<li><a href="#find-an-image-by-its-manifest-digest-after-a-pull">Find an image by its manifest digest after a pull</a></li>
+<li><a href="#networkmanager-needs-gettextdatadirs-and-pythondontwritebytecode">NetworkManager needs GETTEXTDATADIRS and PYTHONDONTWRITEBYTECODE</a></li>
+<li><a href="#hide-install-reads-memory-at-install-time">hide install reads memory at install time</a></li>
+<li><a href="#the-screen-is-the-console-tests-append-the-serial-port">The screen is the console; tests append the serial port</a></li>
+<li><a href="#the-dbus-launch-helper-is-4755">The dbus launch helper is 4755</a></li>
+<li><a href="#a-rename-on-fat-is-not-durable-by-itself">A rename on FAT is not durable by itself</a></li>
+<li><a href="#stopping-cargo-xtask-leaves-the-builder-running">Stopping cargo xtask leaves the builder running</a></li>
+<li><a href="#source_date_epoch-counts-unpacked-files-only">SOURCE_DATE_EPOCH counts unpacked files only</a></li>
+<li><a href="#the-kernels-modules-are-indexed-after-they-are-installed">The kernel’s modules are indexed after they are installed</a></li>
+<li><a href="#daemons-that-leave-their-cgroup">Daemons that leave their cgroup</a></li>
+</ol>
+</li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Development-notes.md</p>
+    <article class="prose">
+<h1 id="development-notes">Development notes</h1>
+<p>Things this tree learned the hard way, one entry each, with the reason.
+Add an entry in the commit that learned it; remove one when the code it
+describes goes away. Newest last.</p>
+<h2 id="one-image-build-at-a-time"><a class="h" href="#one-image-build-at-a-time" aria-hidden="true" tabindex="-1">##</a> One image build at a time</h2>
+<p>Never run two <code>cargo xtask image</code> builds — or two tests, which each build
+first — at once. Both run hideforge in the builder against the same <code>/work</code>
+volume, and hideforge takes no lock: two runs that build the same recipe
+share its scratch directory <code>/work/build/&lt;hash&gt;</code> and its log, and the
+image staging directory, and collide.</p>
+<h2 id="firmware-variables-persist-per-disk"><a class="h" href="#firmware-variables-persist-per-disk" aria-hidden="true" tabindex="-1">##</a> Firmware variables persist per disk</h2>
+<p>QEMU’s UEFI variables are kept in the image directory, <code>efivars.fd</code> (and
+<code>efivars-secure.fd</code> under Secure Boot), from one boot to the next, as a
+machine keeps its NVRAM, because hibernation and the boot manager leave
+variables for the next boot: <code>hide swap</code>, for one, records in a variable
+where a hibernated system is to be found, and the next boot’s hidestage
+reads it. A fresh disk gets fresh variables (<code>fresh_firmware_variables</code> in
+<code>crates/xtask/src/main.rs</code>), because a new disk is a new machine.</p>
+<h2 id="qemus-bootindex-rewrites-bootorder"><a class="h" href="#qemus-bootindex-rewrites-bootorder" aria-hidden="true" tabindex="-1">##</a> QEMU’s <code>bootindex</code> rewrites BootOrder</h2>
+<p>A <code>bootindex=</code> on a QEMU device is passed to the firmware, which writes it
+into its <code>BootOrder</code> variable — and that can leave the installed disk out
+of the next boot. A real machine’s boot menu, choosing a USB stick once,
+writes nothing. So <code>installer-test</code>, after booting the installer medium by
+its boot index to reinstall, resets the firmware variables before booting
+the disk.</p>
+<h2 id="firmware-lists-display-modes-the-display-does-not-have"><a class="h" href="#firmware-lists-display-modes-the-display-does-not-have" aria-hidden="true" tabindex="-1">##</a> Firmware lists display modes the display does not have</h2>
+<p>OVMF’s QEMU video driver lists modes up to 4096x2160 whatever the display
+is, and a mode above the panel’s is a blank or scaled screen. So hideBoot
+(0.2.0) draws its menu at the display’s native resolution, read from its
+EDID, and otherwise stays in the mode the firmware chose; never simply the
+largest mode. <code>cargo xtask hideboot-screenshot --display WxH</code> sets the
+EDID QEMU announces.</p>
+<h2 id="find-an-image-by-its-manifest-digest-after-a-pull"><a class="h" href="#find-an-image-by-its-manifest-digest-after-a-pull" aria-hidden="true" tabindex="-1">##</a> Find an image by its manifest digest after a pull</h2>
+<p>composefs-oci, when it pulls an image, rewrites the manifest’s splitstream
+to name the EROFS image it made. The manifest verity the pull returns is
+the one from before that rewrite, so looking the EROFS image up with it
+fails. Look it up by manifest digest alone. (Fixed in <code>hide ext add</code> and
+hideforge’s payload by commit <code>eb1e701</code>.)</p>
+<h2 id="networkmanager-needs-gettextdatadirs-and-pythondontwritebytecode"><a class="h" href="#networkmanager-needs-gettextdatadirs-and-pythondontwritebytecode" aria-hidden="true" tabindex="-1">##</a> NetworkManager needs <code>GETTEXTDATADIRS</code> and <code>PYTHONDONTWRITEBYTECODE</code></h2>
+<p><code>msgfmt</code> merges translations into polkit policy files using the ITS rules
+polkit installs, in <code>/usr/share/gettext</code>, where the stage-1 gettext does
+not look by itself: the recipe sets <code>GETTEXTDATADIRS</code>. And <code>gdbus-codegen</code>
+is Python from glib: left alone it writes its bytecode cache into glib’s
+directory, a file the recipe would then ship — and so would the next
+recipe that runs the same generator, which hideforge refuses as two outputs
+providing one path. <code>PYTHONDONTWRITEBYTECODE=1</code> is set in every recipe that
+runs glib’s Python tools.</p>
+<h2 id="hide-install-reads-memory-at-install-time"><a class="h" href="#hide-install-reads-memory-at-install-time" aria-hidden="true" tabindex="-1">##</a> <code>hide install</code> reads memory at install time</h2>
+<p><code>hide install</code> runs as PID 1 of a QEMU guest, where <code>/proc</code> is not mounted
+yet while the arguments are parsed. So the swap file’s default size — the
+machine’s memory, from <code>/proc/meminfo</code> — is read when the install runs,
+after <code>/proc</code> is mounted, not when <code>--swap</code> is parsed.</p>
+<h2 id="the-screen-is-the-console-tests-append-the-serial-port"><a class="h" href="#the-screen-is-the-console-tests-append-the-serial-port" aria-hidden="true" tabindex="-1">##</a> The screen is the console; tests append the serial port</h2>
+<p>Every UKI hideforge makes ends its command line with <code>console=tty0</code>, so
+<code>/dev/console</code> — where hidestage asks for the passphrase, the installer
+asks its questions and Minimal’s shell runs — is the screen. The kernel
+writes to the serial port too. Test builds (everything <code>cargo xtask</code>
+builds) append <code>console=ttyS0</code>, which makes the serial port the console, so
+the tests can read and type on it.</p>
+<h2 id="the-dbus-launch-helper-is-4755"><a class="h" href="#the-dbus-launch-helper-is-4755" aria-hidden="true" tabindex="-1">##</a> The dbus launch helper is <code>4755</code></h2>
+<p>dbus-daemon’s launch helper starts system services on demand — Flatpak’s
+system helper. Upstream installs it <code>4750 root:messagebus</code>, but the
+<code>messagebus</code> group is created at boot by <code>hide setup</code>, after the image is
+sealed, so the image cannot carry that group on the file. It is installed
+<code>4755</code> instead; the helper itself refuses any caller but the bus’s own
+user.</p>
+<h2 id="a-rename-on-fat-is-not-durable-by-itself"><a class="h" href="#a-rename-on-fat-is-not-durable-by-itself" aria-hidden="true" tabindex="-1">##</a> A rename on FAT is not durable by itself</h2>
+<p><code>update-test</code>, cutting the power after each step of an update, found a
+zero-length UKI on the ESP. A rename on FAT can reach the disk before the
+file’s data does. Renames on the ESP now sync the file under its new name,
+its directory and the filesystem (<code>rename_durably</code> in
+<code>crates/hide/src/deploy.rs</code>).</p>
+<h2 id="stopping-cargo-xtask-leaves-the-builder-running"><a class="h" href="#stopping-cargo-xtask-leaves-the-builder-running" aria-hidden="true" tabindex="-1">##</a> Stopping <code>cargo xtask</code> leaves the builder running</h2>
+<p><code>cargo xtask</code> runs hideforge in a docker container, and killing xtask does
+not stop it: the build goes on in the background, holding <code>/work</code>. A new
+build started then collides with it (see “One image build at a time”) —
+“Text file busy” on hideforge’s own binary is the sign. Stop it with
+<code>docker ps -q | xargs docker kill</code> before starting another.</p>
+<h2 id="source_date_epoch-counts-unpacked-files-only"><a class="h" href="#source_date_epoch-counts-unpacked-files-only" aria-hidden="true" tabindex="-1">##</a> <code>SOURCE_DATE_EPOCH</code> counts unpacked files only</h2>
+<p>hideforge sets <code>SOURCE_DATE_EPOCH</code> to the newest file the sources unpack
+to. It used to count every directory entry, including the directories it
+makes for a source’s <code>dest</code> and sources copied in whole (<code>extract = false</code>) — both made at build time, so the epoch was the time of the build
+and the kernel’s build timestamp changed every time. A copied source is now
+given the epoch instead (<code>newest_mtime</code> in <code>crates/hideforge/src/fetch.rs</code>).</p>
+<h2 id="the-kernels-modules-are-indexed-after-they-are-installed"><a class="h" href="#the-kernels-modules-are-indexed-after-they-are-installed" aria-hidden="true" tabindex="-1">##</a> The kernel’s modules are indexed after they are installed</h2>
+<p><code>make modules_install</code> runs depmod with <code>-b $INSTALL_MOD_PATH</code>, and the
+kernel installs to <code>$INSTALL_MOD_PATH/lib/modules</code>. With <code>/usr</code> for the
+first, kmod — built with <code>/usr/lib/modules</code> as its module directory —
+looks in <code>/usr/usr/lib/modules</code>. <code>linux.toml</code> installs with <code>DEPMOD=true</code>
+and runs <code>depmod</code> itself.</p>
+<h2 id="daemons-that-leave-their-cgroup"><a class="h" href="#daemons-that-leave-their-cgroup" aria-hidden="true" tabindex="-1">##</a> Daemons that leave their cgroup</h2>
+<p>elogind, as a cgroup controller, moves itself out of the cgroup oxinit
+started it in. Signalling the cgroup then reached nothing, and the
+Workstation never powered off. oxinit now also signals the process it
+forked when it is outside its cgroup, and wakes for its shutdown deadline
+(youhide/oxinit#25).</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Development-notes.md">docs/wiki/Development-notes.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

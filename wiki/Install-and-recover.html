@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install and recover · hideOS wiki</title>
+<meta name="description" content="How hideOS gets onto a disk, how it is reinstalled without losing /home, and what is left when nothing on the disk starts. The design is ARCHITECTURE.md, “The…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/Install-and-recover.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>Install and recover</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html" aria-current="page">Install and recover</a>
+<ol class="toc__sections">
+<li><a href="#the-installer-medium">The installer medium</a></li>
+<li><a href="#the-installer">The installer</a></li>
+<li><a href="#reinstalling-keeping-home">Reinstalling, keeping /home</a></li>
+<li><a href="#the-recovery-system">The recovery system</a></li>
+<li><a href="#hideboots-menu">hideBoot’s menu</a></li>
+</ol>
+</li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html" aria-current="page">Install and recover</a>
+<ol class="toc__sections">
+<li><a href="#the-installer-medium">The installer medium</a></li>
+<li><a href="#the-installer">The installer</a></li>
+<li><a href="#reinstalling-keeping-home">Reinstalling, keeping /home</a></li>
+<li><a href="#the-recovery-system">The recovery system</a></li>
+<li><a href="#hideboots-menu">hideBoot’s menu</a></li>
+</ol>
+</li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Install-and-recover.md</p>
+    <article class="prose">
+<h1 id="install-and-recover">Install and recover</h1>
+<p>How hideOS gets onto a disk, how it is reinstalled without losing <code>/home</code>,
+and what is left when nothing on the disk starts. The design is
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#the-installer-medium">ARCHITECTURE.md, “The installer medium”</a>
+and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#recovery">“Recovery”</a>. All of it is exercised by
+<code>cargo xtask installer-test</code>; see <a href="Testing.html">Testing</a>. None of it has run on real
+hardware yet.</p>
+<h2 id="the-installer-medium"><a class="h" href="#the-installer-medium" aria-hidden="true" tabindex="-1">##</a> The installer medium</h2>
+<pre><code class="language-sh">cargo xtask installer                        # Minimal
+cargo xtask installer --edition workstation
+</code></pre>
+<p>Writes <code>target/images/installer-EDITION-ARCH.img</code>, a whole-disk image for a
+USB stick rather than an ISO:</p>
+<div class="table-wrap">
+<table><thead><tr><th>Partition</th><th>Contents</th></tr></thead><tbody>
+<tr><td><code>hideos-installer</code> (ESP)</td><td>hideBoot as <code>EFI/BOOT/BOOTX64.EFI</code>; the installer’s UKI in <code>EFI/Linux</code>; the recovery system the installer will copy to the disk it installs</td></tr>
+<tr><td><code>hideos-payload</code></td><td>The edition’s <code>payload.tar</code>, written raw</td></tr>
+</tbody></table>
+</div>
+<p>The payload is raw because a tar archive reads the same from a block
+device as from a file, and a file on FAT could not be over 4 GiB.</p>
+<p>The installer’s UKI is Minimal’s kernel with Minimal’s whole root as a
+zstd-compressed initramfs, starting <code>hide installer</code> as its init. The
+installer is always Minimal’s, whichever edition it installs.</p>
+<h2 id="the-installer"><a class="h" href="#the-installer" aria-hidden="true" tabindex="-1">##</a> The installer</h2>
+<p><a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/installer.rs">crates/hide/src/installer.rs</a>. On the
+console it asks:</p>
+<ol>
+<li>which disk, from a numbered list, and <code>erase</code> typed out to confirm;</li>
+<li>whether to encrypt it, and a passphrase, twice;</li>
+<li>the first account’s login name and password: an administrator.</li>
+</ol>
+<p>It installs with the same code as <code>hide install</code> (the code <code>cargo xtask install</code> runs to make development disks), and when the disk is encrypted
+shows a recovery key once, to be written down. See
+<a href="Disk-and-encryption.html">Disk and encryption</a>.</p>
+<h2 id="reinstalling-keeping-home"><a class="h" href="#reinstalling-keeping-home" aria-hidden="true" tabindex="-1">##</a> Reinstalling, keeping <code>/home</code></h2>
+<p>Pointed at a disk that already holds hideOS, the installer offers to
+reinstall rather than erase. It opens the disk with its passphrase or
+recovery key and keeps the partitions, the LUKS2 keyslots and <code>@home</code>;
+everything else is made anew — the ESP, <code>@store</code>, <code>@etc</code>, <code>@var</code>, and
+<code>@swap</code>, since a kept swap file could hold a hibernated system that is no
+longer there to resume. What is replaced is the whole system and its
+configuration. The account is asked for again, and a home with its name is
+that account’s again. It ends with <code>hideOS is installed. /home is as it was.</code></p>
+<h2 id="the-recovery-system"><a class="h" href="#the-recovery-system" aria-hidden="true" tabindex="-1">##</a> The recovery system</h2>
+<p><code>\EFI\Recovery\hideos-recovery.efi</code> on the ESP: Minimal’s kernel and its
+whole root as an initramfs, starting <code>hide recovery</code>
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/recovery_system.rs">crates/hide/src/recovery_system.rs</a>).
+It runs from memory, so nothing on the disk has to work for it to.</p>
+<pre><code class="language-text">hideOS recovery
+
+  1) Choose the system that starts next
+  2) Open a shell, with the disk at /mnt
+  3) Restart
+  4) Turn off
+</code></pre>
+<ul>
+<li><strong>Choose the system that starts next</strong> lists the deployments on the ESP;
+the one chosen is marked good and every one that would start before it is
+marked out of attempts — the same renames the boot counter makes. It is a
+rollback a person picks. Nothing is deleted: each stays in hideBoot’s
+menu.</li>
+<li><strong>Open a shell</strong> opens the disk (asking for its passphrase when it is
+encrypted), mounts it at <code>/mnt</code> with its subvolumes <code>@home</code>, <code>@etc</code>,
+<code>@var</code> and <code>@store</code> inside, and starts zsh. Leaving the shell comes back
+to the menu.</li>
+</ul>
+<p>It does not reinstall: it carries no payload, and the store on the disk is
+the thing that might be broken. Reinstalling is the installer’s.</p>
+<h2 id="hideboots-menu"><a class="h" href="#hideboots-menu" aria-hidden="true" tabindex="-1">##</a> hideBoot’s menu</h2>
+<p>Nothing is shown on a normal boot. Holding a key as hideBoot starts opens
+the menu: the entries in <code>\EFI\Linux</code> newest first, each with what its boot
+counter says — being tried, failed to boot, or nothing for a good one —
+then the recovery system. Up and Down or the entry’s number, then Enter.</p>
+<p>The recovery system boots by itself only when no entry in <code>\EFI\Linux</code>
+will start. It never counts its attempts and is never the default. See
+<a href="Boot-chain.html">Boot chain</a> and <a href="https://github.com/youhide/hideBoot">youhide/hideBoot</a>.</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Install-and-recover.md">docs/wiki/Install-and-recover.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

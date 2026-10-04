@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hideOS wiki · hideOS wiki</title>
+<meta name="description" content="hideOS is a Linux workstation operating system built from source and sealed: the system is one read-only image, checked by fs-verity through composefs, whose…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>hideOS wiki</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html" aria-current="page">hideOS wiki</a>
+<ol class="toc__sections">
+<li><a href="#status">Status</a></li>
+<li><a href="#pages">Pages</a></li>
+<li><a href="#editing-the-wiki">Editing the wiki</a></li>
+</ol>
+</li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html" aria-current="page">hideOS wiki</a>
+<ol class="toc__sections">
+<li><a href="#status">Status</a></li>
+<li><a href="#pages">Pages</a></li>
+<li><a href="#editing-the-wiki">Editing the wiki</a></li>
+</ol>
+</li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Home.md</p>
+    <article class="prose">
+<h1 id="hideos-wiki">hideOS wiki</h1>
+<p>hideOS is a Linux workstation operating system built from source and
+sealed: the system is one read-only image, checked by fs-verity through
+composefs, whose digest is carried on the command line of a signed kernel
+image. Updates replace the image whole, and an update that does not boot
+is rolled back by the boot manager. <a href="https://github.com/youhide/oxinit">oxinit</a>
+is PID 1 and COSMIC is the desktop.</p>
+<p>This wiki is the working notes: how to build, test and reason about the
+tree as it is today. The design itself is specified in
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a>, and what is done in
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">ROADMAP.md</a>; where the wiki and those disagree, they
+decide, and the wiki is wrong.</p>
+<h2 id="status"><a class="h" href="#status" aria-hidden="true" tabindex="-1">##</a> Status</h2>
+<p>Pre-alpha, and only in QEMU, on x86_64:</p>
+<ul>
+<li>hideOS <strong>Minimal</strong> (a shell) and <strong>Workstation</strong> (the COSMIC desktop)
+build from source with hideforge, and boot sealed from a disk that
+hideOS’s own installer wrote.</li>
+<li>The boot chain is UEFI, <a href="https://github.com/youhide/hideBoot">hideBoot</a>,
+a signed UKI, hidestage, oxinit. Secure Boot is enforced with a
+development key.</li>
+<li>Updates are OCI images. A good update boots and is marked good; one that
+cannot mount, panics or hangs is tried three times and then the previous
+system boots. A power cut after any of an update’s five steps leaves a
+system that boots.</li>
+<li>The root can be LUKS2-encrypted, opened in hidestage by passphrase,
+recovery key, or a key sealed to the TPM.</li>
+<li>Signed system extensions merge over <code>/usr</code> at boot.</li>
+<li>A recovery system on the ESP chooses what boots next or opens a shell;
+the installer can reinstall keeping <code>/home</code>.</li>
+<li>The Workstation has Flatpak with Flathub (its signed summary verified),
+the desktop portals, hideupd on the system bus, and a Settings → Updates
+page; its default theme is Dracula.</li>
+</ul>
+<p>Not yet: real hardware, updates from a registry, aarch64 images, Secure
+Boot with hideOS’s own keys. The milestones are H0 to H8 in
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">ROADMAP.md</a>.</p>
+<h2 id="pages"><a class="h" href="#pages" aria-hidden="true" tabindex="-1">##</a> Pages</h2>
+<ul>
+<li><a href="Building.html">Building</a>: the builder container, <code>cargo xtask image</code>, editions, where
+the outputs go.</li>
+<li><a href="Testing.html">Testing</a>: every <code>cargo xtask *-test</code>, what it proves and what it needs.</li>
+<li><a href="Boot-chain.html">Boot chain</a>: from the firmware to oxinit, and what each step checks.</li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a>: OCI images, boot counting, garbage collection,
+hideupd and <code>os.hide.Update1</code>.</li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a>: partitions, subvolumes, LUKS2, the TPM, swap and
+hibernation.</li>
+<li><a href="Install-and-recover.html">Install and recover</a>: the installer medium, reinstalling, the recovery
+system.</li>
+<li><a href="System-extensions.html">System extensions</a>: what they are, how they are signed, <code>hide ext</code>.</li>
+<li><a href="Applications.html">Applications</a>: Flatpak, Flathub, the portals.</li>
+<li><a href="hideforge.html">hideforge</a>: recipes, the sandbox, the bootstrap stages.</li>
+<li><a href="Development-notes.html">Development notes</a>: lessons that were not obvious, one entry each.</li>
+</ul>
+<h2 id="editing-the-wiki"><a class="h" href="#editing-the-wiki" aria-hidden="true" tabindex="-1">##</a> Editing the wiki</h2>
+<p>The pages are Markdown in <a href="https://github.com/youhide/hideOS/tree/main/docs/wiki">docs/wiki</a>, one file per page, and
+change in the same commit as the work they describe. <code>cargo xtask wiki</code>
+renders them into <code>site/wiki/</code>, and <code>cargo xtask publish-site</code> does the
+same before it publishes. See <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/README.md">docs/wiki/README.md</a> for the
+conventions.</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Home.md">docs/wiki/Home.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -75,249 +75,32 @@
   ]
 }
 </script>
-<style>
-  /* youhide.com.br's Dracula terminal identity: the same tokens, the same
-     system monospace, no external requests. */
-  :root {
-    --bg: #282a36;
-    --bg-alt: #21222c;
-    --line: #44475a;
-    --fg: #f8f8f2;
-    --muted: #6272a4;
-
-    --purple: #bd93f9;
-    --pink: #ff79c6;
-    --cyan: #8be9fd;
-    --green: #50fa7b;
-    --orange: #ffb86c;
-    --yellow: #f1fa8c;
-    --red: #ff5555;
-
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-            "DejaVu Sans Mono", monospace;
-    --accent: linear-gradient(90deg, var(--purple), var(--pink), var(--cyan));
-    --rule: linear-gradient(90deg, transparent, rgba(189,147,249,.9) 18%,
-            rgba(255,121,198,.9) 50%, rgba(139,233,253,.9) 82%, transparent);
-    --dots: radial-gradient(rgba(68,71,90,.55) 1.2px, transparent 1.3px);
-
-    --wrap: 62rem;
-    --radius: 18px;
-  }
-
-  *, *::before, *::after { box-sizing: border-box; }
-  * { margin: 0; }
-  html { color-scheme: dark; -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
-  body {
-    min-height: 100vh; display: flex; flex-direction: column;
-    background: var(--bg); color: var(--fg);
-    font-family: var(--mono); font-size: 1rem; line-height: 1.7;
-    -webkit-font-smoothing: antialiased;
-  }
-  body::before {
-    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(900px 420px at 12% -8%, rgba(189,147,249,.13), transparent 70%),
-      radial-gradient(760px 400px at 88% 2%, rgba(139,233,253,.09), transparent 70%);
-  }
-  body > * { position: relative; z-index: 1; }
-  img { display: block; max-width: 100%; }
-  a { color: var(--cyan); }
-  :focus-visible { outline: 2px solid var(--pink); outline-offset: 3px; border-radius: 4px; }
-  code { color: var(--green); font-family: inherit; }
-
-  .wrap { width: 100%; max-width: var(--wrap); margin-inline: auto; padding-inline: 1.5rem; }
-  main { flex: 1; }
-  .skip {
-    position: absolute; left: -9999px; top: 0; z-index: 50;
-    background: var(--purple); color: var(--bg); padding: .6rem 1rem;
-    border-radius: 0 0 8px 0; font-weight: 700;
-  }
-  .skip:focus { left: 0; }
-
-  /* nav */
-  .nav {
-    position: sticky; top: 0; z-index: 20;
-    background: rgba(40, 42, 54, .82);
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--line);
-  }
-  .nav__inner { display: flex; align-items: center; gap: 1.5rem; min-height: 4rem; }
-  .nav__brand { margin-right: auto; color: var(--fg); font-weight: 700; text-decoration: none; letter-spacing: -.01em; }
-  .nav__brand span { color: var(--purple); }
-  .nav__brand:hover span { color: var(--pink); }
-  .nav__links { display: flex; gap: 1.35rem; }
-  .nav__links a { color: var(--muted); font-size: .88rem; text-decoration: none; transition: color .16s; }
-  .nav__links a:hover { color: var(--cyan); }
-
-  /* terminal window */
-  .term {
-    border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
-    box-shadow: 0 18px 50px -22px rgba(0, 0, 0, .75);
-  }
-  .term--hero { margin-top: 2.5rem; }
-  .term__bar {
-    position: relative; display: flex; align-items: center; gap: .5rem;
-    height: 2.9rem; padding-inline: 1.1rem;
-    background: var(--bg-alt); border-bottom: 1px solid rgba(68, 71, 90, .55);
-  }
-  .dot { flex: none; width: .72rem; height: .72rem; border-radius: 50%; }
-  .dot--red { background: var(--red); }
-  .dot--yellow { background: var(--yellow); }
-  .dot--green { background: var(--green); }
-  .term__path {
-    position: absolute; left: 50%; transform: translateX(-50%);
-    color: var(--muted); font-size: .8rem; white-space: nowrap;
-  }
-  .term__body {
-    display: flex; align-items: center; gap: 2rem;
-    padding: 2.25rem 2rem 2.6rem;
-    background-color: var(--bg); background-image: var(--dots); background-size: 26px 26px;
-  }
-  .term__main { flex: 1 1 auto; min-width: 0; }
-  .term__accent { height: 6px; background: var(--accent); }
-
-  .prompt { line-height: 1.5; }
-  .prompt__sign { color: var(--green); font-weight: 700; margin-right: .6rem; }
-  .hero__name {
-    margin: .55rem 0 .7rem;
-    font-size: clamp(2.6rem, 9vw, 4.2rem); font-weight: 800; line-height: 1.08;
-    letter-spacing: -.025em; color: var(--purple);
-  }
-  .cursor { color: var(--pink); margin-left: .1em; }
-  @media (prefers-reduced-motion: no-preference) {
-    .cursor { animation: blink 1.2s steps(1) infinite; }
-    @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
-  }
-  .hero__role { color: var(--cyan); font-size: clamp(.95rem, 2.5vw, 1.15rem); line-height: 1.5; max-width: 34ch; }
-  .hero__lead { margin-top: 1rem; max-width: 52ch; opacity: .92; font-size: .92rem; }
-  .hero__note { margin-top: .9rem; color: var(--muted); font-size: .8rem; line-height: 1.6; max-width: 60ch; }
-  .hero__actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.5rem; }
-  .btn {
-    display: inline-flex; align-items: center; padding: .55rem 1rem;
-    border: 1px solid var(--line); border-radius: 8px;
-    color: var(--fg); background: var(--bg-alt); text-decoration: none; font-size: .88rem;
-    transition: border-color .16s, color .16s;
-  }
-  .btn:hover { border-color: var(--purple); color: var(--purple); }
-  .btn--primary { border-color: var(--purple); color: var(--purple); }
-  .btn--primary:hover { border-color: var(--pink); color: var(--pink); }
-
-  /* the seal, where youhide.com.br has its rack */
-  .seal { flex: none; width: 17rem; height: auto; display: block; }
-  .seal__caption { margin-top: .7rem; width: 17rem; color: var(--muted); font-size: .72rem; line-height: 1.55; text-align: center; }
-  @media (prefers-reduced-motion: no-preference) {
-    .seal__ring { transform-origin: 200px 200px; animation: turn 90s linear infinite; }
-    @keyframes turn { to { transform: rotate(360deg); } }
-  }
-
-  /* sections */
-  .section { padding-top: 3.5rem; }
-  .section__title { margin-bottom: 1.4rem; font-size: 1.1rem; font-weight: 700; }
-  .sig { color: var(--green); margin-right: .5rem; }
-  .rule { height: 2px; border: 0; margin: 3.5rem 0 0; background: var(--rule); }
-  .muted { color: var(--muted); }
-  .comment { color: var(--muted); font-size: .86rem; margin-bottom: 1.2rem; max-width: 70ch; }
-
-  /* cards */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 1rem; }
-  .card {
-    display: flex; flex-direction: column; gap: .55rem;
-    padding: 1.15rem 1.25rem;
-    background: var(--bg-alt); border: 1px solid var(--line); border-radius: 10px;
-  }
-  .card__top { display: flex; align-items: center; gap: .6rem; }
-  .card__name { font-weight: 700; color: var(--purple); }
-  .card__lang {
-    margin-left: auto; padding: .05rem .5rem; font-size: .68rem; letter-spacing: .04em;
-    text-transform: uppercase; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap;
-  }
-  .card__lang--purple { color: var(--purple); }
-  .card__lang--pink { color: var(--pink); }
-  .card__lang--cyan { color: var(--cyan); }
-  .card__desc { font-size: .86rem; line-height: 1.6; color: var(--muted); }
-
-  /* boot chain: a real sequence, printed like a boot log */
-  .chain { list-style: none; padding: 0; counter-reset: link; max-width: 50rem; }
-  .chain li {
-    counter-increment: link;
-    display: grid; grid-template-columns: 2.6rem 1fr; column-gap: .9rem;
-    padding: .8rem 0; border-bottom: 1px dashed rgba(68, 71, 90, .8);
-  }
-  .chain li:last-child { border-bottom: 0; }
-  .chain li::before { content: "[" counter(link) "]"; color: var(--green); font-weight: 700; grid-row: span 2; }
-  .chain__name { color: var(--purple); font-weight: 700; }
-  .chain__when { color: var(--orange); font-size: .75rem; margin-left: .5rem; font-weight: 400; }
-  .chain__does { color: var(--muted); font-size: .88rem; }
-
-  /* the screenshot, in a terminal window */
-  .shot .term__body { display: block; padding: 1.25rem; background-color: #000; background-image: none; }
-  .shot img { width: 100%; height: auto; image-rendering: pixelated; border-radius: 6px; }
-  .shot--photo img { image-rendering: auto; }
-  .shot__caption { margin-top: .9rem; color: var(--muted); font-size: .86rem; max-width: 70ch; }
-  .code {
-    margin-top: 1.25rem; padding: 1rem 1.25rem;
-    background: var(--bg-alt); border: 1px solid var(--line); border-radius: 10px;
-    overflow-x: auto; font-family: inherit; font-size: .86rem; line-height: 1.9;
-  }
-  .code .sig { margin-right: .6rem; }
-
-  /* stages */
-  .stages { width: 100%; border-collapse: collapse; font-size: .88rem; }
-  .stages th, .stages td { text-align: left; vertical-align: top; padding: .75rem 1rem .75rem 0; border-bottom: 1px solid var(--line); }
-  .stages th { color: var(--muted); font-weight: 400; white-space: nowrap; }
-  .stages td:first-child { color: var(--purple); font-weight: 700; width: 4.5rem; }
-  .stages td:last-child { color: var(--yellow); white-space: nowrap; }
-
-  /* roadmap */
-  .roadmap { list-style: none; padding: 0; display: grid; gap: .55rem; }
-  .roadmap li {
-    display: grid; grid-template-columns: 3rem 1fr auto; gap: 1rem; align-items: baseline;
-    padding: .7rem 1rem; background: var(--bg-alt); border: 1px solid var(--line); border-radius: 10px;
-  }
-  .roadmap__id { color: var(--purple); font-weight: 700; }
-  .roadmap__what { font-size: .9rem; }
-  .roadmap__state { font-size: .68rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  .roadmap li.is-done .roadmap__state { color: var(--green); }
-  .roadmap li.is-now { border-color: var(--pink); }
-  .roadmap li.is-now .roadmap__state { color: var(--pink); }
-  .roadmap li.is-next .roadmap__state { color: var(--yellow); }
-
-  /* footer */
-  .footer { padding: 4rem 0 3rem; }
-  .footer__card { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--bg-alt); }
-  .footer__accent { height: 4px; background: var(--accent); }
-  .footer__body { padding: 1.4rem 1.5rem; font-size: .85rem; color: var(--muted); }
-  .footer__body p + p { margin-top: .4rem; }
-
-  @media (max-width: 52rem) {
-    .term__body { flex-direction: column; align-items: flex-start; padding: 1.75rem 1.25rem 2rem; }
-    .seal-wrap { align-self: center; }
-    .roadmap li { grid-template-columns: 2.6rem 1fr; }
-    .roadmap__state { grid-column: 2; }
-  }
-  @media (max-width: 34rem) {
-    .wrap { padding-inline: 1rem; }
-    .term__path { display: none; }
-    .nav__links { gap: .9rem; }
-    .stages, .stages tbody, .stages tr, .stages td { display: block; width: auto; }
-    .stages thead { display: none; }
-    .stages tr { padding: .6rem 0; border-bottom: 1px solid var(--line); }
-    .stages td { border: 0; padding: .1rem 0; }
-    .shot .term__body { padding: .5rem; }
-  }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="nav">
   <div class="wrap nav__inner">
-    <a class="nav__brand" href="#">~/<span>hideOS</span></a>
+    <a class="nav__brand" href="./">~/<span>hideOS</span></a>
+    <!-- The same links twice: a row where they fit, a menu where they do
+         not (style.css, "nav"). The wiki's pages carry the same header,
+         from crates/xtask/src/wiki.rs. -->
     <nav class="nav__links" aria-label="Project">
+      <a href="wiki/">./wiki</a>
       <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
       <a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
       <a href="https://github.com/youhide/hideOS">./github</a>
     </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+        <a href="wiki/">./wiki</a>
+        <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+        <a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+        <a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
   </div>
 </header>
 
@@ -333,10 +116,11 @@
         <h1 class="hero__name">hideOS<span class="cursor" aria-hidden="true">_</span></h1>
         <p class="hero__role">A Linux workstation that can't change under you.</p>
         <p class="hero__lead">Built from source and sealed: the whole system is one signed image, checked on every read. Updates replace it whole, and if one doesn't boot, the machine goes back by itself. Your files, settings and apps live outside it.</p>
-        <p class="hero__note"># pre-alpha: today it builds itself from source and boots to a shell under oxinit, in QEMU. the COSMIC desktop arrives in milestone H5.</p>
+        <p class="hero__note"># pre-alpha: it builds itself from source, installs from its own installer and boots sealed in QEMU, Minimal to a shell and Workstation to the COSMIC desktop. not on real hardware yet.</p>
         <div class="hero__actions">
           <a class="btn btn--primary" href="https://github.com/youhide/hideOS">Follow on GitHub</a>
           <a class="btn" href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">Read the architecture</a>
+          <a class="btn" href="wiki/">Browse the wiki</a>
         </div>
       </div>
       <div class="seal-wrap">
@@ -394,7 +178,7 @@
     <p class="comment"># from power-on to desktop, nothing runs that the step before it didn't verify.</p>
     <ol class="chain">
       <li><span class="chain__name">UEFI Secure Boot</span><span class="chain__does">Checks the boot manager's signature against hideOS's key.</span></li>
-      <li><span class="chain__name">hideboot<span class="chain__when">H7, systemd-boot until then</span></span><span class="chain__does">Picks the newest image with tries left, and falls back when an update keeps failing.</span></li>
+      <li><span class="chain__name">hideBoot</span><span class="chain__does">Picks the newest image with tries left and falls back when an update keeps failing. When nothing starts, it boots the recovery system.</span></li>
       <li><span class="chain__name">signed kernel image</span><span class="chain__does">Kernel, initrd and command line in one signed file. The command line carries the system image's digest, so the signature covers it.</span></li>
       <li><span class="chain__name">hidestage<span class="chain__when">H2</span></span><span class="chain__does">Unlocks the disk with the TPM, then mounts the system only if its digest matches the one the kernel was signed with.</span></li>
       <li><span class="chain__name">oxinit</span><span class="chain__does">PID 1, in Rust. Starts and supervises everything else, and never panics.</span></li>
@@ -406,17 +190,17 @@
 
   <section class="section" aria-labelledby="desktop">
     <h2 class="section__title" id="desktop"><span class="sig">$</span>cargo xtask screenshot --edition workstation --login</h2>
-    <p class="comment"># hideOS Workstation: COSMIC epoch 1.9, Mesa and LLVM built from source, booted sealed from its own disk, logged in at cosmic-greeter. drawn by llvmpipe on QEMU's virtio-gpu.</p>
+    <p class="comment"># hideOS Workstation: COSMIC epoch 1.9, Mesa and LLVM built from source, booted sealed from its own disk, logged in at cosmic-greeter, in hideOS's Dracula theme. drawn by llvmpipe on QEMU's virtio-gpu.</p>
     <div class="term shot shot--photo">
       <div class="term__bar" aria-hidden="true">
         <span class="dot dot--red"></span><span class="dot dot--yellow"></span><span class="dot dot--green"></span>
         <span class="term__path">qemu-system-x86_64: hideOS workstation</span>
       </div>
       <div class="term__body">
-        <img src="desktop.jpg" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS: the top panel with Workspaces, Applications, the clock and status applets, the Orion nebula wallpaper, and the dock at the bottom.">
+        <img src="desktop.jpg" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS in the Dracula theme: a terminal with purple accents shows hide status — version 38, good, running, boots next; the disk not encrypted; updates from ghcr.io/youhide/hideos:workstation-edge — over the Orion nebula wallpaper, with the panel above and the dock below.">
       </div>
     </div>
-    <p class="shot__caption"># the dock holds what hideOS ships: files, terminal, text editor, settings. sound and polkit run behind the panel.</p>
+    <p class="shot__caption"># hide status, as the person: the deployment that runs, the disk, and where updates come from. the panel's arrow is the update applet: restart to update, once one is staged.</p>
   </section>
 
   <hr class="rule">
@@ -464,11 +248,11 @@
       <li class="is-done"><span class="roadmap__id">H0</span><span class="roadmap__what">Repository, architecture, build environment</span><span class="roadmap__state">done</span></li>
       <li class="is-done"><span class="roadmap__id">H1</span><span class="roadmap__what">hideforge builds hideOS Minimal, which boots to a shell</span><span class="roadmap__state">done on x86_64</span></li>
       <li class="is-done"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">done on x86_64</span></li>
-      <li class="is-now"><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">OCI updates roll back by themselves; registry next</span></li>
-      <li><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">planned</span></li>
-      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">logs in to the desktop</span></li>
-      <li><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">planned</span></li>
-      <li><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideboot</span><span class="roadmap__state">planned</span></li>
+      <li class="is-now"><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">OCI updates from ghcr.io roll back by themselves; public stable channel next</span></li>
+      <li class="is-now"><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">kernel modules, firmware, microcode, TPM2, Wi-Fi, suspend, the watchdog in QEMU; a laptop next</span></li>
+      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">desktop in Dracula, Flatpak, hide shell containers, Settings → Updates and the update applet; first-boot setup next</span></li>
+      <li class="is-now"><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">signed system extensions merge; NVIDIA next</span></li>
+      <li class="is-now"><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideBoot</span><span class="roadmap__state">installer, recovery, hideBoot and hideOS's own Secure Boot keys; done in QEMU</span></li>
       <li><span class="roadmap__id">H8</span><span class="roadmap__what">Rust replacements for the device manager and login daemon</span><span class="roadmap__state">planned</span></li>
     </ol>
   </section>
@@ -480,7 +264,8 @@
       <div class="footer__accent"></div>
       <div class="footer__body">
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>, with <a href="https://github.com/youhide/oxinit">oxinit</a> and <a href="https://github.com/youhide/hideBoot">hideBoot</a>.</p>
-        <p># not affiliated with System76 or the COSMIC project.</p>
+        <p>Its colours, on this page and in the system's default theme, are <a href="https://draculatheme.com">Dracula</a>'s, by Zeno Rocha and contributors, MIT.</p>
+        <p># not affiliated with System76, the COSMIC project or Dracula.</p>
       </div>
     </div>
   </div>

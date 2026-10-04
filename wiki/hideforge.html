@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hideforge · hideOS wiki</title>
+<meta name="description" content="hideOS’s build system: TOML recipes in, a sealed system image out, every package compiled from upstream source in a sandbox with no network. This page is a map;…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/hideforge.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>hideforge</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html" aria-current="page">hideforge</a>
+<ol class="toc__sections">
+<li><a href="#the-model">The model</a></li>
+<li><a href="#recipes">Recipes</a></li>
+<li><a href="#the-sandbox">The sandbox</a></li>
+<li><a href="#the-bootstrap">The bootstrap</a></li>
+<li><a href="#reproducibility">Reproducibility</a></li>
+<li><a href="#from-outputs-to-an-image">From outputs to an image</a></li>
+</ol>
+</li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html" aria-current="page">hideforge</a>
+<ol class="toc__sections">
+<li><a href="#the-model">The model</a></li>
+<li><a href="#recipes">Recipes</a></li>
+<li><a href="#the-sandbox">The sandbox</a></li>
+<li><a href="#the-bootstrap">The bootstrap</a></li>
+<li><a href="#reproducibility">Reproducibility</a></li>
+<li><a href="#from-outputs-to-an-image">From outputs to an image</a></li>
+</ol>
+</li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/hideforge.md</p>
+    <article class="prose">
+<h1 id="hideforge">hideforge</h1>
+<p>hideOS’s build system: TOML recipes in, a sealed system image out, every
+package compiled from upstream source in a sandbox with no network. This
+page is a map; the specifications are
+<a href="https://github.com/youhide/hideOS/blob/main/docs/HIDEFORGE.md">docs/HIDEFORGE.md</a> (the model) and
+<a href="https://github.com/youhide/hideOS/blob/main/docs/RECIPE_FORMAT.md">docs/RECIPE_FORMAT.md</a> (the file format), and they
+decide. How to run it is on <a href="Building.html">Building</a>.</p>
+<h2 id="the-model"><a class="h" href="#the-model" aria-hidden="true" tabindex="-1">##</a> The model</h2>
+<p>A <strong>recipe</strong> says how to turn sources into files. Building it produces an
+<strong>output</strong>: a directory tree laid out as it will be under <code>/</code>, stored once
+at <code>/work/store/&lt;input-hash&gt;-&lt;name&gt;-&lt;version&gt;/</code> and never changed after.</p>
+<p>The <strong>input hash</strong> covers everything that can change the output: the recipe
+file and its patches byte for byte, every source’s SHA-256, the input
+hashes of every build dependency, the architecture, the builder image for
+stage-0 builds, and <code>OUTPUT_POLICY</code> — the version of what hideforge itself
+does to an output after the build. Same inputs, same path: a store path
+that exists is a build that does not run again. A failed build leaves no
+store path behind.</p>
+<p><code>cargo xtask forge -- hash NAME --explain</code> prints a hash and what went into
+it.</p>
+<h2 id="recipes"><a class="h" href="#recipes" aria-hidden="true" tabindex="-1">##</a> Recipes</h2>
+<p>zlib’s, as it is in <a href="https://github.com/youhide/hideOS/blob/main/recipes/system/toolchain/zlib.toml">recipes/system/toolchain/zlib.toml</a>:</p>
+<pre><code class="language-toml">[package]
+name = "zlib"
+version = "1.3.2"
+description = "Compression library"
+license = "Zlib"
+homepage = "https://zlib.net"
+
+# TLS only: the release signature is not checked yet.
+[[source]]
+url = "https://zlib.net/zlib-1.3.2.tar.xz"
+sha256 = "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3"
+
+[depends]
+build = ["stage1-root", "glibc"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure --prefix=/usr
+make -j"$JOBS"
+make install
+rm -f /usr/lib/libz.a
+"""
+</code></pre>
+<ul>
+<li>Any <code>.toml</code> under <a href="https://github.com/youhide/hideOS/tree/main/recipes">recipes/</a>; the directories are for
+people (<code>stage0</code>, <code>stage1</code>, and <code>system/</code> by area: <code>base</code>, <code>boot</code>,
+<code>desktop</code>, <code>cosmic</code>, <code>apps</code>, <code>images</code>…). A recipe is known by
+<code>package.name</code>, unique across the tree. There is one version of each
+recipe at any commit, so dependencies are names only.</li>
+<li>Files a recipe uses — patches, configuration, units — live in a directory
+next to it with its file stem, and the script finds them in <code>$FILES</code>.</li>
+<li><strong>Sources</strong> are <code>https://</code> only, each with its SHA-256, written down from
+a download checked against the upstream signature or published checksum
+where there is one; the commit adding or bumping a source says which. A
+GNU URL is also tried on two mirrors; the digest makes any copy as good
+as the original.</li>
+<li><strong>Patches</strong> (<code>build.patches</code>) are applied with <code>patch -p1</code> after
+unpacking. Each carries a header saying why it exists and whether it was
+sent upstream.</li>
+<li><strong>Vendoring</strong> (<code>build.vendor = "cargo"</code>): a build that would download
+crates cannot, so hideforge downloads every crates.io package in the
+source’s <code>Cargo.lock</code> before the sandbox exists, checks each against the
+lockfile’s SHA-256, and points cargo at that copy, offline. Git
+dependencies are refused: nothing pins their content.</li>
+<li><strong>This repository</strong> (<code>build.workspace = true</code>): hidestage, <code>hide</code> and the
+other crates here are built from the Cargo workspace as git tracks it,
+archived deterministically; changing a crate rebuilds exactly the recipes
+that use the workspace.</li>
+<li><strong>Images</strong> are recipes too: <a href="https://github.com/youhide/hideOS/blob/main/recipes/system/images/minimal.toml">images/minimal.toml</a>
+and <a href="https://github.com/youhide/hideOS/blob/main/recipes/system/images/workstation.toml">images/workstation.toml</a>,
+whose run closure is the system, with <code>[image] exclude</code> for what an image
+leaves out.</li>
+</ul>
+<h2 id="the-sandbox"><a class="h" href="#the-sandbox" aria-hidden="true" tabindex="-1">##</a> The sandbox</h2>
+<p>Every build runs in fresh Linux namespaces — mount, PID, network (loopback
+only, and down), UTS (hostname <code>hideforge</code>), IPC — inside the privileged
+builder container
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hideforge/src/sandbox.rs">crates/hideforge/src/sandbox.rs</a>).
+The namespaces are for hermeticity, what a build can see; the container is
+the boundary with the host.</p>
+<p>The build installs into the live root it runs in, and its output is
+exactly what it changed: the root is an overlay whose lower layers are the
+outputs of its dependencies and whose empty upper layer becomes the store
+path. No <code>DESTDIR</code>, and no package that forgets to honour it. Three rules
+keep that honest, each checked after the build:</p>
+<ul>
+<li>a build may not delete or replace a file its own stage provided;</li>
+<li>two outputs of the same stage may not provide the same path;</li>
+<li>a stage-2 output may only link stage-2 libraries: every <code>DT_NEEDED</code> of
+every ELF file must be found in stage 2.</li>
+</ul>
+<p>Indexes over all packages’ files (<code>share/info/dir</code>, <code>etc/ld.so.cache</code>) are
+removed from every output; the image regenerates what it needs.
+<code>cargo xtask forge-selftest</code> checks these guarantees; see <a href="Testing.html">Testing</a>.</p>
+<h2 id="the-bootstrap"><a class="h" href="#the-bootstrap" aria-hidden="true" tabindex="-1">##</a> The bootstrap</h2>
+<p>Three stages, after Linux From Scratch, with the target triple
+<code>&lt;arch&gt;-hideos-linux-gnu</code> so that a host tool is never mistaken for a
+target one:</p>
+<div class="table-wrap">
+<table><thead><tr><th>Stage</th><th>Runs in</th><th>Builds</th><th>2018 laptop</th></tr></thead><tbody>
+<tr><td>0</td><td>the builder (<code>host</code>)</td><td>a cross toolchain, then temporary tools and a native GCC</td><td>about 42 min</td></tr>
+<tr><td>1</td><td>stage 0’s tree</td><td>the rest of the temporary tools: gettext, bison, Perl, Python, Texinfo</td><td>about 13 min</td></tr>
+<tr><td>2</td><td>the stages below</td><td>the system, final toolchain first</td><td>about an hour for Minimal</td></tr>
+</tbody></table>
+</div>
+<p>Only stage 2 goes into an image. Rust cannot be bootstrapped from source:
+<code>rustc</code> starts from a published binary pinned by SHA-256 like any source,
+and the compiler that ships is built from source by it.</p>
+<h2 id="reproducibility"><a class="h" href="#reproducibility" aria-hidden="true" tabindex="-1">##</a> Reproducibility</h2>
+<p><code>SOURCE_DATE_EPOCH</code> is the newest time in the source archive, and every
+file in an output is clamped to it; the build path is always <code>/build/src</code>;
+locale <code>C</code>, timezone UTC. A check that builds a recipe twice and compares
+the outputs bit for bit is planned, not written.</p>
+<h2 id="from-outputs-to-an-image"><a class="h" href="#from-outputs-to-an-image" aria-hidden="true" tabindex="-1">##</a> From outputs to an image</h2>
+<p><code>hideforge image NAME</code> merges the run closure of an image recipe — stage-2
+outputs only — strips debug information from every ELF file (the store
+keeps it), refuses the image if any <code>DT_NEEDED</code> library is missing, and
+writes the composefs payload, the OCI image and the signed UKI; see
+<a href="Building.html">Building</a> for the files and <a href="Updates-and-rollback.html">Updates and rollback</a> for the OCI image.</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/hideforge.md">docs/wiki/hideforge.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

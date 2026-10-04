@@ -9,13 +9,23 @@
 > Mattar (youhide).
 
 Status as of October 2026: hideOS Minimal and hideOS Workstation build from
-source with hideOS's own build system, hideforge, install on a disk, and
-boot sealed in QEMU on x86_64. Minimal boots to a zsh shell; Workstation to
-the COSMIC greeter and desktop (COSMIC epoch 1.9, Mesa, LLVM). Secure Boot
-with a development key is enforced in QEMU. Updates are OCI images, applied
-and rolled back in QEMU tests: a failed, hung or panicking update goes back
-by itself. Not yet for daily use: updates from a registry (H3) and real
-hardware (H4) come next.
+source with hideOS's own build system, hideforge, install from hideOS's own
+installer medium, and boot sealed in QEMU on x86_64. Minimal boots to a zsh
+shell; Workstation to the COSMIC greeter and desktop (COSMIC epoch 1.9,
+Mesa, LLVM). The boot manager is hideBoot, hideOS's own, in Rust. Secure
+Boot with a development key is enforced in QEMU. Updates are OCI images,
+applied and rolled back in QEMU tests: a failed, hung or panicking update
+goes back by itself. The root can be encrypted with LUKS2, opened by
+hidestage with a passphrase or a recovery key; Wi-Fi (NetworkManager with
+iwd), suspend and hibernation work in QEMU. Signed system extensions merge
+over /usr at boot. A recovery system on the ESP chooses what boots next or
+opens a shell, and the installer reinstalls keeping /home and enrolls
+hideOS's own Secure Boot keys. Updates come from ghcr.io/youhide/hideos by
+channel (edge while pre-alpha); oxinit feeds a hardware watchdog until the
+deployment is marked good. The Workstation has Flatpak with Flathub, `hide
+shell` (rootless Podman containers sharing the home), Settings → Updates
+and an update applet, all in hideOS's Dracula theme. Not yet for daily use:
+a real laptop, first-boot setup, NVIDIA and aarch64 come next.
 
 Facts that are easy to get wrong:
 
@@ -36,9 +46,10 @@ Facts that are easy to get wrong:
 - [Roadmap](https://raw.githubusercontent.com/youhide/hideOS/main/ROADMAP.md): milestones H0 to H8, what is done and how each was verified
 - [hideforge](https://raw.githubusercontent.com/youhide/hideOS/main/docs/HIDEFORGE.md): the build system, its sandbox and reproducibility
 - [Recipe format](https://raw.githubusercontent.com/youhide/hideOS/main/docs/RECIPE_FORMAT.md): how a package is described
+- [Wiki](https://youhide.github.io/hideOS/wiki/): working notes on building, testing, the boot chain, updates, encryption, installing and recovering, system extensions and applications, kept current with the code; sources in [docs/wiki](https://github.com/youhide/hideOS/tree/main/docs/wiki)
 
 ## Related
 
 - [oxinit](https://github.com/youhide/oxinit): the Rust init system hideOS runs as PID 1
-- [hideBoot](https://github.com/youhide/hideBoot): hideOS's own boot manager, planned
+- [hideBoot](https://github.com/youhide/hideBoot): hideOS's boot manager, a Rust UEFI application with boot counting and a recovery entry
 - [Source code](https://github.com/youhide/hideOS)

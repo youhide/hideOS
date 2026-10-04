@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Applications · hideOS wiki</title>
+<meta name="description" content="The image is the system’s; people do not install into it. Graphical applications come from Flatpak, and command-line and development tools are meant to live in…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/Applications.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>Applications</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html" aria-current="page">Applications</a>
+<ol class="toc__sections">
+<li><a href="#flatpak">Flatpak</a></li>
+<li><a href="#the-portals">The portals</a></li>
+<li><a href="#hide-shell-planned">hide shell (planned)</a></li>
+</ol>
+</li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html" aria-current="page">Applications</a>
+<ol class="toc__sections">
+<li><a href="#flatpak">Flatpak</a></li>
+<li><a href="#the-portals">The portals</a></li>
+<li><a href="#hide-shell-planned">hide shell (planned)</a></li>
+</ol>
+</li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Applications.md</p>
+    <article class="prose">
+<h1 id="applications">Applications</h1>
+<p>The image is the system’s; people do not install into it. Graphical
+applications come from Flatpak, and command-line and development tools are
+meant to live in containers. See
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#applications-and-development">ARCHITECTURE.md, “Applications and development”</a>.</p>
+<p>Everything on this page is in hideOS <strong>Workstation</strong> only. The recipes are
+in <a href="https://github.com/youhide/hideOS/tree/main/recipes/system/apps">recipes/system/apps</a>; ROADMAP H5 tracks what
+is done.</p>
+<h2 id="flatpak"><a class="h" href="#flatpak" aria-hidden="true" tabindex="-1">##</a> Flatpak</h2>
+<p><a href="https://github.com/youhide/hideOS/blob/main/recipes/system/apps/flatpak.toml">flatpak.toml</a>, Flatpak 1.18.</p>
+<ul>
+<li><strong>One system-wide installation</strong>, in <code>/var/lib/flatpak</code> on <code>@var</code>, which
+members of <code>wheel</code> may change without a password (Flatpak’s own polkit
+rules), through <code>flatpak-system-helper</code> on the system bus.</li>
+<li><strong>Flathub is preconfigured with nothing in <code>/etc</code>.</strong> The recipe installs
+<code>flathub.flatpakrepo</code> into <code>/usr/share/flatpak/remotes.d</code>, and Flatpak
+applies every file there, with its GPG key, to the system installation
+the first time it opens it.</li>
+<li><strong>Sandboxes</strong> are the system’s bubblewrap and xdg-dbus-proxy, with
+Wayland’s security-context protocol, which COSMIC supports. bubblewrap is
+not setuid: it uses unprivileged user namespaces, so the kernel has
+<code>CONFIG_USER_NS</code>.</li>
+<li>Applications are kept in libostree’s content-addressed store; ostree is
+built only for that, with nothing for booting an ostree system.</li>
+<li>What a system without systemd does not use — Flatpak’s systemd units, its
+environment generators, the <code>profile.d</code> script — is left out; the COSMIC
+session puts the exported applications in <code>XDG_DATA_DIRS</code> itself.</li>
+</ul>
+<p><code>cargo xtask desktop-test</code> checks that Flathub is configured, that its
+signed summary downloads and verifies, and that bubblewrap makes a sandbox
+for an unprivileged user. It does not install an application. See
+<a href="Testing.html">Testing</a>.</p>
+<h3 id="the-launch-helper"><a class="h" href="#the-launch-helper" aria-hidden="true" tabindex="-1">###</a> The launch helper</h3>
+<p><code>flatpak-system-helper</code> is started on demand by dbus-daemon’s setuid launch
+helper, which hideOS installs <code>4755</code> rather than upstream’s <code>4750 root:messagebus</code>. Why is in <a href="Development-notes.html#the-dbus-launch-helper-is-4755">Development notes</a>.</p>
+<h2 id="the-portals"><a class="h" href="#the-portals" aria-hidden="true" tabindex="-1">##</a> The portals</h2>
+<p>How a sandboxed application opens a file, takes a screenshot, shares the
+screen or sends a notification: by asking the desktop, over D-Bus, instead
+of reaching around its sandbox.</p>
+<ul>
+<li><a href="https://github.com/youhide/hideOS/blob/main/recipes/system/apps/xdg-desktop-portal.toml">xdg-desktop-portal</a>
+1.22: the desktop-neutral half and the document portal, D-Bus activated
+on the session bus. Icons and sounds that applications hand it are checked
+in bubblewrap before they are shown or played. Built without geoclue and
+gudev, so there is no location or USB portal.</li>
+<li><a href="https://github.com/youhide/hideOS/blob/main/recipes/system/apps/xdg-desktop-portal-cosmic.toml">xdg-desktop-portal-cosmic</a>
+(COSMIC epoch 1.9): COSMIC’s dialogs — the file chooser, screenshots,
+screen casting through PipeWire, and the settings applications read their
+theme from. xdg-desktop-portal picks it from <code>cosmic-portals.conf</code> when
+<code>XDG_CURRENT_DESKTOP</code> is <code>COSMIC</code>. Built without its systemd feature,
+whose only use is logging to journald; it logs to stderr.</li>
+</ul>
+<h2 id="hide-shell-planned"><a class="h" href="#hide-shell-planned" aria-hidden="true" tabindex="-1">##</a> <code>hide shell</code> (planned)</h2>
+<p>Not written. The plan is a toolbox-style Podman container sharing the
+user’s home and display, with any distribution inside it, for compilers,
+language toolchains and package managers. Podman is not packaged yet. Until
+then, the hideOS image has no compiler, by design: images ship without one.</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Applications.md">docs/wiki/Applications.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

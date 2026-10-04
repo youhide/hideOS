@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Updates and rollback · hideOS wiki</title>
+<meta name="description" content="An update is a new image next to the old one, never a change to the running one. It becomes bootable at one instant, the rename of its UKI on the ESP, and the…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/Updates-and-rollback.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>Updates and rollback</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html" aria-current="page">Updates and rollback</a>
+<ol class="toc__sections">
+<li><a href="#the-image">The image</a></li>
+<li><a href="#hide-update">hide update</a></li>
+<li><a href="#boot-counting-and-automatic-rollback">Boot counting and automatic rollback</a></li>
+<li><a href="#the-other-commands">The other commands</a></li>
+<li><a href="#garbage-collection">Garbage collection</a></li>
+<li><a href="#hideupd-and-oshideupdate1">hideupd and os.hide.Update1</a></li>
+</ol>
+</li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html" aria-current="page">Updates and rollback</a>
+<ol class="toc__sections">
+<li><a href="#the-image">The image</a></li>
+<li><a href="#hide-update">hide update</a></li>
+<li><a href="#boot-counting-and-automatic-rollback">Boot counting and automatic rollback</a></li>
+<li><a href="#the-other-commands">The other commands</a></li>
+<li><a href="#garbage-collection">Garbage collection</a></li>
+<li><a href="#hideupd-and-oshideupdate1">hideupd and os.hide.Update1</a></li>
+</ol>
+</li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Updates-and-rollback.md</p>
+    <article class="prose">
+<h1 id="updates-and-rollback">Updates and rollback</h1>
+<p>An update is a new image next to the old one, never a change to the
+running one. It becomes bootable at one instant, the rename of its UKI on
+the ESP, and the boot manager gives it three attempts. The design is
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#updates">ARCHITECTURE.md, “Updates”</a>; the code is
+<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/deploy.rs">crates/hide/src/deploy.rs</a>. It is checked
+end to end by <code>cargo xtask update-test</code>; see <a href="Testing.html">Testing</a>.</p>
+<h2 id="the-image"><a class="h" href="#the-image" aria-hidden="true" tabindex="-1">##</a> The image</h2>
+<p>hideforge publishes the system as an OCI image with two layers: the root,
+then <code>/boot/EFI/Linux/&lt;uki&gt;</code>. The digest the UKI carries is that of the
+<em>boot</em> composefs image — the root with <code>/boot</code> emptied — so the UKI can
+travel inside the image it seals. hideforge computes that digest by pulling
+its own image with composefs-oci, the code <code>hide update</code> runs, and fails the
+build if adding the UKI layer changed it. <code>cargo xtask image</code> writes it as
+<code>image.oci.tar</code>.</p>
+<p>Today the image travels as a file: <code>hide update</code> takes <code>oci-archive:PATH</code>
+or <code>oci:DIR[:TAG]</code>. Pulling from a registry is not written yet (ROADMAP
+H3).</p>
+<h2 id="hide-update"><a class="h" href="#hide-update" aria-hidden="true" tabindex="-1">##</a> <code>hide update</code></h2>
+<pre><code class="language-sh">hide update --image oci-archive:/path/to/image.oci.tar
+</code></pre>
+<p>Five steps, which are also the names <code>--crash-after</code> takes in tests:</p>
+<div class="table-wrap">
+<table><thead><tr><th>Step</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code>pull</code></td><td>composefs-oci writes the objects the store lacks, sealed with fs-verity, and regenerates the boot image. The UKI’s <code>hideos.image=</code> must name that image, and the kernel must measure it the same; otherwise nothing is staged. Files the new <code>/etc</code> has and the machine’s lacks are added; nothing in <code>/etc</code> is replaced.</td></tr>
+<tr><td><code>stage</code></td><td>The UKI is copied to <code>EFI/Linux/&lt;name&gt;.tmp</code> on the ESP and synced.</td></tr>
+<tr><td><code>commit</code></td><td>The rename to <code>hideos-EDITION-VERSION-DIGEST12+3.efi</code>. From here the next boot tries the new system.</td></tr>
+<tr><td><code>prune</code></td><td>UKIs no longer kept are removed: kept are the running one, the newest good one other than it (the way back), and the new one.</td></tr>
+<tr><td><code>collect</code></td><td>Garbage collection, below.</td></tr>
+</tbody></table>
+</div>
+<p>It refuses an image that is the running system, and an image of another
+edition: switching edition is meant to be <code>hide rebase</code>, which is not
+written yet. The client never trusts an image it did not compute itself:
+the build signed the UKI, the firmware checks the UKI, and the UKI names
+the digest.</p>
+<p><strong>A power cut at any instant</strong> leaves a machine that boots: the old system
+before the commit, the new one with its attempts after it. Renames on the
+ESP sync the file under its new name, its directory and the filesystem,
+because a plain rename on FAT can leave a zero-length file after a cut.</p>
+<h2 id="boot-counting-and-automatic-rollback"><a class="h" href="#boot-counting-and-automatic-rollback" aria-hidden="true" tabindex="-1">##</a> Boot counting and automatic rollback</h2>
+<p>The new UKI starts at <code>+3</code>. hideBoot renames it before each attempt
+(<code>+2-1</code>, <code>+1-2</code>, <code>+0-3</code>); at <code>+0</code> it sorts after every good entry and the
+previous deployment boots. An attempt fails when:</p>
+<ul>
+<li>hidestage refuses or cannot mount the image, says why, and reboots;</li>
+<li>the kernel panics: <code>panic=10</code> on the command line reboots it;</li>
+<li>the boot hangs anywhere, kernel or userspace: hidestage armed the
+hardware watchdog (180 s, <code>hideos.watchdog=</code>), and only <code>hide boot-ok</code>
+stops it.</li>
+</ul>
+<p><code>hide boot-ok</code> runs at the end of the edition’s target and renames the UKI
+without its counter: the deployment is good, and the update permanent. See
+<a href="Boot-chain.html">Boot chain</a> for the file names.</p>
+<h2 id="the-other-commands"><a class="h" href="#the-other-commands" aria-hidden="true" tabindex="-1">##</a> The other commands</h2>
+<pre><code class="language-sh">hide status              # the deployments, in the order they boot
+hide status --porcelain  # the same, tab-separated, for hideupd
+hide rollback            # boot the previous deployment next
+hide gc                  # garbage collection by hand
+</code></pre>
+<p><code>hide status</code> lists version, state (<code>good</code>, <code>trying</code> or <code>bad</code>), the digest,
+which one is running and which boots next, then how the disk is protected.
+<code>hide rollback</code> marks the running deployment out of attempts, so the boot
+manager passes over it; it refuses when there is nothing else to go back
+to.</p>
+<h2 id="garbage-collection"><a class="h" href="#garbage-collection" aria-hidden="true" tabindex="-1">##</a> Garbage collection</h2>
+<p>At the end of every update, and as <code>hide gc</code>: every object in the store that
+no kept image uses is deleted. The roots are the images of the UKIs on the
+ESP — running, the way back, the new one — and the images of the system
+extensions. The ESP is the list of what can boot, so it is also the list of
+what must stay. A collection cut short leaves unused objects for the next
+one.</p>
+<h2 id="hideupd-and-oshideupdate1"><a class="h" href="#hideupd-and-oshideupdate1" aria-hidden="true" tabindex="-1">##</a> hideupd and <code>os.hide.Update1</code></h2>
+<p>hideupd is <code>hide daemon</code>, started on every edition by the <code>hideupd</code> unit in
+<a href="https://github.com/youhide/hideOS/tree/main/recipes/system/base/hideos-units">hideos-units</a>. It owns
+<code>os.hide.Update1</code> on the system bus, at <code>/os/hide/Update1</code>
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/daemon.rs">crates/hide/src/daemon.rs</a>).</p>
+<p>Every operation is <code>hide</code> itself, run as a child process with <code>HIDE_DIRECT=1</code>
+set so that it does the work rather than ask the daemon: the code a root
+shell runs is the code the daemon runs, and an operation that fails takes
+nothing of the daemon with it.</p>
+<div class="table-wrap">
+<table><thead><tr><th>Member</th><th>Kind</th><th>What it does</th><th>Who may</th></tr></thead><tbody>
+<tr><td><code>Update(s image) → u job</code></td><td>method</td><td><code>hide update --image IMAGE</code></td><td>root, or polkit <code>os.hide.update.update</code></td></tr>
+<tr><td><code>Rollback() → u job</code></td><td>method</td><td><code>hide rollback</code></td><td>root, or <code>os.hide.update.rollback</code></td></tr>
+<tr><td><code>AddExtension(s image) → u job</code></td><td>method</td><td><code>hide ext add IMAGE</code></td><td>root, or <code>os.hide.update.extensions</code></td></tr>
+<tr><td><code>RemoveExtension(s name) → u job</code></td><td>method</td><td><code>hide ext remove NAME</code></td><td>root, or <code>os.hide.update.extensions</code></td></tr>
+<tr><td><code>Collect() → u job</code></td><td>method</td><td><code>hide gc</code></td><td>root, or <code>os.hide.update.update</code></td></tr>
+<tr><td><code>Status() → s</code></td><td>method</td><td>what <code>hide status</code> prints</td><td>anyone</td></tr>
+<tr><td><code>Deployments() → a(stssbb)</code></td><td>method</td><td>edition, version, digest, state, running, boots next</td><td>anyone</td></tr>
+<tr><td><code>Disk() → s</code></td><td>method</td><td>how the disk is protected</td><td>anyone</td></tr>
+<tr><td><code>Extensions() → s</code></td><td>method</td><td>what <code>hide ext list</code> prints</td><td>anyone</td></tr>
+<tr><td><code>Busy</code></td><td>property, <code>b</code></td><td>whether a job is running</td><td>anyone</td></tr>
+<tr><td><code>Progress(u job, s line)</code></td><td>signal</td><td>a line of the job’s output</td><td></td></tr>
+<tr><td><code>Finished(u job, b ok, s error)</code></td><td>signal</td><td>the job’s end, and why it failed</td><td></td></tr>
+</tbody></table>
+</div>
+<p>A method that starts a job returns its number at once; the job is followed
+by its signals, and a client listens before it asks, since a job can end
+before the call returns. One job runs at a time.</p>
+<p><strong>Who may.</strong> Root may ask for anything. Anyone else is asked about by
+polkit, with the actions in
+<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/data/os.hide.update.policy">crates/hide/data/os.hide.update.policy</a>:
+an administrator’s password, for an active session at the machine, kept
+for a while. Minimal has no polkit, so there only root may.</p>
+<p><strong>The command line is a client.</strong> <code>hide update</code>, <code>rollback</code>, <code>gc</code> and <code>ext add|remove</code> go through hideupd when it owns its name on the bus, printing
+its <code>Progress</code> lines as they come
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/client.rs">crates/hide/src/client.rs</a>). Where there
+is no daemon — the installer, the recovery system, a boot that has not
+reached it — they do the work themselves. Either way an exclusive lock on
+<code>/run/hide.lock</code> keeps it to one change at a time.</p>
+<p><strong>Settings.</strong> The Workstation’s COSMIC Settings has a System → Updates page,
+a hideOS patch to
+<a href="https://github.com/youhide/hideOS/blob/main/recipes/system/cosmic/cosmic-settings.toml">cosmic-settings</a>, that
+shows what <code>Deployments</code> reports, goes back to the previous system, and
+shows the disk’s protection and the system extensions.</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Updates-and-rollback.md">docs/wiki/Updates-and-rollback.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testing · hideOS wiki</title>
+<meta name="description" content="A milestone is done when it boots and is checked, not when it compiles. Most of the checks are cargo xtask commands that build an image, install it on a scratch…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/Testing.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>Testing</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html" aria-current="page">Testing</a>
+<ol class="toc__sections">
+<li><a href="#before-pushing">Before pushing</a></li>
+<li><a href="#what-every-boot-test-shares">What every boot test shares</a></li>
+<li><a href="#the-tests">The tests</a></li>
+<li><a href="#pictures">Pictures</a></li>
+</ol>
+</li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html" aria-current="page">Testing</a>
+<ol class="toc__sections">
+<li><a href="#before-pushing">Before pushing</a></li>
+<li><a href="#what-every-boot-test-shares">What every boot test shares</a></li>
+<li><a href="#the-tests">The tests</a></li>
+<li><a href="#pictures">Pictures</a></li>
+</ol>
+</li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Testing.md</p>
+    <article class="prose">
+<h1 id="testing">Testing</h1>
+<p>A milestone is done when it boots and is checked, not when it compiles.
+Most of the checks are <code>cargo xtask</code> commands that build an image, install
+it on a scratch disk in QEMU, boot it, and type at its serial console. The
+command list is <code>cargo xtask help</code>; the code is in
+<a href="https://github.com/youhide/hideOS/blob/main/crates/xtask/src/main.rs">crates/xtask/src/main.rs</a>.</p>
+<h2 id="before-pushing"><a class="h" href="#before-pushing" aria-hidden="true" tabindex="-1">##</a> Before pushing</h2>
+<p>What CI runs on a release, and nothing slow:</p>
+<pre><code class="language-sh">cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo xtask firmware-smoke --arch x86_64
+cargo xtask firmware-smoke --arch aarch64
+</code></pre>
+<p>CI runs only for <code>v*</code> tags or by hand, never on push; see
+<a href="https://github.com/youhide/hideOS/blob/main/CONTRIBUTING.md#ci">CONTRIBUTING.md</a>.</p>
+<h2 id="what-every-boot-test-shares"><a class="h" href="#what-every-boot-test-shares" aria-hidden="true" tabindex="-1">##</a> What every boot test shares</h2>
+<ul>
+<li><strong>It builds what it tests.</strong> Each test runs <code>cargo xtask image</code> first, in
+the builder, so it tests this tree. With nothing changed that is a few
+seconds; after a change to a recipe or to <code>crates/</code>, it is that rebuild.
+Never start two at once: see <a href="Development-notes.html#one-image-build-at-a-time">Development notes</a>.</li>
+<li><strong>It installs a fresh disk</strong> the way <code>cargo xtask install</code> does, by
+booting Minimal from RAM with <code>hide install</code> as PID 1. An install may take
+up to 15 minutes before the test gives up.</li>
+<li><strong>A failed boot ends QEMU.</strong> QEMU runs with <code>-no-reboot</code>, so a guest that
+reboots — after a panic, a watchdog reset, hidestage giving up — exits,
+and the test starts it again when it wants the next attempt.</li>
+<li><strong>It reads and types on the serial console</strong>, which is <code>/dev/console</code> in
+test images; see <a href="Development-notes.html#the-screen-is-the-console-tests-append-the-serial-port">Development notes</a>.</li>
+<li><strong>Each check prints <code>ok</code> or <code>FAIL</code></strong> with the console output that made it
+fail. The test fails if any check did.</li>
+<li><strong>It needs</strong> QEMU with UEFI firmware on the host (<code>cargo xtask doctor</code>)
+and the builder. On a Mac, two kinds of boot run on QEMU’s emulated CPUs
+rather than macOS’s hypervisor, and take noticeably longer: Secure Boot,
+because x86 firmware keeps its variables in System Management Mode, which
+the hypervisor does not offer; and a machine with an emulated TPM, whose
+firmware stalls under the hypervisor before it prints anything.</li>
+</ul>
+<p>Durations below are given as what a test does — builds, installs, boots —
+because few runs have been timed. Recorded numbers are marked.</p>
+<h2 id="the-tests"><a class="h" href="#the-tests" aria-hidden="true" tabindex="-1">##</a> The tests</h2>
+<h3 id="firmware-smoke---arch-arch"><a class="h" href="#firmware-smoke---arch-arch" aria-hidden="true" tabindex="-1">###</a> <code>firmware-smoke [--arch ARCH]</code></h3>
+<p>Boots the UEFI firmware with no disk and checks it reaches boot device
+selection. Every later boot stands on this. Recorded: 1.6 s on x86_64
+(HVF) and 6.8 s on aarch64 (TCG) on an Intel Mac. Needs only QEMU and its
+firmware.</p>
+<h3 id="forge-selftest"><a class="h" href="#forge-selftest" aria-hidden="true" tabindex="-1">###</a> <code>forge-selftest</code></h3>
+<p>Builds the fixtures in <code>crates/hideforge/tests/recipes</code> in a scratch work
+directory and checks each guarantee the build sandbox makes: no network
+and a read-only builder for host builds; only declared inputs for target
+builds; an output that is exactly what the build created; a later stage
+replacing an earlier one’s files, and the same stage refused; unchanged
+inputs not rebuilt; a failed build leaving no store path and no build
+directory. Needs the builder. See <a href="hideforge.html">hideforge</a>.</p>
+<h3 id="boot---test"><a class="h" href="#boot---test" aria-hidden="true" tabindex="-1">###</a> <code>boot --test</code></h3>
+<p>Boots Minimal from RAM and waits for the banner unit’s line, <code>hideOS: booted on</code>: the kernel booted, oxinit is PID 1 and ran a program on the
+glibc userspace. Recorded: 4.7 s (H1). <code>--disk</code> boots <code>disk.raw</code> through
+UEFI instead.</p>
+<h3 id="seal-test"><a class="h" href="#seal-test" aria-hidden="true" tabindex="-1">###</a> <code>seal-test</code></h3>
+<p>H2’s checks, on a disk of their own, under Secure Boot: it boots from the
+sealed disk; the firmware enforced Secure Boot; writing to <code>/usr</code> fails and
+<code>/etc</code> stays writable; an object in the store replaced by a modified copy
+makes reading its file fail with <code>EIO</code>; the image swapped for another
+sealed file is refused by hidestage; a UKI changed by one byte — changed
+from Minimal booted beside the disk — is refused by the firmware before
+anything in it runs. One install and four boots: three of the disk under
+Secure Boot, one of Minimal from RAM beside it.
+x86_64 only: there is no Secure Boot firmware for aarch64 here yet.</p>
+<h3 id="update-test"><a class="h" href="#update-test" aria-hidden="true" tabindex="-1">###</a> <code>update-test</code></h3>
+<p>H3’s “done when”. It builds N from this tree and N+1, the same system one
+version later, with a 45-second watchdog so that the hang costs minutes.
+N+1 is handed to the guest as an oci-archive on a second disk. Then, each
+on a freshly installed disk:</p>
+<ul>
+<li>a good update: staged through hideupd (which refuses anyone but root),
+collecting an orphaned object, N+1 boots and is marked good, <code>hide rollback</code> goes back to N;</li>
+<li>an N+1 whose image cannot be mounted, one that hangs, one whose kernel
+panics: each tried three times, then N boots by itself and N+1 is marked
+bad;</li>
+<li>an image changed after it was built: refused, nothing staged;</li>
+<li>a power cut after each of the five steps (<code>pull</code>, <code>stage</code>, <code>commit</code>,
+<code>prune</code>, <code>collect</code>): N boots before the commit, N+1 after.</li>
+</ul>
+<p>Ten installs and dozens of boots: the longest test. To chase one power
+cut, <code>HIDEOS_UPDATE_TEST_STEPS=commit,prune</code> (or <code>tamper</code>) runs only those,
+and keeps the disk to look at. See <a href="Updates-and-rollback.html">Updates and rollback</a>.</p>
+<h3 id="net-test"><a class="h" href="#net-test" aria-hidden="true" tabindex="-1">###</a> <code>net-test</code></h3>
+<p>Installs Minimal and checks that NetworkManager connects the wired port by
+itself, writes <code>/etc/resolv.conf</code> with the DHCP server’s DNS, that names
+resolve, that iwd answers on the bus, and that NetworkManager logs to
+oxlogd rather than the console. QEMU’s user network gives DHCP and DNS;
+resolving a name needs the host to be online. One install, one boot.</p>
+<h3 id="power-test"><a class="h" href="#power-test" aria-hidden="true" tabindex="-1">###</a> <code>power-test</code></h3>
+<p>Installs Minimal, checks the swap file is on and the kernel knows where to
+hibernate, suspends it and lets the clock wake it (<code>rtcwake</code>), then
+hibernates it, starts QEMU again, and checks the same session is back —
+a file in <code>/tmp</code>, which is memory only, still there. One install, two boots.</p>
+<h3 id="crypt-test"><a class="h" href="#crypt-test" aria-hidden="true" tabindex="-1">###</a> <code>crypt-test</code></h3>
+<p>Installs Minimal encrypted and checks: the root is not readable on the
+disk; it asks for the passphrase and refuses a wrong one; the first boot
+seals the key to the TPM; the second boots without asking; with Secure Boot
+turned on, PCR 7 changes, the TPM refuses, it asks, and the passphrase
+still opens it; with no TPM, it asks. <strong>Needs <code>swtpm</code> on PATH</strong> (<code>brew install swtpm</code>), which runs on the host and gives QEMU its TPM. One
+install, four boots; on a Mac the three with a TPM run emulated. ROADMAP H4 records whether the TPM path has been run.</p>
+<h3 id="sysext-test"><a class="h" href="#sysext-test" aria-hidden="true" tabindex="-1">###</a> <code>sysext-test</code></h3>
+<p>Builds <code>hello-sysext</code> (in <code>recipes/system/test</code>) as a system extension
+three ways and checks, on an installed Minimal: an unsigned one is refused
+by <code>hide ext add</code>; one built for another image is added but left out at
+boot; one signed for this image is merged over <code>/usr</code>, read-only; and that
+one is left out once its record’s signature is damaged. One install, four
+boots. See <a href="System-extensions.html">System extensions</a>.</p>
+<h3 id="installer-test"><a class="h" href="#installer-test" aria-hidden="true" tabindex="-1">###</a> <code>installer-test</code></h3>
+<p>Builds an installer medium and drives it as a person would: boots it beside
+an empty disk, answers its questions on the console, waits for it to
+install and show a recovery key; boots the installed disk, opened with that
+key; opens hideBoot’s menu with a held key, starts the recovery system and
+chooses what starts next; then boots the medium again and reinstalls over
+the disk, keeping <code>/home</code>, and checks a file left in the home is still
+there, the account’s. See <a href="Install-and-recover.html">Install and recover</a>.</p>
+<h3 id="desktop-test"><a class="h" href="#desktop-test" aria-hidden="true" tabindex="-1">###</a> <code>desktop-test</code></h3>
+<p>Builds and installs the Workstation and checks, at its console, what it
+adds to Minimal: hideupd answers <code>os.hide.Update1.Deployments</code> on the system
+bus with the running deployment; polkit knows hideupd’s actions; Flathub is
+configured with no file in <code>/etc</code> and its signed summary verifies (needs
+the host online); bubblewrap makes an unprivileged sandbox for a user; the
+portals, Flatpak’s system helper and Settings’ Updates page are in the
+image. The first Workstation build is most of a day; see <a href="Building.html">Building</a>.</p>
+<h2 id="pictures"><a class="h" href="#pictures" aria-hidden="true" tabindex="-1">##</a> Pictures</h2>
+<p>Not tests, but real boots, and how the site’s and the READMEs’ pictures
+are made:</p>
+<ul>
+<li><code>screenshot [--edition E] [--login]</code>: boots the edition with a display,
+types <code>cat /etc/os-release</code>, <code>uname -sr</code>, <code>oxctl list</code> and <code>ls /</code> at
+Minimal’s console, or waits for the Workstation’s greeter (and logs in
+with <code>--login</code>), and saves <code>screenshot.png</code> in the image directory.</li>
+<li><code>hideboot-screenshot [--no-build] [--manager FILE] [--display WxH]</code>:
+installs Minimal, gives its ESP an entry being tried, a good one, a
+failed one and the recovery system, and saves pictures of hideBoot’s
+menu. <code>--display</code> sets the screen QEMU announces through EDID.</li>
+</ul>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Testing.md">docs/wiki/Testing.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

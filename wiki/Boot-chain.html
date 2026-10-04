@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boot chain · hideOS wiki</title>
+<meta name="description" content="From power-on to the login prompt, each step checks the next before it runs it. The design, with its reasons, is ARCHITECTURE.md, “Boot chain”; this page is…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/Boot-chain.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>Boot chain</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html" aria-current="page">Boot chain</a>
+<ol class="toc__sections">
+<li><a href="#firmware-and-secure-boot">Firmware and Secure Boot</a></li>
+<li><a href="#hideboot">hideBoot</a></li>
+<li><a href="#boot-counting-in-file-names">Boot counting, in file names</a></li>
+<li><a href="#the-uki">The UKI</a></li>
+<li><a href="#hidestage">hidestage</a></li>
+<li><a href="#oxinit-and-the-end-of-a-boot">oxinit, and the end of a boot</a></li>
+</ol>
+</li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html" aria-current="page">Boot chain</a>
+<ol class="toc__sections">
+<li><a href="#firmware-and-secure-boot">Firmware and Secure Boot</a></li>
+<li><a href="#hideboot">hideBoot</a></li>
+<li><a href="#boot-counting-in-file-names">Boot counting, in file names</a></li>
+<li><a href="#the-uki">The UKI</a></li>
+<li><a href="#hidestage">hidestage</a></li>
+<li><a href="#oxinit-and-the-end-of-a-boot">oxinit, and the end of a boot</a></li>
+</ol>
+</li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html">Disk and encryption</a></li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Boot-chain.md</p>
+    <article class="prose">
+<h1 id="boot-chain">Boot chain</h1>
+<p>From power-on to the login prompt, each step checks the next before it
+runs it. The design, with its reasons, is
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#boot-chain">ARCHITECTURE.md, “Boot chain”</a>; this
+page is what the tree does today.</p>
+<pre><code class="language-text">UEFI firmware (Secure Boot)
+  └─ hideBoot                 \EFI\BOOT\BOOTX64.EFI, signed
+      └─ the UKI              \EFI\Linux\hideos-…efi, signed: kernel + initrd + command line
+          └─ hidestage        the initrd's /init: unlock, resume, check the seal, assemble
+              └─ oxinit       PID 1, from the sealed /usr
+</code></pre>
+<h2 id="firmware-and-secure-boot"><a class="h" href="#firmware-and-secure-boot" aria-hidden="true" tabindex="-1">##</a> Firmware and Secure Boot</h2>
+<p>The firmware loads the boot manager from the ESP and, with Secure Boot on,
+refuses it unless it is signed by a key in its database. hideBoot then
+loads the UKI through the firmware’s own <code>LoadImage</code>, so the UKI’s
+signature is checked the same way.</p>
+<p><strong>The key is a development key.</strong> <code>cargo xtask image</code> signs hideBoot and
+the UKI with Debian’s “snakeoil” key, which Debian’s OVMF ships already
+enrolled, with the private half published so that anyone can sign for it.
+That proves the mechanism — the firmware refuses a changed or unsigned
+kernel image — not who made the image; no machine outside QEMU trusts it.
+Whether hideOS enrolls its own keys or uses shim is still <strong>Proposed</strong>; see
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#security">ARCHITECTURE.md, “Security”</a>.</p>
+<p><code>cargo xtask boot --disk --secure-boot</code> boots with firmware that enforces
+it, copied out of the builder into <code>target/firmware/</code>. x86_64 only for now.
+On a Mac those boots run on QEMU’s emulated CPUs: x86 Secure Boot needs
+System Management Mode, which macOS’s hypervisor lacks. hidestage prints
+<code>hidestage: secure boot on|off</code> so a test can tell.</p>
+<h2 id="hideboot"><a class="h" href="#hideboot" aria-hidden="true" tabindex="-1">##</a> hideBoot</h2>
+<p><a href="https://github.com/youhide/hideBoot">youhide/hideBoot</a>, a UEFI
+application in Rust, built from source by the
+<a href="https://github.com/youhide/hideOS/blob/main/recipes/system/boot/hideboot.toml">hideboot recipe</a> (0.2.0). It:</p>
+<ol>
+<li>lists the UKIs in <code>\EFI\Linux\</code>, newest version first;</li>
+<li>skips those whose attempts are used up;</li>
+<li>renames the one it picks to count the attempt, and boots it;</li>
+<li>sets systemd-boot’s <code>LoaderBootCountPath</code> and <code>LoaderEntrySelected</code>, so
+the system knows which file to rename when it marks the boot good;</li>
+<li>shows a menu only while a key is held as it starts, drawn at the
+display’s native resolution as its EDID reports it;</li>
+<li>lists the recovery system from <code>\EFI\Recovery\</code> last in the menu, and
+boots it by itself only when nothing in <code>\EFI\Linux\</code> will start.</li>
+</ol>
+<p>It knows nothing of hideOS beyond that file-name convention, which is also
+systemd-boot’s: <code>hideforge image</code> still puts systemd-boot on the ESP when
+not given <code>--boot-manager hideboot</code>, which <code>cargo xtask</code> always passes.</p>
+<h2 id="boot-counting-in-file-names"><a class="h" href="#boot-counting-in-file-names" aria-hidden="true" tabindex="-1">##</a> Boot counting, in file names</h2>
+<p>Each deployment is one UKI on the ESP, named</p>
+<pre><code class="language-text">hideos-EDITION-VERSION-DIGEST12[+LEFT[-DONE]].efi
+</code></pre>
+<p><code>DIGEST12</code> is the first twelve hex digits of the image digest the UKI
+boots; <code>VERSION</code> is the image version, the commit count of the tree it was
+built from. The suffix is the Boot Loader Specification’s boot counting:</p>
+<div class="table-wrap">
+<table><thead><tr><th>Name</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>…+3.efi</code></td><td>Just staged by an update: three attempts left.</td></tr>
+<tr><td><code>…+2-1.efi</code></td><td>Renamed by the boot manager before its first attempt.</td></tr>
+<tr><td><code>…+0-3.efi</code></td><td>Out of attempts: sorts after every good entry, so the previous deployment boots.</td></tr>
+<tr><td><code>…efi</code> with no suffix</td><td>Booted to completion and marked good by <code>hide boot-ok</code>.</td></tr>
+</tbody></table>
+</div>
+<p>Code: <a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/deployment.rs">crates/hide/src/deployment.rs</a>.
+What makes an attempt fail is on <a href="Updates-and-rollback.html">Updates and rollback</a>.</p>
+<h2 id="the-uki"><a class="h" href="#the-uki" aria-hidden="true" tabindex="-1">##</a> The UKI</h2>
+<p>One PE file per deployment: the systemd EFI stub with the kernel, the
+initrd, the command line and <code>os-release</code> added as sections, assembled with
+objcopy (<a href="https://github.com/youhide/hideOS/blob/main/crates/hideforge/src/uki.rs">crates/hideforge/src/uki.rs</a>).
+Because the file is signed, its command line is too, and the command line
+carries the image digest:</p>
+<pre><code class="language-text">console=ttyS0 console=tty0 hideos.image=sha256:&lt;64 hex digits&gt; panic=10
+</code></pre>
+<ul>
+<li><code>hideos.image=</code> is the fs-verity digest of the system’s EROFS image: the
+seal.</li>
+<li><code>panic=10</code> turns a kernel panic into a reboot, which the boot manager
+counts as a failed attempt.</li>
+<li><code>console=tty0</code> last makes the screen <code>/dev/console</code>. Images built by
+<code>cargo xtask</code> append <code>console=ttyS0</code> for the tests; see
+<a href="Development-notes.html#the-screen-is-the-console-tests-append-the-serial-port">Development notes</a>.</li>
+<li>hidestage also reads <code>hideos.root=</code> (the root partition’s name, default
+<code>hideos-root</code>), <code>hideos.init=</code> and <code>hideos.watchdog=</code> (seconds, default
+180, <code>0</code> for none).</li>
+</ul>
+<h2 id="hidestage"><a class="h" href="#hidestage" aria-hidden="true" tabindex="-1">##</a> hidestage</h2>
+<p>The initrd’s <code>/init</code>, in Rust, under the boot-path rules in
+<a href="https://github.com/youhide/hideOS/blob/main/CLAUDE.md">CLAUDE.md</a>: no panics, errors as values, <code>unsafe</code> only in
+its <code>sys</code> module. In order
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hidestage/src/boot.rs">crates/hidestage/src/boot.rs</a>):</p>
+<ol>
+<li>Mount <code>/proc</code>, <code>/sys</code>, <code>/dev</code>, <code>/run</code>; report Secure Boot’s state.</li>
+<li>Read the command line.</li>
+<li>Wait for the partition named <code>hideos-root</code>.</li>
+<li>If it is LUKS2, open it — the TPM’s key, else a passphrase on the
+console — and map it with dm-crypt. See <a href="Disk-and-encryption.html">Disk and encryption</a>.</li>
+<li>Resume a hibernated system if there is one, before anything mounts the
+disk.</li>
+<li>Arm the hardware watchdog, and let go of it running.</li>
+<li>Mount btrfs, open the image named by the digest, and check its
+fs-verity digest against the command line: a mismatch is a refusal,
+<code>seal ok</code> is printed otherwise.</li>
+<li>Mount the image as composefs with <code>verity=require</code>, so every file’s
+content is checked against the digest the image records for it.</li>
+<li>Merge the <a href="System-extensions.html">System extensions</a> signed for this image.</li>
+<li>Bind <code>@etc</code>, <code>@var</code>, <code>@home</code> (and <code>@swap</code> where it exists); mount a
+tmpfs on <code>/tmp</code>.</li>
+<li><code>switch_root</code> into the system and exec oxinit.</li>
+</ol>
+<p>When something cannot be done, hidestage says what and why on the console,
+waits 30 seconds and reboots, which the boot manager counts as a failed
+attempt of this deployment.</p>
+<h2 id="oxinit-and-the-end-of-a-boot"><a class="h" href="#oxinit-and-the-end-of-a-boot" aria-hidden="true" tabindex="-1">##</a> oxinit, and the end of a boot</h2>
+<p><a href="https://github.com/youhide/oxinit">oxinit</a> is PID 1. Before the services
+that need them, <code>hide setup</code> makes <code>/etc/machine-id</code>, the system users from
+<code>sysusers.d</code> and the paths from <code>tmpfiles.d</code>. Each edition’s <code>default</code>
+target pulls in <code>boot-ok</code>, which runs <code>hide boot-ok</code> once the edition is up
+(the <code>multi-user</code> target for Minimal, <code>graphical</code> for Workstation): it
+renames the UKI without its counter and stops the watchdog. Until
+then, a boot that hangs anywhere is reset by the watchdog and counted as a
+failed attempt.</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Boot-chain.md">docs/wiki/Boot-chain.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disk and encryption · hideOS wiki</title>
+<meta name="description" content="How hide install lays out a disk, how hidestage opens it, and where hibernation goes. The design is in ARCHITECTURE.md, “Disk layout” and “Security”; the code…">
+<meta name="author" content="Youri Mattar">
+<meta name="theme-color" content="#282a36">
+<link rel="canonical" href="https://youhide.github.io/hideOS/wiki/Disk-and-encryption.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon-32x32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap wrap--wide nav__inner">
+    <a class="nav__brand" href="../">~/<span>hideOS</span></a>
+    <nav class="nav__links" aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+    </nav>
+    <details class="nav__menu">
+      <summary>menu</summary>
+      <nav aria-label="Project">
+<a href="index.html" aria-current="page">./wiki</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">./architecture</a>
+<a href="https://github.com/youhide/hideOS/blob/main/ROADMAP.md">./roadmap</a>
+<a href="https://github.com/youhide/hideOS">./github</a>
+      </nav>
+    </details>
+  </div>
+</header>
+
+<div class="wrap wrap--wide wiki">
+  <details class="wiki__toc wiki__toc--compact">
+    <summary>wiki/ <b>Disk and encryption</b></summary>
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html" aria-current="page">Disk and encryption</a>
+<ol class="toc__sections">
+<li><a href="#partitions">Partitions</a></li>
+<li><a href="#subvolumes">Subvolumes</a></li>
+<li><a href="#luks2">LUKS2</a></li>
+<li><a href="#the-recovery-key">The recovery key</a></li>
+<li><a href="#tpm2">TPM2</a></li>
+<li><a href="#swap-and-hibernation">Swap and hibernation</a></li>
+</ol>
+</li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </details>
+  <aside class="wiki__toc wiki__toc--side">
+<nav class="toc" aria-label="Wiki pages">
+<p class="toc__title"><span class="sig">$</span>ls wiki/</p>
+<ol class="toc__pages">
+<li><a href="index.html">hideOS wiki</a></li>
+<li><a href="Building.html">Building</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Boot-chain.html">Boot chain</a></li>
+<li><a href="Updates-and-rollback.html">Updates and rollback</a></li>
+<li><a href="Disk-and-encryption.html" aria-current="page">Disk and encryption</a>
+<ol class="toc__sections">
+<li><a href="#partitions">Partitions</a></li>
+<li><a href="#subvolumes">Subvolumes</a></li>
+<li><a href="#luks2">LUKS2</a></li>
+<li><a href="#the-recovery-key">The recovery key</a></li>
+<li><a href="#tpm2">TPM2</a></li>
+<li><a href="#swap-and-hibernation">Swap and hibernation</a></li>
+</ol>
+</li>
+<li><a href="Install-and-recover.html">Install and recover</a></li>
+<li><a href="System-extensions.html">System extensions</a></li>
+<li><a href="Applications.html">Applications</a></li>
+<li><a href="hideforge.html">hideforge</a></li>
+<li><a href="Development-notes.html">Development notes</a></li>
+</ol>
+</nav>
+  </aside>
+  <main id="main" class="wiki__page">
+    <p class="prompt muted"><span class="prompt__sign">$</span>cat wiki/Disk-and-encryption.md</p>
+    <article class="prose">
+<h1 id="disk-and-encryption">Disk and encryption</h1>
+<p>How <code>hide install</code> lays out a disk, how hidestage opens it, and where
+hibernation goes. The design is in
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#disk-layout">ARCHITECTURE.md, “Disk layout”</a> and
+<a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#security">“Security”</a>; the code is
+<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/install.rs">crates/hide/src/install.rs</a>,
+<a href="https://github.com/youhide/hideOS/blob/main/crates/hidestage/src/unlock.rs">crates/hidestage/src/unlock.rs</a> and
+<a href="https://github.com/youhide/hideOS/tree/main/crates/hidecrypt">crates/hidecrypt</a>.</p>
+<h2 id="partitions"><a class="h" href="#partitions" aria-hidden="true" tabindex="-1">##</a> Partitions</h2>
+<p>GPT, with partition types from the Discoverable Partitions Specification:</p>
+<div class="table-wrap">
+<table><thead><tr><th>#</th><th>GPT name</th><th>Size</th><th>Contents</th></tr></thead><tbody>
+<tr><td>1</td><td><code>hideos-esp</code></td><td>512 MiB</td><td>FAT32: hideBoot, one UKI per deployment, the recovery system, the TPM-sealed key</td></tr>
+<tr><td>2</td><td><code>hideos-root</code></td><td>the rest</td><td>btrfs, or LUKS2 with btrfs inside</td></tr>
+</tbody></table>
+</div>
+<p>hidestage finds the root by its GPT name. ARCHITECTURE’s table plans a
+2 GiB ESP; <code>hide install</code> makes 512 MiB today.</p>
+<h2 id="subvolumes"><a class="h" href="#subvolumes" aria-hidden="true" tabindex="-1">##</a> Subvolumes</h2>
+<div class="table-wrap">
+<table><thead><tr><th>Subvolume</th><th>Mounted at</th><th>Contents</th></tr></thead><tbody>
+<tr><td><code>@store</code></td><td><code>/hideos</code></td><td>The composefs store: objects by fs-verity digest, the EROFS images, extension records</td></tr>
+<tr><td><code>@etc</code></td><td><code>/etc</code></td><td>What the machine changed; the factory <code>/etc</code> from the payload at install</td></tr>
+<tr><td><code>@var</code></td><td><code>/var</code></td><td>State, logs (<code>/var/log/oxinit</code>), Flatpak installations</td></tr>
+<tr><td><code>@home</code></td><td><code>/home</code></td><td>People’s files</td></tr>
+<tr><td><code>@swap</code></td><td><code>/swap</code></td><td>The swap file, when there is one</td></tr>
+</tbody></table>
+</div>
+<p>Everything else is the sealed image, read-only. So the few places that
+must be writable are made so on purpose: <code>/tmp</code> is a tmpfs mounted by
+hidestage; root’s home is <code>/var/root</code>; <code>/var/run</code> and <code>/var/lock</code> are links
+into <code>/run</code>, made by <code>hide setup</code> from <code>tmpfiles.d</code>.</p>
+<h2 id="luks2"><a class="h" href="#luks2" aria-hidden="true" tabindex="-1">##</a> LUKS2</h2>
+<p><code>hide install --encrypt PASSPHRASE</code> (and the installer, which asks) formats
+the root as LUKS2 with cryptsetup, labelled <code>hideos</code>. Writing a header is
+cryptsetup’s, at install time.</p>
+<p>Opening it is hideOS’s own: hidecrypt reads the LUKS2 header and its JSON
+metadata, derives the keyslot’s key, merges the anti-forensic split and
+checks the digest — the steps <code>cryptsetup open</code> takes — and hidestage maps
+the root with device-mapper’s ioctls. Nothing written in C runs in the
+initrd. hidecrypt is a library tested on any host, against a header
+cryptsetup wrote (<code>crates/hidecrypt/tests</code>).</p>
+<p>hidestage tries, in order:</p>
+<ol>
+<li>the key sealed to the TPM, if there is a TPM and a sealed key;</li>
+<li>a passphrase typed on the console, at <code>Passphrase for the hideOS disk:</code>.
+The recovery key is a passphrase too, in another keyslot.</li>
+</ol>
+<h2 id="the-recovery-key"><a class="h" href="#the-recovery-key" aria-hidden="true" tabindex="-1">##</a> The recovery key</h2>
+<p>The installer adds a second keyslot opened by a recovery key: 200 random
+bits in Crockford’s base32 — no I, L, O or U — as eight groups of five,
+shown once, to be copied by hand
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/recovery.rs">crates/hide/src/recovery.rs</a>). It
+opens the disk when the passphrase is forgotten and the TPM cannot.</p>
+<h2 id="tpm2"><a class="h" href="#tpm2" aria-hidden="true" tabindex="-1">##</a> TPM2</h2>
+<p><code>hide tpm-enroll</code> seals the volume key to the TPM. The key comes from the
+running dm-crypt table, so no keyslot is added and the header is not
+written. The sealed blob goes on the ESP as <code>EFI/hideos/root.tpm2</code>: it is
+not secret, since only that TPM, in that boot state, opens it.</p>
+<ul>
+<li><strong>The policy is PCR 7</strong>: Secure Boot’s state and its keys. An update does
+not change it, so updates need no new seal. Turning Secure Boot off or
+enrolling other keys does, and then the disk asks for its passphrase.
+The signed PCR 11 policy in ARCHITECTURE comes with hideOS’s own keys.</li>
+<li><strong>At every boot</strong> the <code>tpm-enroll</code> unit runs <code>hide tpm-enroll --if-missing</code>: it seals only when the root was opened by passphrase
+because nothing was sealed. When the TPM <em>refused</em> a sealed key — the boot
+chain changed — it says so and does nothing; a new seal is for the person
+who knows why it changed.</li>
+<li><strong>Not yet</strong>: the session is not salted, so the key crosses the bus to a
+discrete TPM in the clear. Firmware TPMs have no bus; parameter encryption
+is the next step.</li>
+</ul>
+<p>The TPM commands are marshalled by hidecrypt itself
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hidecrypt/src/tpm2.rs">crates/hidecrypt/src/tpm2.rs</a>).
+<code>hide status</code> says how the disk was opened and whether a key is sealed.
+<code>cargo xtask crypt-test</code> drives all of this with swtpm; see <a href="Testing.html">Testing</a>.</p>
+<h2 id="swap-and-hibernation"><a class="h" href="#swap-and-hibernation" aria-hidden="true" tabindex="-1">##</a> Swap and hibernation</h2>
+<p><code>hide install</code> makes <code>/swap/swapfile</code> with <code>btrfs filesystem mkswapfile</code>, as
+large as the machine’s memory unless <code>--swap MIB</code> says otherwise (<code>0</code> for
+none), because hibernation writes memory there.</p>
+<p>The kernel needs to know where the file is twice: when it hibernates, and,
+before anything is mounted, when the next boot resumes. The kernel command
+line cannot say it — it is signed and the same for every machine — so:</p>
+<ol>
+<li>at every boot the <code>swap</code> unit runs <code>hide swap</code>: swap on (which also
+rewrites the signature of an image never resumed, so a stale one is
+never found later), then <code>/sys/power/resume</code> and <code>resume_offset</code>, then
+the same offset in an EFI variable of hideOS’s own, <code>HideosResume</code>;</li>
+<li>hidestage reads that variable and asks the kernel to resume before it
+mounts the disk, since writing to a hibernated system’s filesystems
+first would lose its writes.</li>
+</ol>
+<p>Suspend to RAM is elogind’s, or <code>/sys/power/state</code>. <code>cargo xtask power-test</code> suspends and wakes, hibernates and resumes; see <a href="Testing.html">Testing</a>.</p>
+    </article>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="wrap wrap--wide">
+    <div class="footer__card">
+      <div class="footer__accent"></div>
+      <div class="footer__body">
+        <p># built from commit <code>2b16667</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Disk-and-encryption.md">docs/wiki/Disk-and-encryption.md</a>.</p>
+        <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
+        <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
