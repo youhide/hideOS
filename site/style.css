@@ -227,12 +227,14 @@ main { flex: 1; }
 /* roadmap */
 .roadmap { list-style: none; padding: 0; display: grid; gap: .55rem; }
 .roadmap li {
-  display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; gap: 1rem; align-items: baseline;
+  /* The state wraps within 45% of the card rather than growing to its
+     whole length: an `auto` column took the title's room, down to a letter. */
+  display: grid; grid-template-columns: 3rem minmax(12rem, 1fr) fit-content(45%); gap: 1rem; align-items: baseline;
   padding: .7rem 1rem; background: var(--bg-alt); border: 1px solid var(--line); border-radius: 10px;
 }
 .roadmap__id { color: var(--purple); font-weight: 700; }
 .roadmap__what { font-size: .9rem; }
-.roadmap__state { font-size: .7rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.roadmap__state { font-size: .7rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-align: right; line-height: 1.5; }
 .roadmap li.is-done .roadmap__state { color: var(--green); }
 .roadmap li.is-now { border-color: var(--pink); }
 .roadmap li.is-now .roadmap__state { color: var(--pink); }
@@ -338,7 +340,7 @@ main { flex: 1; }
   .term__body { flex-direction: column; align-items: flex-start; padding: 1.75rem 1.25rem 2rem; }
   .seal-wrap { align-self: center; }
   .roadmap li { grid-template-columns: 2.6rem minmax(0, 1fr); }
-  .roadmap__state { grid-column: 2; }
+  .roadmap__state { grid-column: 2; text-align: left; }
   .wiki { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-top: 1.5rem; }
   .wiki__toc--side { display: none; }
   .wiki__toc--compact { display: block; }
