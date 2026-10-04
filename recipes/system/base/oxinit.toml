@@ -1,17 +1,18 @@
 # PID 1. Built from its own repository, like any upstream: at a release
-# tag, or between releases at a pinned commit — here the hardware watchdog
-# and user managers (youhide/oxinit#25). See ARCHITECTURE.md, "Repositories".
+# tag, or between releases at a pinned commit of main — here the hardware
+# watchdog and user managers (youhide/oxinit#25). See ARCHITECTURE.md,
+# "Repositories".
 [package]
 name = "oxinit"
-version = "0.1.0.8b4f348"
+version = "0.1.0.87504a7"
 description = "Service manager and PID 1"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/youhide/oxinit"
 
 # TLS only: GitHub's archive of the commit.
 [[source]]
-url = "https://github.com/youhide/oxinit/archive/8b4f34824594e92378c581245af60c9a5c1d56bd.tar.gz"
-sha256 = "fd449122ac1b9e9ef6ce3d87110b8fff952f8f17df201402595fae1da936634e"
+url = "https://github.com/youhide/oxinit/archive/87504a7b70477e153f1b172ae403013117dfa179.tar.gz"
+sha256 = "4d16bdfa40858482689cd7098268d334a4107f5a54d0201775e64e06fbaa48d2"
 
 [depends]
 build = ["toolchain", "stage1-rust"]
