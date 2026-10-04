@@ -1,0 +1,27 @@
+# pyparsing, which flatpak's build imports to generate its GVariant
+# accessors (variant-schema-compiler). Build time only. Pure Python,
+# copied into site-packages as meson.toml does.
+[package]
+name = "python-pyparsing"
+version = "3.3.3"
+description = "pyparsing, for flatpak's build"
+license = "MIT"
+homepage = "https://github.com/pyparsing/pyparsing"
+
+# Checked against the SHA-256 PyPI publishes for the sdist.
+[[source]]
+url = "https://files.pythonhosted.org/packages/e4/11/b213bebff182584360cb8d17c72c1677fec5c5c228de439e63bcf8ab1c8f/pyparsing-3.3.3.tar.gz"
+sha256 = "928ae7e20211f3b6f3915a72f06a0cfd29ab9d24279dd6346b6b1a7146397d36"
+
+[depends]
+build = ["toolchain", "python"]
+run = ["python"]
+
+[build]
+script = """
+site=$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+mkdir -p "$site"
+cp -r pyparsing "$site/"
+python3 -m compileall -q "$site/pyparsing"
+python3 -c 'import pyparsing'
+"""

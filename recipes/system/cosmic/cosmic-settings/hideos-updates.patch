@@ -1,0 +1,339 @@
+hideOS: System → Updates, a page that shows the deployments hideupd
+(os.hide.Update1) reports and goes back to the previous one, with the
+disk's protection and the system extensions. hideOS's own, so not sent
+upstream: it talks to a hideOS service. Under page-about, which brings
+zbus; no new crates, so the vendored Cargo.lock still builds it.
+
+diff --git a/cosmic-settings/src/app.rs b/cosmic-settings/src/app.rs
+index e002ec9..0a768cf 100644
+--- a/cosmic-settings/src/app.rs
++++ b/cosmic-settings/src/app.rs
+@@ -415,6 +415,12 @@ impl cosmic::Application for SettingsApp {
+                         return page.update(message).map(Into::into);
+                     }
+                 }
++                #[cfg(feature = "page-about")]
++                crate::pages::Message::Hideos(message) => {
++                    if let Some(page) = self.pages.page_mut::<system::hideos::Page>() {
++                        return page.update(message).map(Into::into);
++                    }
++                }
+                 #[cfg(feature = "page-accessibility")]
+                 crate::pages::Message::AccessibilityMagnifier(message) => {
+                     if let Some(page) = self.pages.page_mut::<accessibility::magnifier::Page>() {
+diff --git a/cosmic-settings/src/pages/mod.rs b/cosmic-settings/src/pages/mod.rs
+index 01170b1..0ca0887 100644
+--- a/cosmic-settings/src/pages/mod.rs
++++ b/cosmic-settings/src/pages/mod.rs
+@@ -37,6 +37,8 @@ pub enum Message {
+     AccessibilityShortcuts(input::keyboard::shortcuts::ShortcutMessage),
+     #[cfg(feature = "page-about")]
+     About(system::about::Message),
++    #[cfg(feature = "page-about")]
++    Hideos(system::hideos::Message),
+     Appearance(desktop::appearance::Message),
+     Applications(applications::Message),
+     #[cfg(feature = "page-bluetooth")]
+diff --git a/cosmic-settings/src/pages/system/hideos.rs b/cosmic-settings/src/pages/system/hideos.rs
+new file mode 100644
+index 0000000..2241b6e
+--- /dev/null
++++ b/cosmic-settings/src/pages/system/hideos.rs
+@@ -0,0 +1,276 @@
++// SPDX-License-Identifier: GPL-3.0-only
++
++//! hideOS: System → Updates. The deployments on the machine, in the order
++//! they boot, going back to the previous one, how the disk is protected,
++//! and the system extensions — as hideupd, `os.hide.Update1` on the system
++//! bus, reports them. Going back asks hideupd, which asks polkit, whose
++//! agent asks for the password. A hideOS patch: see hideOS's
++//! ARCHITECTURE.md, "The desktop".
++
++use cosmic::iced::Alignment;
++use cosmic::widget::{self, settings, text};
++use cosmic::{Apply, Task};
++use cosmic_settings_page::{self as page, Section, section};
++use futures::StreamExt;
++use slotmap::SlotMap;
++
++#[zbus::proxy(
++    interface = "os.hide.Update1",
++    default_service = "os.hide.Update1",
++    default_path = "/os/hide/Update1"
++)]
++trait Update1 {
++    fn deployments(&self) -> zbus::Result<Vec<(String, u64, String, String, bool, bool)>>;
++    fn disk(&self) -> zbus::Result<String>;
++    fn extensions(&self) -> zbus::Result<String>;
++    fn rollback(&self) -> zbus::Result<u32>;
++
++    #[zbus(signal)]
++    fn finished(&self, job: u32, ok: bool, error: String) -> zbus::Result<()>;
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct Deployment {
++    edition: String,
++    version: u64,
++    digest: String,
++    state: String,
++    running: bool,
++    next: bool,
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct State {
++    deployments: Vec<Deployment>,
++    disk: String,
++    extensions: String,
++}
++
++#[derive(Clone, Debug)]
++pub enum Message {
++    Loaded(Result<State, String>),
++    Rollback,
++    RolledBack(Result<(), String>),
++}
++
++impl From<Message> for crate::app::Message {
++    fn from(message: Message) -> Self {
++        crate::pages::Message::Hideos(message).into()
++    }
++}
++
++impl From<Message> for crate::pages::Message {
++    fn from(message: Message) -> Self {
++        crate::pages::Message::Hideos(message)
++    }
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct Page {
++    entity: page::Entity,
++    state: Option<Result<State, String>>,
++    working: bool,
++    note: Option<String>,
++}
++
++impl page::AutoBind<crate::pages::Message> for Page {}
++
++impl page::Page<crate::pages::Message> for Page {
++    fn set_id(&mut self, entity: page::Entity) {
++        self.entity = entity;
++    }
++
++    fn content(
++        &self,
++        sections: &mut SlotMap<section::Entity, Section<crate::pages::Message>>,
++    ) -> Option<page::Content> {
++        Some(vec![
++            sections.insert(system_image()),
++            sections.insert(disk()),
++            sections.insert(extensions()),
++        ])
++    }
++
++    fn info(&self) -> page::Info {
++        page::Info::new("hideos-updates", "software-update-available-symbolic")
++            .title("Updates")
++            .description("The system image, going back, the disk and extensions")
++    }
++
++    fn on_enter(&mut self) -> Task<crate::pages::Message> {
++        load()
++    }
++}
++
++fn load() -> Task<crate::pages::Message> {
++    Task::future(async move { crate::pages::Message::Hideos(Message::Loaded(read().await)) })
++}
++
++impl Page {
++    pub fn update(&mut self, message: Message) -> cosmic::app::Task<crate::Message> {
++        match message {
++            Message::Loaded(state) => {
++                self.state = Some(state);
++            }
++            Message::Rollback => {
++                self.working = true;
++                self.note = None;
++                return cosmic::Task::future(async move { Message::RolledBack(rollback().await) })
++                    .map(crate::app::Message::from)
++                    .map(Into::into);
++            }
++            Message::RolledBack(result) => {
++                self.working = false;
++                self.note = Some(match result {
++                    Ok(()) => "The previous system starts at the next restart.".to_owned(),
++                    Err(why) => why,
++                });
++                return load().map(crate::app::Message::from).map(Into::into);
++            }
++        }
++        Task::none()
++    }
++}
++
++async fn read() -> Result<State, String> {
++    let connection = zbus::Connection::system().await.map_err(|e| e.to_string())?;
++    let proxy = Update1Proxy::new(&connection)
++        .await
++        .map_err(|e| e.to_string())?;
++    let deployments = proxy
++        .deployments()
++        .await
++        .map_err(|e| format!("hideupd does not answer: {e}"))?
++        .into_iter()
++        .map(|(edition, version, digest, state, running, next)| Deployment {
++            edition,
++            version,
++            digest,
++            state,
++            running,
++            next,
++        })
++        .collect();
++    Ok(State {
++        deployments,
++        disk: proxy.disk().await.unwrap_or_default(),
++        extensions: proxy.extensions().await.unwrap_or_default(),
++    })
++}
++
++async fn rollback() -> Result<(), String> {
++    let connection = zbus::Connection::system().await.map_err(|e| e.to_string())?;
++    let proxy = Update1Proxy::new(&connection)
++        .await
++        .map_err(|e| e.to_string())?;
++    // Listening before asking: the job can end before the call returns.
++    let mut finished = proxy
++        .receive_finished()
++        .await
++        .map_err(|e| e.to_string())?;
++    let job = proxy.rollback().await.map_err(|e| match e {
++        zbus::Error::MethodError(_, Some(text), _) => text,
++        other => other.to_string(),
++    })?;
++    while let Some(signal) = finished.next().await {
++        let args = signal.args().map_err(|e| e.to_string())?;
++        if args.job == job {
++            return if args.ok { Ok(()) } else { Err(args.error) };
++        }
++    }
++    Err("hideupd went away".to_owned())
++}
++
++fn system_image() -> Section<crate::pages::Message> {
++    Section::default()
++        .title("System image")
++        .view::<Page>(move |_binder, page, section| {
++            let mut column = settings::section().title(&section.title);
++            match &page.state {
++                None => {
++                    column = column.add(settings::item("Reading", text::body("")));
++                }
++                Some(Err(why)) => {
++                    column = column.add(settings::item("hideupd", text::body(why.as_str())));
++                }
++                Some(Ok(state)) => {
++                    for deployment in &state.deployments {
++                        let mut notes = vec![deployment.state.as_str()];
++                        if deployment.running {
++                            notes.push("running");
++                        }
++                        if deployment.next {
++                            notes.push("starts next");
++                        }
++                        column = column.add(
++                            settings::flex_item(
++                                format!(
++                                    "hideOS {} {}",
++                                    deployment.edition, deployment.version
++                                ),
++                                text::body(format!("{}  {}", deployment.digest, notes.join(", "))),
++                            )
++                            .align_items(Alignment::Center),
++                        );
++                    }
++                    let can_go_back = !page.working
++                        && state.deployments.iter().any(|d| !d.running && d.state != "bad");
++                    column = column.add(
++                        settings::item(
++                            "Go back to the previous system",
++                            widget::button::standard("Go back")
++                                .on_press_maybe(can_go_back.then_some(Message::Rollback)),
++                        ),
++                    );
++                }
++            }
++            if let Some(note) = &page.note {
++                column = column.add(settings::item(note.as_str(), text::body("")));
++            }
++            column
++                .apply(cosmic::Element::from)
++                .map(crate::pages::Message::Hideos)
++        })
++}
++
++fn disk() -> Section<crate::pages::Message> {
++    Section::default()
++        .title("Disk")
++        .view::<Page>(move |_binder, page, section| {
++            let disk = match &page.state {
++                Some(Ok(state)) => state.disk.as_str(),
++                _ => "",
++            };
++            settings::section()
++                .title(&section.title)
++                .add(
++                    settings::flex_item("Protection", text::body(disk))
++                        .align_items(Alignment::Center),
++                )
++                .into()
++        })
++}
++
++fn extensions() -> Section<crate::pages::Message> {
++    Section::default()
++        .title("System extensions")
++        .view::<Page>(move |_binder, page, section| {
++            let mut column = settings::section().title(&section.title);
++            let listed: Vec<&str> = match &page.state {
++                Some(Ok(state)) => state
++                    .extensions
++                    .lines()
++                    .map(str::trim)
++                    .filter(|l| !l.is_empty())
++                    .collect(),
++                _ => Vec::new(),
++            };
++            if listed.is_empty() {
++                column = column.add(settings::item("None installed", text::body("")));
++            }
++            for line in listed {
++                column = column.add(settings::item(line, text::body("")));
++            }
++            column.into()
++        })
++}
+diff --git a/cosmic-settings/src/pages/system/mod.rs b/cosmic-settings/src/pages/system/mod.rs
+index 65f059f..7367b46 100644
+--- a/cosmic-settings/src/pages/system/mod.rs
++++ b/cosmic-settings/src/pages/system/mod.rs
+@@ -3,6 +3,8 @@
+ 
+ #[cfg(feature = "page-about")]
+ pub mod about;
++#[cfg(feature = "page-about")]
++pub mod hideos;
+ 
+ #[cfg(feature = "page-about")]
+ pub mod info;
+@@ -37,6 +39,7 @@ impl page::AutoBind<crate::pages::Message> for Page {
+ 
+         #[cfg(feature = "page-about")]
+         {
++            page = page.sub_page::<hideos::Page>();
+             page = page.sub_page::<about::Page>();
+         }
+ 

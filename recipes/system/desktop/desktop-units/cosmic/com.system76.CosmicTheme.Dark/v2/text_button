@@ -1,0 +1,14 @@
+(
+    base: "#00000000",
+    hover: "#51619133",
+    pressed: "#09103A80",
+    selected: "#51619133",
+    selected_text: "#BD93F9FF",
+    focus: "#BD93F9FF",
+    divider: "#BD93F933",
+    on: "#BD93F9FF",
+    disabled: "#00000000",
+    on_disabled: "#BD93F9A6",
+    border: "#A9BCF2FF",
+    disabled_border: "#A9BCF280",
+)

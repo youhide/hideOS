@@ -1,0 +1,51 @@
+# OpenPGP, for one job: gpgme runs gpg to check the signatures on what
+# flatpak pulls from Flathub. Only gpg, gpg-agent and gpgconf are wanted,
+# so everything else is off: S/MIME, smartcards, TPM, keyservers and the
+# key database daemon, whose SQLite hideOS does not ship.
+[package]
+name = "gnupg"
+version = "2.5.24"
+description = "GNU Privacy Guard, OpenPGP signatures and encryption"
+license = "GPL-3.0-or-later"
+homepage = "https://gnupg.org"
+
+# Checked against the .sig, made with GnuPG's dist signing key (2020).
+[[source]]
+url = "https://gnupg.org/ftp/gcrypt/gnupg/gnupg-2.5.24.tar.bz2"
+sha256 = "bf149d01a2b9fcc0e4589b8ae8697d3d5c557ea48ed95a3fa55dd3b1187e6039"
+
+[depends]
+build = ["toolchain", "libgpg-error", "libgcrypt", "libassuan", "libksba", "npth"]
+run = ["glibc", "zlib", "libgpg-error", "libgcrypt", "libassuan", "libksba", "npth"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sbindir=/usr/bin \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-gpgsm \\
+    --disable-scdaemon \\
+    --disable-dirmngr \\
+    --disable-keyboxd \\
+    --disable-tpm2d \\
+    --disable-gpgtar \\
+    --disable-wks-tools \\
+    --disable-card-support \\
+    --disable-ccid-driver \\
+    --disable-photo-viewers \\
+    --disable-sqlite \\
+    --disable-tofu \\
+    --disable-ntbtls \\
+    --disable-gnutls \\
+    --disable-ldap \\
+    --disable-bzip2 \\
+    --without-readline \\
+    --disable-nls \\
+    --disable-doc \\
+    --disable-tests
+make -j"$JOBS"
+make install
+"""

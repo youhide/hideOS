@@ -1,0 +1,17 @@
+# Generates hideOS's default COSMIC theme, Dracula, into
+# recipes/system/desktop/desktop-units/cosmic. Not part of the workspace:
+# it builds against the libcosmic commit COSMIC 1.9 is built with, so that
+# the theme it computes is the one that version reads. See README.md.
+[package]
+name = "cosmic-dracula"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+cosmic-theme = { git = "https://github.com/pop-os/libcosmic", rev = "d77e99fb1555e2728297677de61e23ada4d9d09b", default-features = false, features = ["no-default"] }
+cosmic-config = { git = "https://github.com/pop-os/libcosmic", rev = "d77e99fb1555e2728297677de61e23ada4d9d09b", default-features = false, features = ["macro"] }
+palette = "0.7"

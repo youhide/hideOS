@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=dbus-environment
+Comment=Gives the session bus the display, so that the services it starts — the portals — find it; cosmic-session hands its environment only to systemd, which hideOS does not run
+Exec=/usr/bin/dbus-update-activation-environment WAYLAND_DISPLAY DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP
+NoDisplay=true

@@ -1,0 +1,30 @@
+# COSMIC's portal backend: the file chooser, screenshots, screen casting
+# through PipeWire, and the settings Flatpak applications read their
+# theme from. xdg-desktop-portal picks it from cosmic-portals.conf when
+# XDG_CURRENT_DESKTOP is COSMIC. Without the default systemd feature,
+# whose only use is logging to journald, which hideOS does not have: it
+# logs to stderr instead.
+[package]
+name = "xdg-desktop-portal-cosmic"
+version = "1.9.0"
+description = "COSMIC backend for xdg-desktop-portal"
+license = "GPL-3.0-or-later"
+homepage = "https://github.com/pop-os/xdg-desktop-portal-cosmic"
+
+[[source]]
+url = "https://github.com/pop-os/xdg-desktop-portal-cosmic/archive/refs/tags/epoch-1.9.0.tar.gz"
+sha256 = "4fcd4631348e98decfd991489a5e9a941792741f5cf127f8ca9e874056c144d6"
+
+[depends]
+build = ["toolchain", "stage1-rust", "just", "llvm", "glib", "pipewire", "mesa", "libxkbcommon", "wayland"]
+run = ["glibc", "gcc", "glib", "pipewire", "mesa", "libxkbcommon", "wayland", "xdg-desktop-portal"]
+
+[build]
+vendor = "cargo"
+script = """
+export VERGEN_GIT_SHA="epoch-1.9.0"
+export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
+cargo build --release --frozen --no-default-features --bin xdg-desktop-portal-cosmic
+just rootdir=/ prefix=/usr install
+rm -rf /usr/lib/systemd
+"""

@@ -1,0 +1,36 @@
+# The sandbox every Flatpak application runs in, and the one
+# xdg-desktop-portal checks untrusted icons and sounds in. Not setuid:
+# it uses unprivileged user namespaces, so the kernel needs
+# CONFIG_USER_NS.
+[package]
+name = "bubblewrap"
+version = "0.13.0"
+description = "Unprivileged sandboxing tool"
+license = "LGPL-2.0-or-later"
+homepage = "https://github.com/containers/bubblewrap"
+
+[[source]]
+url = "https://github.com/containers/bubblewrap/releases/download/v0.13.0/bubblewrap-0.13.0.tar.xz"
+sha256 = "4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765"
+
+[depends]
+build = ["buildtools", "libcap"]
+run = ["glibc", "libcap"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dselinux=disabled \\
+    -Dman=disabled \\
+    -Dtests=false \\
+    -Dbash_completion=disabled \\
+    -Dzsh_completion=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

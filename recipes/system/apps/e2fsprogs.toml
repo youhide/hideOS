@@ -1,0 +1,35 @@
+# Only the headers and libraries of the ext2/3/4 tools: libostree's
+# configure requires e2p, and its code includes ext2fs/ext2_fs.h for the
+# immutable-file flag. Neither is linked, so this is a build dependency
+# of ostree and never reaches an image; hideOS formats nothing as ext4.
+# libuuid and libblkid come from util-linux, not from here.
+[package]
+name = "e2fsprogs"
+version = "1.47.4"
+description = "ext2/3/4 filesystem libraries and headers"
+license = "GPL-2.0-only AND LGPL-2.0-only"
+homepage = "https://e2fsprogs.sourceforge.net"
+
+# Checked against kernel.org's signed sha256sums.asc.
+[[source]]
+url = "https://mirrors.edge.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v1.47.4/e2fsprogs-1.47.4.tar.xz"
+sha256 = "fd5bf388cbdbe006a3d3b318d983b2948382440acc85a87f1e7d108653e8db0b"
+
+[depends]
+build = ["toolchain", "util-linux"]
+run = ["glibc", "util-linux"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-libuuid \\
+    --disable-libblkid \\
+    --disable-uuidd \\
+    --disable-fsck \\
+    --disable-fuse2fs \\
+    --disable-nls
+make -j"$JOBS" libs
+make install-libs
+"""

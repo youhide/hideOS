@@ -1,0 +1,28 @@
+# System call filters: flatpak gives every sandbox one, which bubblewrap
+# installs before running the application.
+[package]
+name = "libseccomp"
+version = "2.6.1"
+description = "Interface to the kernel's seccomp syscall filtering"
+license = "LGPL-2.1-only"
+homepage = "https://github.com/seccomp/libseccomp"
+
+# Checked against the .asc, signed by Tom Hromatka
+# (47A68FCE37C7D7024FD65E11356CE62C2B524099).
+[[source]]
+url = "https://github.com/seccomp/libseccomp/releases/download/v2.6.1/libseccomp-2.6.1.tar.gz"
+sha256 = "501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be"
+
+[depends]
+build = ["toolchain", "gperf"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-static
+make -j"$JOBS"
+make install
+"""

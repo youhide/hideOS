@@ -1,0 +1,41 @@
+# The binary XML cache AppStream queries its catalog through. Flathub's
+# AppStream data arrives gzipped, which GIO reads; xz and zstd support
+# are off.
+[package]
+name = "libxmlb"
+version = "0.3.29"
+description = "Mmap-able binary XML store and query library"
+license = "LGPL-2.1-or-later"
+homepage = "https://github.com/hughsie/libxmlb"
+
+# Checked against the .asc, signed by Richard Hughes
+# (163EB50119225DB3DF8F49EA17ACBA8DFA970E17), and the .sha256sum.
+[[source]]
+url = "https://github.com/hughsie/libxmlb/releases/download/0.3.29/libxmlb-0.3.29.tar.xz"
+sha256 = "448294be33bfae62f00fa66e506f1cae80237ce71b7ab6530aefa75005eeb08a"
+
+[depends]
+build = ["buildtools", "glib"]
+run = ["glibc", "glib"]
+
+[build]
+script = """
+# glib-mkenums is Python, from glib: see networkmanager.toml.
+export PYTHONDONTWRITEBYTECODE=1
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dgtkdoc=false \\
+    -Dintrospection=false \\
+    -Dtests=false \\
+    -Dcli=false \\
+    -Dstemmer=false \\
+    -Dlzma=disabled \\
+    -Dzstd=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

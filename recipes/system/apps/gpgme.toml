@@ -1,0 +1,32 @@
+# The library flatpak and ostree verify Flathub's GPG signatures with. It
+# runs gpg to do the work, so gnupg is a run dependency.
+[package]
+name = "gpgme"
+version = "2.2.0"
+description = "GnuPG Made Easy, the library interface to GnuPG"
+license = "LGPL-2.1-or-later"
+homepage = "https://gnupg.org/software/gpgme/"
+
+# Checked against the .sig, made with GnuPG's dist signing key (2020).
+[[source]]
+url = "https://gnupg.org/ftp/gcrypt/gpgme/gpgme-2.2.0.tar.bz2"
+sha256 = "7160e80e84dafd00d956c84891c533bb7ab16a6a54fbe1574b2f3acf0496977b"
+
+[depends]
+build = ["toolchain", "libgpg-error", "libassuan"]
+run = ["glibc", "libgpg-error", "libassuan", "gnupg"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-static \\
+    --disable-languages \\
+    --disable-gpgconf-test \\
+    --disable-gpg-test \\
+    --disable-gpgsm-test \\
+    --disable-g13-test
+make -j"$JOBS"
+make install
+"""

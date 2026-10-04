@@ -1,0 +1,123 @@
+# Applications: Flatpak is how hideOS Workstation installs GUI software
+# — the image is the system's, not the user's. A system-wide
+# installation in /var/lib/flatpak that wheel may change without a
+# password (flatpak's polkit rules), through flatpak-system-helper on the
+# system bus. Flathub is preconfigured: flatpak applies every
+# .flatpakrepo in /usr/share/flatpak/remotes.d to the system installation
+# the first time it opens it, with its GPG key, so nothing is written to
+# /etc. Sandboxes are the system's bubblewrap and xdg-dbus-proxy, with
+# Wayland's security-context protocol, which COSMIC supports.
+#
+# What a non-systemd system does not use goes to $HOME, which is not
+# captured: the systemd units, the environment generators that would put
+# the exported applications in XDG_DATA_DIRS — the session does that
+# itself — and the profile.d script that does the same for shells.
+[package]
+name = "flatpak"
+version = "1.18.4"
+description = "Application sandboxing and distribution framework"
+license = "LGPL-2.1-or-later"
+homepage = "https://flatpak.org"
+
+# Checked against the .sha256sum published with the release.
+[[source]]
+url = "https://github.com/flatpak/flatpak/releases/download/1.18.4/flatpak-1.18.4.tar.xz"
+sha256 = "b899a7a00c48d2c626cb8ec33fe556720b376c25805d7222430c0fdca4c6ac8d"
+
+[depends]
+build = [
+    "buildtools",
+    "python-pyparsing",
+    "glib",
+    "libcap",
+    "libarchive",
+    "curl",
+    "libxml2",
+    "zstd",
+    "polkit",
+    "fuse3",
+    "ostree",
+    "json-glib",
+    "appstream",
+    "gdk-pixbuf",
+    "libseccomp",
+    "gpgme",
+    "wayland",
+    "wayland-protocols",
+    "bubblewrap",
+    "xdg-dbus-proxy",
+]
+run = [
+    "glibc",
+    "glib",
+    "libcap",
+    "libarchive",
+    "curl",
+    "libxml2",
+    "zstd",
+    "polkit",
+    "fuse3",
+    "ostree",
+    "json-glib",
+    "appstream",
+    "gdk-pixbuf",
+    "libseccomp",
+    "gpgme",
+    "wayland",
+    "bubblewrap",
+    "xdg-dbus-proxy",
+    "dbus",
+]
+
+[build]
+script = """
+# msgfmt merges translations into the polkit policy with the rules polkit
+# installs; gdbus-codegen is Python, from glib. See networkmanager.toml.
+export GETTEXTDATADIRS=/usr/share/gettext
+export PYTHONDONTWRITEBYTECODE=1
+unused="$HOME/unused"
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dsystem_bubblewrap=/usr/bin/bwrap \\
+    -Dsystem_dbus_proxy=/usr/bin/xdg-dbus-proxy \\
+    -Dsystem_fusermount=/usr/bin/fusermount3 \\
+    -Dsystem_helper=enabled \\
+    -Dsystem_helper_user=flatpak \\
+    -Dprivileged_group=wheel \\
+    -Dseccomp=enabled \\
+    -Dlibzstd=enabled \\
+    -Dwayland_security_context=enabled \\
+    -Dsandboxed_triggers=true \\
+    -Dsystemd=disabled \\
+    -Dmalcontent=disabled \\
+    -Ddconf=disabled \\
+    -Dxauth=disabled \\
+    -Dselinux_module=disabled \\
+    -Dauto_sideloading=false \\
+    -Dgdm_env_file=false \\
+    -Dgir=disabled \\
+    -Dgtkdoc=disabled \\
+    -Ddocbook_docs=disabled \\
+    -Dman=disabled \\
+    -Dtests=false \\
+    -Dinstalled_tests=false \\
+    -Dsystemdsystemunitdir="$unused" \\
+    -Dsystemduserunitdir="$unused" \\
+    -Dsystemdsystemenvgendir="$unused" \\
+    -Dsystemduserenvgendir="$unused" \\
+    -Dprofile_dir="$unused"
+meson compile -C build -j "$JOBS"
+meson install -C build
+install -Dm644 -t /usr/share/flatpak/remotes.d "$FILES/flathub.flatpakrepo"
+install -Dm644 /dev/stdin /usr/lib/sysusers.d/flatpak.conf <<'END'
+u flatpak - "Flatpak system helper" /
+END
+install -Dm644 /dev/stdin /usr/lib/tmpfiles.d/flatpak.conf <<'END'
+d /var/lib/flatpak 0755 - - -
+END
+"""

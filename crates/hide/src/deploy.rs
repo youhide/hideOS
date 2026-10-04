@@ -234,12 +234,35 @@ fn mark_good() -> Result<()> {
     esp.unmount()
 }
 
-pub fn status() -> Result<()> {
+/// `hide status`; `--porcelain`, for hideupd: one line per deployment,
+/// tab-separated — edition, version, digest, state, running, boots next —
+/// then the disk's line.
+pub fn status(args: &[String]) -> Result<()> {
+    let porcelain = match args {
+        [] => false,
+        [flag] if flag == "--porcelain" => true,
+        _ => bail!("usage: hide status [--porcelain]"),
+    };
     let booted = booted_digest()?;
     let esp = Esp::mount()?;
     let mut ukis = list(&esp.path().join("EFI/Linux"))?;
     esp.unmount()?;
     deployment::boot_order(&mut ukis);
+    if porcelain {
+        for (i, uki) in ukis.iter().enumerate() {
+            println!(
+                "deployment\t{}\t{}\t{}\t{}\t{}\t{}",
+                uki.edition,
+                uki.version,
+                uki.digest,
+                uki.state(),
+                booted.starts_with(&uki.digest),
+                i == 0
+            );
+        }
+        println!("disk\t{}", crate::crypt::describe());
+        return Ok(());
+    }
     println!("{:<10} {:<8} image", "version", "state");
     for (i, uki) in ukis.iter().enumerate() {
         let mut notes = Vec::new();

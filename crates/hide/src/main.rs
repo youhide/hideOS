@@ -104,7 +104,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         #[cfg(target_os = "linux")]
         Some("boot-ok") => deploy::boot_ok(),
         #[cfg(target_os = "linux")]
-        Some("status") => deploy::status(),
+        Some("status") => deploy::status(args.get(1..).unwrap_or_default()),
         #[cfg(target_os = "linux")]
         Some("rollback") => deploy::rollback(),
         #[cfg(target_os = "linux")]
@@ -219,7 +219,7 @@ const USAGE: &str = "usage: hide <command>
         Stage a new system from the OCI image hideforge built. It starts at
         the next boot, with three attempts before the machine goes back.
 
-    status
+    status [--porcelain]
         The deployments on this machine, in the order they boot.
 
     rollback

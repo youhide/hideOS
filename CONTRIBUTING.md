@@ -93,6 +93,13 @@ cargo xtask boot --test    # boot it and wait for the banner, for scripts
 cargo xtask screenshot     # boot it, type a few commands, save a PNG
 ```
 
+## The wiki
+
+The project wiki, at <https://youhide.github.io/hideOS/wiki/>, is Markdown
+in [docs/wiki](docs/wiki), and is updated in the same commit as the work it
+describes. `cargo xtask wiki` renders it into `site/wiki/` to look at; see
+[docs/wiki/README.md](docs/wiki/README.md).
+
 ## CI
 
 [CI](.github/workflows/ci.yml) runs only for releases: when a `v*` tag is

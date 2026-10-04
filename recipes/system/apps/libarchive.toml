@@ -1,0 +1,43 @@
+# Archives, for flatpak: extra-data applications arrive as upstream's own
+# tarballs and packages and are unpacked with it. gzip, xz and zstd; no
+# bzip2, which hideOS has no library for, and no bsdtar and friends.
+[package]
+name = "libarchive"
+version = "3.8.9"
+description = "Multi-format archive and compression library"
+license = "BSD-2-Clause"
+homepage = "https://libarchive.org"
+
+# Checked against the .asc, signed by Martin Matuska
+# (659C84C0E23EA1FA97E0B58CC040B508D63D2B36).
+[[source]]
+url = "https://github.com/libarchive/libarchive/releases/download/v3.8.9/libarchive-3.8.9.tar.xz"
+sha256 = "888c934f9d95648ecb9163dc8e23ab80a476ecb81a8f1154704a227b5b676dde"
+
+[depends]
+build = ["toolchain", "xz", "zstd"]
+run = ["glibc", "zlib", "xz", "zstd"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-static \\
+    --disable-bsdtar \\
+    --disable-bsdcat \\
+    --disable-bsdcpio \\
+    --disable-bsdunzip \\
+    --disable-acl \\
+    --with-zlib \\
+    --with-lzma \\
+    --with-zstd \\
+    --without-bz2lib \\
+    --without-libb2 \\
+    --without-lz4 \\
+    --without-openssl \\
+    --without-xml2 \\
+    --without-expat
+make -j"$JOBS"
+make install
+"""

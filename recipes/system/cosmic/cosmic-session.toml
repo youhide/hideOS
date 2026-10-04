@@ -29,7 +29,9 @@ rm -rf /usr/lib/systemd
 # autostart directory, which starts PipeWire for the session; both
 # until oxinit runs per-user services and oxlogd keeps their logs.
 # And hideOS's defaults first among the data directories, where
-# COSMIC looks for its default configuration.
+# COSMIC looks for its default configuration, then the applications
+# Flatpak exports, the user's before the system's: flatpak's own
+# environment generators are systemd's, which hideOS does not run.
 test "$(sed -n 3p /usr/bin/start-cosmic)" = "set -e"
 {
     head -n 3 /usr/bin/start-cosmic
@@ -37,7 +39,7 @@ test "$(sed -n 3p /usr/bin/start-cosmic)" = "set -e"
 state="${XDG_STATE_HOME:-$HOME/.local/state}"
 mkdir -p "$state" && exec >>"$state/cosmic-session.log" 2>&1
 export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-/etc/xdg}:/usr/share/hideos/xdg"
-export XDG_DATA_DIRS="/usr/share/hideos:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export XDG_DATA_DIRS="/usr/share/hideos:$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 END
     tail -n +4 /usr/bin/start-cosmic
 } > start-cosmic

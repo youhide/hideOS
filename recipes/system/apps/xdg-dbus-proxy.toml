@@ -1,0 +1,33 @@
+# The filtering D-Bus proxy flatpak puts between a sandboxed application
+# and the session and system buses, so it sees only the names its
+# permissions allow.
+[package]
+name = "xdg-dbus-proxy"
+version = "0.1.9"
+description = "Filtering proxy for D-Bus connections"
+license = "LGPL-2.1-or-later"
+homepage = "https://github.com/flatpak/xdg-dbus-proxy"
+
+[[source]]
+url = "https://github.com/flatpak/xdg-dbus-proxy/releases/download/0.1.9/xdg-dbus-proxy-0.1.9.tar.xz"
+sha256 = "5450dda586ec3bb3ca709d311e845487883faa3b09cf562608d7e84f4311dced"
+
+[depends]
+build = ["buildtools", "glib"]
+run = ["glibc", "glib"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dman=disabled \\
+    -Dtests=false \\
+    -Dinstalled_tests=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

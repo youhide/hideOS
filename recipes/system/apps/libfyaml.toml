@@ -1,0 +1,27 @@
+# YAML, which AppStream requires for its DEP-11 catalog format. 0.9 is
+# the stable series; 1.0 is in beta.
+[package]
+name = "libfyaml"
+version = "0.9.6"
+description = "YAML 1.2 parser and emitter"
+license = "MIT"
+homepage = "https://github.com/pantoniou/libfyaml"
+
+[[source]]
+url = "https://github.com/pantoniou/libfyaml/releases/download/v0.9.6/libfyaml-0.9.6.tar.gz"
+sha256 = "a59cc3331e2eb903ec36933ad52a45888041cac31e44f553a00511131242c483"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-static \\
+    --without-libclang
+make -j"$JOBS"
+make install
+"""

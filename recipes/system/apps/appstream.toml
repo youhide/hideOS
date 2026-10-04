@@ -1,0 +1,53 @@
+# Application metadata: flatpak reads Flathub's catalog — names,
+# summaries, icons, releases — through libappstream, and requires it to
+# build. The library only: no appstreamcli, no compose tool, no stemming,
+# no systemd. The patch drops appstreamcli's own metainfo file, the one
+# thing in the build that needs itstool.
+[package]
+name = "appstream"
+version = "1.2.1"
+description = "Library to read and query AppStream software metadata"
+license = "LGPL-2.1-or-later AND GPL-2.0-or-later"
+homepage = "https://www.freedesktop.org/wiki/Distributions/AppStream/"
+
+# Checked against the .asc, signed by Matthias Klumpp
+# (D33A3F0CA16B0ACC51A60738494C8A5FBF4DECEB).
+[[source]]
+url = "https://www.freedesktop.org/software/appstream/releases/AppStream-1.2.1.tar.xz"
+sha256 = "7df664fd3ad3b1640c6a0ff77fa84f9fabe264111bf1fe8f5df3444d6d4caaca"
+
+[depends]
+build = ["buildtools", "glib", "curl", "libxml2", "libfyaml", "libxmlb"]
+run = ["glibc", "glib", "curl", "libxml2", "libfyaml", "libxmlb"]
+
+[build]
+patches = ["no-metainfo.patch"]
+script = """
+# glib-mkenums is Python, from glib: see networkmanager.toml.
+export PYTHONDONTWRITEBYTECODE=1
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dtools=false \\
+    -Dcompose=false \\
+    -Dstemming=false \\
+    -Dsystemd=false \\
+    -Dzstd-support=false \\
+    -Dblake3-support=false \\
+    -Ddisplay-detection=none \\
+    -Dapt-support=false \\
+    -Dqt=false \\
+    -Dvapi=false \\
+    -Dgir=false \\
+    -Dbash-completion=false \\
+    -Ddocs=false \\
+    -Dapidocs=false \\
+    -Dinstall-docs=false \\
+    -Dman=false
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

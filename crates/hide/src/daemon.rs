@@ -122,6 +122,39 @@ impl Update1 {
         self.read(&["status"]).await
     }
 
+    /// The deployments, in the order they boot: edition, version, digest,
+    /// state (good, trying, or bad), running, boots next. Anyone may ask.
+    async fn deployments(&self) -> fdo::Result<Vec<(String, u64, String, String, bool, bool)>> {
+        let text = self.read(&["status", "--porcelain"]).await?;
+        Ok(text
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split('\t');
+                if fields.next()? != "deployment" {
+                    return None;
+                }
+                Some((
+                    fields.next()?.to_owned(),
+                    fields.next()?.parse().ok()?,
+                    fields.next()?.to_owned(),
+                    fields.next()?.to_owned(),
+                    fields.next()? == "true",
+                    fields.next()? == "true",
+                ))
+            })
+            .collect())
+    }
+
+    /// How the disk is protected, as `hide status` says it. Anyone may ask.
+    async fn disk(&self) -> fdo::Result<String> {
+        let text = self.read(&["status", "--porcelain"]).await?;
+        Ok(text
+            .lines()
+            .find_map(|line| line.strip_prefix("disk\t"))
+            .unwrap_or_default()
+            .to_owned())
+    }
+
     /// What `hide ext list` says. Anyone may ask.
     async fn extensions(&self) -> fdo::Result<String> {
         self.read(&["ext", "list"]).await

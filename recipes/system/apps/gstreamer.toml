@@ -1,0 +1,36 @@
+# GStreamer's core, for xdg-desktop-portal, which requires its
+# pbutils library to build: it uses it to check that a sound an
+# application attaches to a notification is a sound. The libraries only:
+# every optional feature is off — tools, tests, introspection, the PTP
+# helper, unwinding.
+[package]
+name = "gstreamer"
+version = "1.28.7"
+description = "GStreamer multimedia framework, core libraries"
+license = "LGPL-2.1-or-later"
+homepage = "https://gstreamer.freedesktop.org"
+
+# Checked against the .sha256sum published with the release.
+[[source]]
+url = "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.28.7.tar.xz"
+sha256 = "787329b2c5758e228a71d926a6dcf960bceaacca3cadd63874ba665dfcda013e"
+
+[depends]
+build = ["buildtools", "glib"]
+run = ["glibc", "glib"]
+
+[build]
+script = """
+# glib-mkenums is Python, from glib: see networkmanager.toml.
+export PYTHONDONTWRITEBYTECODE=1
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dauto_features=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

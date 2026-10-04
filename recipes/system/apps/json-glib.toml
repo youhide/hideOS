@@ -1,0 +1,40 @@
+# JSON for GLib programs: flatpak reads OCI and remote metadata with it,
+# xdg-desktop-portal its permission data.
+[package]
+name = "json-glib"
+version = "1.10.8"
+description = "JSON parser and generator for GLib"
+license = "LGPL-2.1-or-later"
+homepage = "https://gitlab.gnome.org/GNOME/json-glib"
+
+# Checked against the .sha256sum published with the release.
+[[source]]
+url = "https://download.gnome.org/sources/json-glib/1.10/json-glib-1.10.8.tar.xz"
+sha256 = "55c5c141a564245b8f8fbe7698663c87a45a7333c2a2c56f06f811ab73b212dd"
+
+[depends]
+build = ["buildtools", "glib"]
+run = ["glibc", "glib"]
+
+[build]
+script = """
+# glib-mkenums is Python, from glib: see networkmanager.toml.
+export PYTHONDONTWRITEBYTECODE=1
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dintrospection=disabled \\
+    -Ddocumentation=disabled \\
+    -Dgtk_doc=disabled \\
+    -Dman=false \\
+    -Dtests=false \\
+    -Dconformance=false \\
+    -Dinstalled_tests=false \\
+    -Dnls=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

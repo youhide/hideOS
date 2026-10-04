@@ -1,0 +1,30 @@
+# The certificate authorities Mozilla trusts, as curl's project extracts
+# them from NSS. What curl, and through it flatpak and ostree, check
+# Flathub's TLS certificate against. curl is built to read the bundle
+# from /usr, so nothing needs a file in /etc; the link below is for
+# OpenSSL's own default, /etc/ssl/cert.pem, for anything else that asks
+# OpenSSL for the system's roots.
+[package]
+name = "ca-certificates"
+version = "2026-09-25"
+description = "Mozilla's trusted CA certificates, as a PEM bundle"
+license = "MPL-2.0"
+homepage = "https://curl.se/docs/caextract.html"
+
+# Checked against the .sha256 published beside it.
+[[source]]
+url = "https://curl.se/ca/cacert-2026-09-25.pem"
+sha256 = "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505"
+extract = false
+
+[depends]
+build = ["toolchain"]
+run = []
+
+[build]
+script = """
+install -Dm644 cacert-2026-09-25.pem /usr/share/ca-certificates/cacert.pem
+install -Dm644 /dev/stdin /usr/lib/tmpfiles.d/ca-certificates.conf <<'END'
+L /etc/ssl/cert.pem - - - - /usr/share/ca-certificates/cacert.pem
+END
+"""

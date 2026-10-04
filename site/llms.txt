@@ -42,6 +42,7 @@ Facts that are easy to get wrong:
 - [Roadmap](https://raw.githubusercontent.com/youhide/hideOS/main/ROADMAP.md): milestones H0 to H8, what is done and how each was verified
 - [hideforge](https://raw.githubusercontent.com/youhide/hideOS/main/docs/HIDEFORGE.md): the build system, its sandbox and reproducibility
 - [Recipe format](https://raw.githubusercontent.com/youhide/hideOS/main/docs/RECIPE_FORMAT.md): how a package is described
+- [Wiki](https://youhide.github.io/hideOS/wiki/): working notes on building, testing, the boot chain, updates, encryption, installing and recovering, system extensions and applications, kept current with the code; sources in [docs/wiki](https://github.com/youhide/hideOS/tree/main/docs/wiki)
 
 ## Related
 

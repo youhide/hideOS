@@ -1,0 +1,36 @@
+# GStreamer's base libraries — pbutils, and the audio, video and tag
+# libraries it is built on — for xdg-desktop-portal's sound check. No
+# plugins: every optional feature is off. Without decoders a sound cannot
+# be checked, so the portal drops it from the notification; the
+# notification itself is shown.
+[package]
+name = "gst-plugins-base"
+version = "1.28.7"
+description = "GStreamer base libraries"
+license = "LGPL-2.1-or-later"
+homepage = "https://gstreamer.freedesktop.org"
+
+# Checked against the .sha256sum published with the release.
+[[source]]
+url = "https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.28.7.tar.xz"
+sha256 = "ed6e5410f496d171818763af2265e7977154bc7f9b827e98acf8c5bed21dd5a7"
+
+[depends]
+build = ["buildtools", "glib", "gstreamer"]
+run = ["glibc", "zlib", "glib", "gstreamer"]
+
+[build]
+script = """
+# glib-mkenums is Python, from glib: see networkmanager.toml.
+export PYTHONDONTWRITEBYTECODE=1
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dauto_features=disabled
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

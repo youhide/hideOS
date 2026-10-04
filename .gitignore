@@ -2,6 +2,10 @@
 /target/
 **/*.rs.bk
 
+# The wiki, rendered from docs/wiki by `cargo xtask wiki`; its pages name
+# the commit they were built from, so they are made at publish time.
+/site/wiki/
+
 # hideforge outputs
 /out/
 /cache/
@@ -28,3 +32,4 @@ CLAUDE.local.md
 # Test fixtures are small and made on purpose: a LUKS2 header cryptsetup
 # wrote, for hidecrypt's tests.
 !crates/*/tests/fixtures/*.img
+tools/*/target/

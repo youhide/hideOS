@@ -1,0 +1,28 @@
+# X.509 and CMS. Nothing hideOS ships uses S/MIME, but GnuPG's configure
+# requires it whether gpgsm and dirmngr are built or not.
+[package]
+name = "libksba"
+version = "1.8.1"
+description = "X.509 and CMS library used by GnuPG"
+license = "LGPL-3.0-or-later OR GPL-2.0-or-later"
+homepage = "https://gnupg.org/software/libksba/"
+
+# Checked against the .sig, made with GnuPG's dist signing key (2020).
+[[source]]
+url = "https://gnupg.org/ftp/gcrypt/libksba/libksba-1.8.1.tar.bz2"
+sha256 = "c2f84393011827219ae117131dba8e7684c2bed0961eed11b0642c2acba440b5"
+
+[depends]
+build = ["toolchain", "libgpg-error"]
+run = ["glibc", "libgpg-error"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-static \\
+    --disable-doc
+make -j"$JOBS"
+make install
+"""

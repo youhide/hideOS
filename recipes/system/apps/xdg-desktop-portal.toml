@@ -1,0 +1,70 @@
+# The portals: how a sandboxed application opens a file, takes a
+# screenshot, shares the screen or sends a notification, by asking the
+# desktop instead of reaching around the sandbox. This is the
+# desktop-neutral half and the document portal; COSMIC's dialogs are
+# xdg-desktop-portal-cosmic. Images and sounds from applications are
+# checked in bubblewrap before they are shown or played. D-Bus activated
+# on the session bus; its systemd user units go to $HOME, which is not
+# captured. No geoclue, no gudev (so no USB portal), no systemd.
+[package]
+name = "xdg-desktop-portal"
+version = "1.22.1"
+description = "Desktop integration portals for sandboxed applications"
+license = "LGPL-2.0-or-later"
+homepage = "https://flatpak.github.io/xdg-desktop-portal/"
+
+# Checked against the .sha256sum published with the release.
+[[source]]
+url = "https://github.com/flatpak/xdg-desktop-portal/releases/download/1.22.1/xdg-desktop-portal-1.22.1.tar.xz"
+sha256 = "d4879ddb3d65ff1a8f19187497e6f13dc5d267bcac404a5d501218be355753d3"
+
+[depends]
+build = [
+    "buildtools",
+    "glib",
+    "json-glib",
+    "fuse3",
+    "gdk-pixbuf",
+    "gstreamer",
+    "gst-plugins-base",
+    "pipewire",
+    "bubblewrap",
+]
+run = [
+    "glibc",
+    "glib",
+    "json-glib",
+    "fuse3",
+    "gdk-pixbuf",
+    "gstreamer",
+    "gst-plugins-base",
+    "pipewire",
+    "bubblewrap",
+    "dbus",
+]
+
+[build]
+script = """
+# gdbus-codegen is Python, from glib: see networkmanager.toml.
+export PYTHONDONTWRITEBYTECODE=1
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dsandboxed-image-validation=enabled \\
+    -Dsandboxed-sound-validation=enabled \\
+    -Dflatpak-interfaces=disabled \\
+    -Dgeoclue=disabled \\
+    -Dgudev=disabled \\
+    -Dsystemd=disabled \\
+    -Ddocumentation=disabled \\
+    -Dman-pages=disabled \\
+    -Dtests=disabled \\
+    -Dinstalled-tests=false \\
+    -Dsystemd-user-unit-dir="$HOME/unused"
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

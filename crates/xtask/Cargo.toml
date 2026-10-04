@@ -9,6 +9,9 @@ repository.workspace = true
 publish.workspace = true
 
 # xtask runs on the developer's machine, never on the boot path. None of the
-# boot-path rules apply, and it has no dependencies so that `cargo xtask` works
-# on a fresh checkout without fetching anything.
+# boot-path rules apply. It has one dependency, for the wiki: Markdown is a
+# grammar with many corners, and the pages deserve a parser that handles all
+# of them. Without default features it brings four small crates, fetched once
+# on a fresh checkout; nothing else.
 [dependencies]
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

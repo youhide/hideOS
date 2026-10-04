@@ -43,6 +43,11 @@ meson setup build . \\
     -Ddbus_user=messagebus
 meson compile -C build -j "$JOBS"
 meson install -C build
+# The launch helper starts system services a call asks for — Flatpak's
+# system helper. Upstream installs it 4750 root:messagebus, but the
+# messagebus group is made at boot, after the image is sealed; 4755 then,
+# and the helper refuses any caller but the bus's own user.
+chmod 4755 /usr/libexec/dbus-daemon-launch-helper
 install -Dm644 /dev/stdin /usr/lib/sysusers.d/dbus.conf <<'END'
 u messagebus - "D-Bus message bus" /run/dbus
 END

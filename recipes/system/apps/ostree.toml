@@ -1,0 +1,54 @@
+# libostree, the content-addressed store flatpak keeps applications in
+# and pulls them into. Only what flatpak uses: fetched with curl, commits
+# checked with gpgme, checksums with OpenSSL. Nothing for booting an
+# ostree system — hideOS boots composefs its own way — so no composefs,
+# libmount, dracut or systemd units, no GRUB hook in /etc/grub.d, and
+# not the empty /etc/ostree/remotes.d its install makes.
+[package]
+name = "ostree"
+version = "2026.4"
+description = "Content-addressed object store for operating system and application trees"
+license = "LGPL-2.0-or-later"
+homepage = "https://ostreedev.github.io/ostree/"
+
+[[source]]
+url = "https://github.com/ostreedev/ostree/releases/download/v2026.4/libostree-2026.4.tar.xz"
+sha256 = "b26c9016eb03bb4ee52cc00c642d56e00fc79ae7faac6bf4aa317d7451339ef7"
+
+[depends]
+build = ["buildtools", "glib", "xz", "e2fsprogs", "curl", "gpgme", "libgpg-error", "openssl"]
+run = ["glibc", "zlib", "glib", "xz", "curl", "gpgme", "libgpg-error", "openssl"]
+
+[build]
+script = """
+# glib-mkenums is Python, from glib: see networkmanager.toml.
+export PYTHONDONTWRITEBYTECODE=1
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --disable-static \\
+    --with-curl \\
+    --without-soup \\
+    --without-soup3 \\
+    --with-gpgme \\
+    --with-crypto=openssl \\
+    --with-openssl \\
+    --without-composefs \\
+    --without-libarchive \\
+    --without-selinux \\
+    --without-avahi \\
+    --without-libmount \\
+    --without-libsystemd \\
+    --without-dracut \\
+    --without-mkinitcpio \\
+    --with-builtin-grub2-mkconfig \\
+    --disable-rofiles-fuse \\
+    --disable-introspection \\
+    --disable-gtk-doc \\
+    --disable-man
+make -j"$JOBS"
+make install
+rm -r /etc/ostree
+"""

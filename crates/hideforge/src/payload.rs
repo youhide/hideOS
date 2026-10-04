@@ -280,10 +280,13 @@ fn pull(oci: &Path, repo: &Path, tag: &str, create: bool, boot: bool) -> Result<
         let image = if boot {
             composefs_oci::boot_image(&repository, &result.manifest_digest)?
         } else {
+            // By digest alone: the pull rewrote the manifest's splitstream
+            // to name its EROFS image, and the verity it returned is the
+            // one from before.
             composefs_oci::composefs_erofs_for_manifest(
                 &repository,
                 &result.manifest_digest,
-                Some(&result.manifest_verity),
+                None,
                 repository.erofs_version(),
             )?
         }

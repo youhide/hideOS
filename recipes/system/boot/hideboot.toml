@@ -4,14 +4,14 @@
 # anything else there changing. See ARCHITECTURE.md, "Updates".
 [package]
 name = "hideboot"
-version = "0.1.1"
+version = "0.2.0"
 description = "UEFI boot manager with boot counting and automatic fallback"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/youhide/hideBoot"
 
 [[source]]
-url = "https://github.com/youhide/hideBoot/archive/a4bfcfcab65d55bd536ceca7bfbdc70b2a760669.tar.gz"
-sha256 = "7dd6bc26112a69a22766e70e578c94f796cf4a45172ca6de901af8c5da7db6eb"
+url = "https://github.com/youhide/hideBoot/archive/6d37f109a5bd340dfef6b32ac9043ef06d993cf8.tar.gz"
+sha256 = "ed10b7272e32eaa6556fba54e217d768848d87e1580d7ed5b2f72ae0681be4fe"
 
 [depends]
 build = ["toolchain", "stage1-rust", "stage1-rust-uefi"]

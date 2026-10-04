@@ -1,0 +1,48 @@
+# Filesystems in user space. The document portal is one — it is how a
+# sandboxed application sees exactly the files the user handed it — and
+# flatpak's system helper mounts revokefs with it. fusermount3 is setuid,
+# as everywhere: it is what mounts for an unprivileged user. No init
+# script, no /etc/mtab, no /etc/fuse.conf, which fusermount3 reads only
+# when it exists.
+[package]
+name = "fuse3"
+version = "3.18.3"
+description = "Filesystem in Userspace library and fusermount3"
+license = "LGPL-2.1-only AND GPL-2.0-only"
+homepage = "https://github.com/libfuse/libfuse"
+
+# Checked with signify against signify/fuse-3.18.pub, the key the 3.18
+# releases name.
+[[source]]
+url = "https://github.com/libfuse/libfuse/releases/download/fuse-3.18.3/fuse-3.18.3.tar.gz"
+sha256 = "bcd19582c5e30f7fe45dd86a5540e998590aa01903afc7ebcbeea6c8ac5421ee"
+
+[depends]
+build = ["buildtools"]
+run = ["glibc"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sbindir=bin \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dutils=true \\
+    -Dexamples=false \\
+    -Dtests=false \\
+    -Duseroot=false \\
+    -Ddisable-mtab=true \\
+    -Denable-io-uring=false \\
+    -Dinitscriptdir= \\
+    -Dudevrulesdir=/usr/lib/udev/rules.d
+meson compile -C build -j "$JOBS"
+meson install -C build
+# useroot=false: the install script would also mknod /dev/fuse in the
+# build root. The setuid bit is set here instead.
+chmod 4755 /usr/bin/fusermount3
+rm /etc/fuse.conf
+"""

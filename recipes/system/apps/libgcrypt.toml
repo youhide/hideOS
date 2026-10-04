@@ -1,0 +1,28 @@
+# The cryptography under GnuPG: what actually checks an RSA signature on
+# a Flathub commit.
+[package]
+name = "libgcrypt"
+version = "1.12.4"
+description = "General-purpose cryptographic library from GnuPG"
+license = "LGPL-2.1-or-later"
+homepage = "https://gnupg.org/software/libgcrypt/"
+
+# Checked against the .sig, made with GnuPG's dist signing key (2020).
+[[source]]
+url = "https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.12.4.tar.bz2"
+sha256 = "d77f68f48879510e79a2f65977ccc68981781ea0923e5bdffac2a193ea3d660e"
+
+[depends]
+build = ["toolchain", "libgpg-error"]
+run = ["glibc", "libgpg-error"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-static \\
+    --disable-doc
+make -j"$JOBS"
+make install
+"""

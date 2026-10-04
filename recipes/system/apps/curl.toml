@@ -1,0 +1,48 @@
+# HTTP for flatpak, ostree and AppStream: Flathub's repository and its
+# metadata are fetched with libcurl. TLS through OpenSSL, against the
+# bundle in /usr/share/ca-certificates. No HTTP/2: nghttp2 is not in
+# hideOS, and ostree and flatpak fall back to HTTP/1.1 by themselves.
+# No IDN, PSL, SSH, LDAP or brotli either.
+[package]
+name = "curl"
+version = "8.22.0"
+description = "URL transfer library and command-line tool"
+license = "curl"
+homepage = "https://curl.se"
+
+# Checked against the .asc, signed by Daniel Stenberg
+# (27EDEAF22F3ABCEB50DB9A125CC908FDB71E12C2).
+[[source]]
+url = "https://curl.se/download/curl-8.22.0.tar.xz"
+sha256 = "f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7"
+
+[depends]
+build = ["toolchain", "openssl", "zstd"]
+run = ["glibc", "zlib", "openssl", "zstd", "ca-certificates"]
+
+[build]
+script = """
+./configure \\
+    --prefix=/usr \\
+    --build="$TARGET" \\
+    --disable-static \\
+    --with-openssl \\
+    --with-zlib \\
+    --with-zstd \\
+    --without-brotli \\
+    --without-libpsl \\
+    --without-libidn2 \\
+    --without-nghttp2 \\
+    --without-libssh2 \\
+    --without-libssh \\
+    --disable-ldap \\
+    --disable-ldaps \\
+    --with-ca-bundle=/usr/share/ca-certificates/cacert.pem \\
+    --without-ca-path \\
+    --without-zsh-functions-dir \\
+    --without-fish-functions-dir \\
+    --disable-manual \\
+    --disable-docs
+make -j"$JOBS"
+make install
+"""

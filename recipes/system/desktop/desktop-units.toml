@@ -22,6 +22,7 @@ run = [
     "linux-pam",
     "greetd",
     "cosmic-greeter",
+    "dbus",
 ]
 
 [build]
@@ -32,7 +33,8 @@ install -Dm644 -t /usr/lib/greetd "$FILES"/greetd/config.toml
 install -Dm644 -t /usr/share/hideos/xdg/autostart "$FILES"/autostart/*.desktop
 # hideOS's COSMIC defaults, found before COSMIC's own because start-cosmic
 # puts /usr/share/hideos first in XDG_DATA_DIRS. The dock lists what is
-# installed.
+# installed. The theme is Dracula (draculatheme.com, MIT), computed by
+# COSMIC's own theme builder: tools/cosmic-dracula writes it.
 mkdir -p /usr/share/hideos
 cp -r "$FILES/cosmic" /usr/share/hideos/
 """

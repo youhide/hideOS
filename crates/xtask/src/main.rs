@@ -21,6 +21,8 @@
 
 #![forbid(unsafe_code)]
 
+mod wiki;
+
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
@@ -46,10 +48,13 @@ fn main() -> ExitCode {
         Some("power-test") => power_test(args.get(1..).unwrap_or_default()),
         Some("crypt-test") => crypt_test(args.get(1..).unwrap_or_default()),
         Some("sysext-test") => sysext_test(args.get(1..).unwrap_or_default()),
+        Some("desktop-test") => desktop_test(args.get(1..).unwrap_or_default()),
         Some("installer") => installer(args.get(1..).unwrap_or_default()).map(|_| ()),
         Some("installer-test") => installer_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
+        Some("hideboot-screenshot") => hideboot_screenshot(args.get(1..).unwrap_or_default()),
         Some("publish-site") => publish_site(),
+        Some("wiki") => wiki::run(),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", usage());
             Ok(())
@@ -110,10 +115,18 @@ fn usage() -> &'static str {
     crypt-test [--arch ARCH]      install Minimal encrypted, and open it by
                                   passphrase, by TPM, and by passphrase again
                                   when the boot chain changes (needs swtpm)
+    desktop-test [--arch ARCH]    install the Workstation and check what it adds:
+                                  hideupd on the bus, polkit's actions, Flathub
+                                  reached and verified, a sandbox as a user
     screenshot [--arch ARCH] [--edition E] [--login]
                                   boot it and save a PNG of the screen;
                                   --login logs in at the greeter first
+    hideboot-screenshot [--arch ARCH] [--no-build] [--manager FILE] [--display WxH]
+                                  install Minimal, give its ESP an entry in
+                                  each state and the recovery system, and
+                                  save PNGs of hideBoot's menu
     publish-site                  push site/ and the screenshots to gh-pages
+    wiki                          render docs/wiki into site/wiki
 "
 }
 
@@ -657,6 +670,7 @@ fn build_image(
             "linux",
         ])
         .args(["--payload", "--initrd", "hidestage", "--sign", DEV_KEYS])
+        .args(["--boot-manager", "hideboot"])
         .args(["--image-version", &version])
         .args(["--cmdline", &cmdline])
         // Minimal, which runs from memory, is also the installer.
@@ -680,10 +694,12 @@ fn qemu(arch: Arch, edition: Edition) -> Command {
     qemu_with(arch, edition, false)
 }
 
-/// `qemu`, for firmware that needs System Management Mode: x86 Secure Boot
-/// keeps its variable store there. macOS's hypervisor has no SMM, so there
-/// the guest runs on QEMU's own CPU emulation, slower; KVM has SMM.
-fn qemu_with(arch: Arch, edition: Edition, smm: bool) -> Command {
+/// `qemu`, without macOS's hypervisor when `no_hvf`: for firmware that
+/// needs System Management Mode — x86 Secure Boot keeps its variable store
+/// there, and hvf has none — and for a machine with an emulated TPM, whose
+/// firmware stalls under hvf before it prints a line. The guest then runs
+/// on QEMU's own CPU emulation, slower; KVM has neither problem.
+fn qemu_with(arch: Arch, edition: Edition, no_hvf: bool) -> Command {
     let mut command = Command::new(arch.qemu);
     // A watchdog, which hidestage arms: a guest that hangs resets, and
     // -no-reboot turns the reset into QEMU exiting, as for a panic.
@@ -694,7 +710,7 @@ fn qemu_with(arch: Arch, edition: Edition, smm: bool) -> Command {
     }
     for accel in accelerators(arch)
         .into_iter()
-        .filter(|a| !(smm && *a == "hvf"))
+        .filter(|a| !(no_hvf && *a == "hvf"))
     {
         command.args(["-accel", accel]);
     }
@@ -1194,7 +1210,13 @@ impl Guest {
         secure_boot: bool,
         tpm: Option<&Path>,
     ) -> Result<Guest, String> {
-        let mut command = disk_qemu(arch, MINIMAL, dir, secure_boot)?;
+        let mut command = if tpm.is_some() && !secure_boot {
+            let mut command = qemu_with(arch, MINIMAL, true);
+            uefi_firmware(arch, &mut command, dir, None)?;
+            command
+        } else {
+            disk_qemu(arch, MINIMAL, dir, secure_boot)?
+        };
         command
             .arg("-drive")
             .arg(format!("if=virtio,format=raw,file={}", disk.display()));
@@ -1381,6 +1403,116 @@ impl Drop for Guest {
 /// do; the seal is what makes the next read, or the next boot, notice.
 /// Networking on an installed Minimal: NetworkManager brings the wired
 /// port up by itself, with DHCP and DNS, and the daemons log to oxlogd.
+/// The Workstation, installed and booted, and checked at its console:
+/// what it adds to Minimal for applications and updates. The desktop
+/// itself is `cargo xtask screenshot --edition workstation --login`.
+fn desktop_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let edition = EDITIONS
+        .iter()
+        .copied()
+        .find(|e| e.name == "workstation")
+        .ok_or("no workstation edition")?;
+    build_image(arch, edition, image_version()?, "", None)?;
+    let dir = image_dir(edition, arch)?;
+    let disk = dir.join("desktop-test.raw");
+    fresh_firmware_variables(&dir);
+    install_disk(arch, edition, &disk)?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+
+    let mut command = disk_qemu(arch, edition, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(DESKTOP_DEVICES);
+    let mut guest = Guest::spawn(arch, command)?;
+    if !guest.wait_for(
+        "reached target default",
+        arch.timeout.max(Duration::from_secs(300)),
+    ) {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    guest.shell()?;
+
+    let out = guest.run(
+        "for i in {1..30}; do grep -q serving /var/log/oxinit/hideupd.log && break; sleep 1; done; \
+         dbus-send --system --print-reply --dest=os.hide.Update1 /os/hide/Update1 \
+         os.hide.Update1.Deployments",
+        minute,
+    )?;
+    check(
+        "hideupd answers on the system bus, with the deployment that runs",
+        out.contains("workstation") && out.contains("boolean true"),
+        &out,
+    );
+    let out = guest.run(
+        "pkaction --action-id os.hide.update.update --verbose",
+        minute,
+    )?;
+    check(
+        "polkit knows hideupd's actions",
+        out.contains("Update the system"),
+        &out,
+    );
+    let out = guest.run(
+        "for i in {1..60}; do [[ $(nmcli -c no -t -f STATE general) == connected ]] && break; \
+         sleep 1; done; flatpak remotes --system --columns=name; \
+         flatpak remote-ls --system flathub --app --columns=application | head -n 3",
+        Duration::from_secs(300),
+    )?;
+    check(
+        "Flathub is there with no file in /etc, and its signed summary verifies",
+        out.lines().any(|l| l.trim() == "flathub")
+            && out.lines().filter(|l| l.trim().contains('.')).count() >= 3,
+        &out,
+    );
+    // zsh's USERNAME, set by root, becomes that user: a sandbox as anyone.
+    let out = guest.run(
+        &format!(
+            "( USERNAME={DEV_USER}; bwrap --ro-bind / / --dev /dev --proc /proc \
+             --unshare-all --die-with-parent id -u ) && print sandboxed"
+        ),
+        minute,
+    )?;
+    check(
+        "bubblewrap makes a sandbox for a user, unprivileged",
+        out.contains("sandboxed"),
+        &out,
+    );
+    let out = guest.run(
+        "ls /usr/libexec/xdg-desktop-portal /usr/libexec/xdg-desktop-portal-cosmic \
+         /usr/libexec/flatpak-system-helper; grep -c os.hide.Update1 /usr/bin/cosmic-settings",
+        minute,
+    )?;
+    check(
+        "the portals, Flatpak's helper, and Settings' Updates page are in the image",
+        !out.contains("No such file") && out.lines().last().is_some_and(|l| l.trim() != "0"),
+        &out,
+    );
+    guest.type_line("poweroff")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    if failures.is_empty() {
+        println!("{}: the Workstation has what it adds", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
 fn net_test(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let dir = image_dir(MINIMAL, arch)?;
@@ -1800,6 +1932,11 @@ fn installer_test(args: &[String]) -> Result<(), String> {
     }
     drop(guest);
 
+    // QEMU's bootindex is passed to the firmware as a boot order it writes
+    // into its variables, which leaves the disk out of the next boot: a
+    // real machine's boot menu, choosing the stick, writes nothing. So the
+    // variables start again, as a machine's would without the bootindex.
+    fresh_firmware_variables(&dir);
     let mut guest = Guest::boot_tpm(arch, &dir, &disk, false, None)?;
     let asked = guest.wait_for("Passphrase for the hideOS disk", boot_timeout);
     guest.type_line(DEV_DISK_PASSPHRASE)?;
@@ -2207,9 +2344,13 @@ fn seal_test(args: &[String]) -> Result<(), String> {
     );
 
     // The image's name pointed at another sealed file: what replacing the
-    // system image looks like to the next boot.
+    // system image looks like to the next boot. The booted image, by its
+    // digest: the store holds others, the boot image an update checks
+    // against among them.
     let out = guest.run(
-        "img=(/hideos/images/*(^/)); other=(/hideos/objects/*/*(.L+100000)); \
+        "for w in ${=$(</proc/cmdline)}; do [[ $w == hideos.image=sha256:* ]] && \
+         img=/hideos/images/${w#hideos.image=sha256:}; done; \
+         other=(/hideos/objects/*/*(.L+100000)); \
          ln -sfn ../objects/${other[1]#/hideos/objects/} $img && sync && print swapped",
         minute,
     )?;
@@ -2256,8 +2397,22 @@ fn seal_test(args: &[String]) -> Result<(), String> {
 
     println!("boot 4: the changed kernel image");
     let guest = Guest::boot(arch, &dir, &disk)?;
-    let refused = guest.wait_for("Security Violation", boot_timeout)
-        || guest.wait_for("Access Denied", Duration::from_secs(1));
+    // As the boot manager says it: systemd-boot passes on the firmware's
+    // words, hideBoot names the status LoadImage returned.
+    let started = Instant::now();
+    let refused = loop {
+        let output = guest.output();
+        if ["Security Violation", "Access Denied", "ACCESS_DENIED"]
+            .iter()
+            .any(|w| output.contains(w))
+        {
+            break true;
+        }
+        if started.elapsed() > boot_timeout || output.contains("hidestage: starting") {
+            break false;
+        }
+        thread::sleep(Duration::from_millis(500));
+    };
     check(
         "the firmware refuses the changed UKI",
         refused && !guest.output().contains("hidestage: starting"),
@@ -2800,6 +2955,172 @@ fn screenshot(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Gives an installed disk's ESP what hideBoot's menu shows — an entry
+/// being tried, a good one, one that failed, and the recovery system —
+/// all names for the one image installed: what is shown is the menu, not
+/// three systems.
+const HIDEBOOT_ESP_SCRIPT: &str = r#"set -eu
+disk=$1; recovery=$2; manager=${3:-}
+esp="$disk@@1M"
+if [ -n "$manager" ]; then
+    mcopy -o -i "$esp" "$manager" ::/EFI/BOOT/BOOTX64.EFI
+fi
+name=$(mdir -b -i "$esp" ::/EFI/Linux | grep -i '\.efi$' | head -n 1)
+name=${name##*/}
+base=${name%.efi}; base=${base%%+*}
+version=$(echo "$base" | awk -F- '{print $3}')
+prefix=$(echo "$base" | awk -F- '{print $1 "-" $2}')
+digest=$(echo "$base" | awk -F- '{print $4}')
+tmp=$(mktemp)
+mcopy -o -i "$esp" "::/EFI/Linux/$name" "$tmp"
+mdel -i "$esp" "::/EFI/Linux/$name"
+mcopy -o -i "$esp" "$tmp" "::/EFI/Linux/$prefix-$((version + 1))-$digest+2-1.efi"
+mcopy -o -i "$esp" "$tmp" "::/EFI/Linux/$prefix-$version-$digest.efi"
+mcopy -o -i "$esp" "$tmp" "::/EFI/Linux/$prefix-$((version - 1))-$digest+0-3.efi"
+mmd -i "$esp" ::/EFI/Recovery 2>/dev/null || true
+mcopy -o -i "$esp" "$recovery" ::/EFI/Recovery/hideos-recovery.efi
+rm -f "$tmp"
+mdir -b -i "$esp" ::/EFI/Linux ::/EFI/Recovery
+"#;
+
+/// `cargo xtask hideboot-screenshot`: hideBoot's menu, as the firmware
+/// draws it, for youhide/hideBoot's README. A key held as it starts opens
+/// the menu; the second picture has the recovery system chosen.
+fn hideboot_screenshot(args: &[String]) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    let arch = find_arch(args)?;
+    // --no-build: the image there is, while another command builds.
+    if !args.iter().any(|a| a == "--no-build") {
+        build_image(arch, MINIMAL, image_version()?, "", None)?;
+    }
+    let dir = image_dir(MINIMAL, arch)?;
+    let disk = dir.join("hideboot-screenshot.raw");
+    fresh_firmware_variables(&dir);
+    install_disk(arch, MINIMAL, &disk)?;
+    let in_builder = |path: &Path| -> Result<String, String> {
+        let root = workspace_root()?;
+        let relative = path
+            .strip_prefix(&root)
+            .map_err(|_| format!("{} is outside the workspace", path.display()))?;
+        Ok(format!("/src/{}", relative.display()))
+    };
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    // --manager FILE: a hideBoot built from a checkout, unsigned — this
+    // boot has no Secure Boot — for pictures of a change not yet in a
+    // recipe.
+    let manager = match args.iter().position(|a| a == "--manager") {
+        Some(i) => {
+            let path = args.get(i + 1).ok_or("--manager takes a file")?;
+            let path = fs::canonicalize(path).map_err(|e| format!("{path}: {e}"))?;
+            Some(in_builder(&path)?)
+        }
+        None => None,
+    };
+    run(builder_command(&runtime, &workspace_root()?, false)
+        .args(["sh", "-c", HIDEBOOT_ESP_SCRIPT, "hideboot-esp"])
+        .arg(in_builder(&disk)?)
+        .arg(in_builder(&dir.join("recovery.efi"))?)
+        .args(manager))?;
+
+    // --display WxH: the screen QEMU's display announces through EDID,
+    // the modes the firmware then offers — 1920x1080, 2560x1440, 3840x2160.
+    let display: Vec<String> = match flag(args, "--display")? {
+        Some(size) => {
+            let (w, h) = size.split_once('x').ok_or("--display takes WIDTHxHEIGHT")?;
+            vec![
+                "-vga".into(),
+                "none".into(),
+                "-device".into(),
+                format!("VGA,edid=on,xres={w},yres={h},vgamem_mb=64"),
+            ]
+        }
+        None => vec!["-vga".into(), "std".into()],
+    };
+    let socket = dir.join("monitor.sock");
+    let _ = fs::remove_file(&socket);
+    let log = dir.join("hideboot-serial.log");
+    let mut command = disk_qemu(arch, MINIMAL, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(&display)
+        .args(["-display", "none"])
+        .arg("-serial")
+        .arg(format!("file:{}", log.display()))
+        .arg("-monitor")
+        .arg(format!("unix:{},server,nowait", socket.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", arch.qemu))?;
+    let serial = || fs::read_to_string(&log).unwrap_or_default();
+    let shots = [
+        ("hideboot-menu.png", 0usize),
+        ("hideboot-menu-recovery.png", 3),
+    ];
+    let result = (|| -> Result<Vec<PathBuf>, String> {
+        let started = Instant::now();
+        let mut monitor = loop {
+            match UnixStream::connect(&socket) {
+                Ok(stream) => break stream,
+                Err(_) if started.elapsed() < Duration::from_secs(10) => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(e) => return Err(format!("QEMU monitor: {e}")),
+            }
+        };
+        let mut send = |line: &str| -> Result<(), String> {
+            monitor
+                .write_all(format!("{line}\n").as_bytes())
+                .map_err(|e| format!("QEMU monitor: {e}"))
+        };
+        // A key down as hideBoot starts: one every 150 ms until the menu
+        // is up. Not a digit and not Enter, which the menu would act on.
+        while !serial().contains("(recovery)") {
+            if started.elapsed() > Duration::from_secs(120) {
+                return Err(format!(
+                    "hideBoot's menu did not open; see {}",
+                    log.display()
+                ));
+            }
+            send("sendkey j")?;
+            thread::sleep(Duration::from_millis(150));
+        }
+        thread::sleep(Duration::from_secs(1));
+        let mut saved = Vec::new();
+        let mut moved = 0;
+        for (name, down) in shots {
+            while moved < down {
+                send("sendkey down")?;
+                moved += 1;
+                thread::sleep(Duration::from_millis(400));
+            }
+            thread::sleep(Duration::from_secs(1));
+            let shot = monitor_path(name);
+            send(&format!("screendump {} -f png", shot.display()))?;
+            thread::sleep(Duration::from_secs(2));
+            let png = dir.join(name);
+            fs::rename(&shot, &png)
+                .or_else(|_| fs::copy(&shot, &png).map(|_| ()))
+                .map_err(|e| format!("QEMU did not write {name}: {e}"))?;
+            saved.push(png);
+        }
+        Ok(saved)
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_file(&disk);
+    for png in result? {
+        println!("{}: {}", arch.name, png.display());
+    }
+    Ok(())
+}
+
 /// A path QEMU's monitor can be given: its commands are split on spaces, and
 /// the checkout's path may have them.
 fn monitor_path(name: &str) -> PathBuf {
@@ -2896,6 +3217,10 @@ fn desktop_screenshot(arch: Arch, edition: Edition, login: bool) -> Result<(), S
 /// each naming the main commit it came from.
 fn publish_site() -> Result<(), String> {
     let root = workspace_root()?;
+    // The wiki, rendered now from the pages as committed: site/wiki is not
+    // checked in, and each page names the commit it was built from.
+    let pages = wiki::generate(&root)?;
+    println!("wiki: {pages} pages");
     // Everything in site/, and the console's picture from docs/images: the
     // pictures that were looked at and committed, not whatever the last
     // local run left in target/.

@@ -72,10 +72,12 @@ fn add(image: &str) -> Result<()> {
     let signature = annotations
         .get(SIGNATURE_ANNOTATION)
         .context("the image carries no signature")?;
+    // By digest alone: the pull rewrote the manifest's splitstream to name
+    // its EROFS image, and the verity it returned is the one from before.
     let erofs = composefs_oci::composefs_erofs_for_manifest(
         &repo,
         &result.manifest_digest,
-        Some(&result.manifest_verity),
+        None,
         repo.erofs_version(),
     )?
     .context("the image made no composefs image")?;
