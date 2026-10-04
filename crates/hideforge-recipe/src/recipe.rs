@@ -119,6 +119,13 @@ pub struct Build {
     /// hidestage, hide.
     #[serde(default)]
     pub workspace: bool,
+    /// For `vendor = "cargo"`: the directory under `/build/src` whose
+    /// `Cargo.lock` is vendored, when it is not the top. A crate in the
+    /// workspace's tree with a lockfile of its own — hidesetup, which brings
+    /// libcosmic — is kept out of the workspace, so that its dependencies
+    /// reach no other build, and names its directory here.
+    #[serde(default, rename = "cargo-dir")]
+    pub cargo_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -282,6 +289,25 @@ impl Recipe {
                 "package.version",
                 "must be non-empty, with no whitespace or `/`".to_owned(),
             ));
+        }
+        if let Some(dir) = &self.build.cargo_dir {
+            let path = Path::new(dir);
+            if dir.is_empty()
+                || !path
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_)))
+            {
+                return Err(invalid(
+                    "build.cargo-dir",
+                    "must be a relative path inside the source, with no `..`".to_owned(),
+                ));
+            }
+            if self.build.vendor.is_none() {
+                return Err(invalid(
+                    "build.cargo-dir",
+                    "only means something with `vendor = \"cargo\"`".to_owned(),
+                ));
+            }
         }
         if package.description.trim().is_empty() || package.description.contains('\n') {
             return Err(invalid(
@@ -460,6 +486,31 @@ script = "./configure --prefix=/usr && make -j$JOBS && make install"
     fn unknown_keys_are_errors_not_ignored() {
         let text = ZLIB.replace("license = \"Zlib\"", "license = \"Zlib\"\nlicence = \"x\"");
         assert!(matches!(parse(&text), Err(Error::Parse { .. })));
+    }
+
+    #[test]
+    fn a_cargo_dir_stays_inside_and_needs_vendoring() {
+        let with = |extra: &str| {
+            ZLIB.replace(
+                "script = \"./configure",
+                &format!("{extra}\nscript = \"./configure"),
+            )
+        };
+        let good = with("vendor = \"cargo\"\ncargo-dir = \"crates/hidesetup\"");
+        assert_eq!(
+            parse(&good).unwrap().build.cargo_dir.as_deref(),
+            Some("crates/hidesetup")
+        );
+        for bad in ["../elsewhere", "/abs", "crates/../..", ""] {
+            let text = with(&format!("vendor = \"cargo\"\ncargo-dir = \"{bad}\""));
+            assert_eq!(
+                field_of(parse(&text).unwrap_err()),
+                "build.cargo-dir",
+                "{bad}"
+            );
+        }
+        let unvendored = with("cargo-dir = \"crates/hidesetup\"");
+        assert_eq!(field_of(parse(&unvendored).unwrap_err()), "build.cargo-dir");
     }
 
     #[test]

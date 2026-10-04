@@ -25,4 +25,8 @@ script = """
     --without-mpfr
 make -j"$JOBS"
 make install
+# gawk's install links awk to it only when there is no awk, and the
+# toolchain's is in the sandbox: so it is linked here, or the system has
+# no awk at all.
+ln -sf gawk /usr/bin/awk
 """

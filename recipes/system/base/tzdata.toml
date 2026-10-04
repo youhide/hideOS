@@ -1,0 +1,38 @@
+# The time zones: IANA's tz database, compiled by the zic of the same
+# release — glibc's own zic is older than the data, and a newer release of
+# the data may use what only a newer zic reads. First-boot setup offers the
+# zones zone1970.tab lists and points /etc/localtime at the one chosen.
+[package]
+name = "tzdata"
+version = "2026e"
+description = "Time zone data"
+license = "LicenseRef-public-domain"
+homepage = "https://www.iana.org/time-zones"
+
+[[source]]
+url = "https://data.iana.org/time-zones/releases/tzdata2026e.tar.gz"
+sha256 = "b26882805f26aac59d5b222978e6580484b834ccdc98be89df2f05a6dc53a652"
+strip = 0
+
+[[source]]
+url = "https://data.iana.org/time-zones/releases/tzcode2026e.tar.gz"
+sha256 = "cc3d27ca2a0d8399504551b920970d80af83bfb9c216e8082a15491921935d54"
+strip = 0
+
+[depends]
+build = ["toolchain"]
+run = []
+
+[build]
+script = """
+# Both releases unpack together, as tzcode's Makefile expects.
+make CC=cc zic
+# One file per zone, with the backward-compatible names (America/Sao_Paulo
+# and Brazil/East both work), and UTC.
+./zic -b fat -d /usr/share/zoneinfo \
+    africa antarctica asia australasia europe northamerica southamerica \
+    etcetera backward factory
+install -Dm644 -t /usr/share/zoneinfo zone1970.tab zone.tab iso3166.tab
+test -f /usr/share/zoneinfo/America/Sao_Paulo
+test -f /usr/share/zoneinfo/UTC
+"""

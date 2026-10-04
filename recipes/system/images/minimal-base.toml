@@ -31,6 +31,8 @@ run = [
     "tar",
     "xz",
     "util-linux",
+    # /etc/localtime points into it.
+    "tzdata",
     "oxinit",
     "hideos-units",
     "hide",

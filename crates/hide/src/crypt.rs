@@ -129,6 +129,9 @@ pub fn describe() -> String {
     let opened = match note.trim() {
         "tpm" => "opened by the TPM",
         "passphrase tpm-refused" => "opened by passphrase: the TPM refused its sealed key",
+        "setup" => {
+            "opened by the installer's setup key, until first-boot setup gives it a passphrase"
+        }
         _ => "opened by passphrase",
     };
     format!(

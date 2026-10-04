@@ -1,0 +1,24 @@
+# hidesetup, first-boot setup: crates/hidesetup in this repository, built
+# from its own lockfile (libcosmic's crates stay out of the workspace's).
+# desktop-units' hideos-greeter runs it until setup is done.
+[package]
+name = "hidesetup"
+version = "0.0.0"
+description = "hideOS first-boot setup"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/youhide/hideOS"
+
+[depends]
+build = ["toolchain", "stage1-rust", "libxkbcommon", "wayland"]
+# It changes nothing itself: hideupd's os.hide.Setup1, in hide, does.
+run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "hide"]
+
+[build]
+workspace = true
+vendor = "cargo"
+cargo-dir = "crates/hidesetup"
+script = """
+cd crates/hidesetup
+cargo build --release --frozen
+install -Dm755 target/release/hidesetup /usr/bin/hidesetup
+"""

@@ -35,13 +35,41 @@ installer is always Minimal's, whichever edition it installs.
 console it asks:
 
 1. which disk, from a numbered list, and `erase` typed out to confirm;
-2. whether to encrypt it, and a passphrase, twice;
-3. the first account's login name and password: an administrator.
+2. whether to encrypt it.
+
+That is all for the Workstation, as for a Mac: the rest is the first
+start's. The installer writes the disk, and an encrypted one gets a random
+setup key, kept on the ESP until setup replaces it — hidestage opens the
+disk with it, asking nothing. Minimal, which has no screen to set itself up
+on, asks for a passphrase, twice, and the first account's login name and
+password, and shows the recovery key once.
 
 It installs with the same code as `hide install` (the code `cargo xtask
-install` runs to make development disks), and when the disk is encrypted
-shows a recovery key once, to be written down. See
-[[Disk and encryption]].
+install` runs to make development disks). See [[Disk and encryption]].
+
+## First-boot setup
+
+On a Workstation no one has set up, greetd shows `hidesetup` instead of the
+login screen: full screen, in the greeter's compositor, as the greeter's
+user. A page at a time, as a Mac's Setup Assistant:
+
+1. the language — the one the session speaks, and the clock it reads: 24
+   hours but where the region uses AM and PM;
+2. the keyboard layout, from xkeyboard-config's list;
+3. a Wi-Fi network, skipped when a cable is connected;
+4. the time zone, from tzdata's `zone1970.tab`;
+5. the account: the full name, a login suggested from it, the password —
+   an administrator;
+6. on an encrypted disk: the password becomes the disk's passphrase, a
+   recovery key is made and shown once, and the setup key is taken out of
+   the disk and off the ESP.
+
+hidesetup changes nothing itself. Each page is a call to hideupd's
+`os.hide.Setup1`, which answers only the greeter's user and root, and only
+until `/var/lib/hide/setup-done` exists; the last page writes it, and the
+login screen comes up. A machine restarted halfway through starts setup
+again, and an account the unfinished setup made is taken back so it can be
+made again. Development disks, made with an account, have the mark.
 
 ## Reinstalling, keeping `/home`
 

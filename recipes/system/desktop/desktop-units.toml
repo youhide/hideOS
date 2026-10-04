@@ -33,13 +33,24 @@ install -Dm644 -t /usr/lib/oxinit/units "$FILES"/units/*.toml
 install -Dm644 -t /usr/lib/oxinit/user-units "$FILES"/user-units/*.toml
 install -Dm644 -t /usr/lib/pam.d "$FILES"/pam.d/*
 install -Dm644 -t /usr/lib/greetd "$FILES"/greetd/config.toml
+install -Dm755 -t /usr/libexec "$FILES"/greeter/hideos-greeter
 install -Dm644 -t /usr/share/hideos/xdg/autostart "$FILES"/autostart/*.desktop
+# The menu bar's corner: hideOS's logo, where a Mac has its apple, opening
+# Applications. cosmic-panel-button shows an entry as a button; the
+# logo is symbolic, so it takes the panel's text colour.
+install -Dm644 -t /usr/share/applications "$FILES"/applications/*.desktop
+install -Dm644 -t /usr/share/icons/hicolor/scalable/apps "$FILES"/icons/*.svg
 # hideOS's COSMIC defaults, found before COSMIC's own because start-cosmic
 # puts /usr/share/hideos first in XDG_DATA_DIRS. The dock lists what is
-# installed. The panel is laid out as a Mac's menu bar is: thin, the
-# system menu (lock, log out, restart, shut down) and Applications on the
-# left, status and the update applet on the right, the weekday, date and
-# time in the corner; nothing the dock already has. The theme is Dracula (draculatheme.com, MIT), computed by
+# installed. The panel is laid out as a Mac's menu bar is: thin, the logo
+# on the left, status, the update applet and the power menu (lock, log
+# out, restart, shut down) on the right, the weekday, date and time in
+# the corner; nothing the dock already has. Panel buttons are icons, so
+# the logo is one. The focused window has no coloured frame
+# (active_hint 0): as on a Mac, its shadow tells it.
+# The keyboard is US until first-boot setup or Settings says otherwise:
+# with none at all, cosmic-comp still types US, but the login screen's
+# layout button is empty. cosmic-comp ships no defaults of its own to keep. The theme is Dracula (draculatheme.com, MIT), computed by
 # COSMIC's own theme builder: tools/cosmic-dracula writes it.
 #
 # COSMIC takes a component's defaults from the first data directory that
@@ -54,4 +65,5 @@ done
 cp -r "$FILES/cosmic/." /usr/share/hideos/cosmic/
 test -f /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/size
 grep -q os.hide.UpdateApplet /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings
+grep -q os.hide.LogoButton /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings
 """

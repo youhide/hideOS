@@ -109,7 +109,10 @@ pub fn prepare(
     let epoch = newest_mtime(src, &copied)?;
     for file in &copied {
         let time = UNIX_EPOCH + std::time::Duration::from_secs(epoch);
-        fs::File::options().write(true).open(file)?.set_modified(time)?;
+        fs::File::options()
+            .write(true)
+            .open(file)?
+            .set_modified(time)?;
     }
 
     // The recipe's own files, where the script finds them as $FILES. After
@@ -120,7 +123,12 @@ pub fn prepare(
     }
 
     if entry.recipe.build.vendor == Some(Vendor::Cargo) {
-        vendor_cargo(layout, src)?;
+        // Where the lockfile is, here and as the sandbox sees it.
+        let (dir, inside) = match &entry.recipe.build.cargo_dir {
+            Some(dir) => (src.join(dir), format!("/build/src/{dir}")),
+            None => (src.to_path_buf(), "/build/src".to_owned()),
+        };
+        vendor_cargo(layout, &dir, &inside)?;
     }
 
     for patch in &entry.recipe.build.patches {
@@ -243,12 +251,13 @@ pub fn locked_crates(lockfile: &str) -> Result<Locked> {
 /// `src/.hideforge-vendor`, and points cargo at it, offline. The lockfile is
 /// part of the source archive, so its checksums are covered by the recipe's
 /// own: the crates are as pinned as the source is.
-fn vendor_cargo(layout: &Layout, src: &Path) -> Result<()> {
-    let lockfile = fs::read_to_string(src.join("Cargo.lock"))
-        .context("vendor = \"cargo\" needs a Cargo.lock at the top of the source")?;
+fn vendor_cargo(layout: &Layout, src: &Path, inside: &str) -> Result<()> {
+    let lockfile = fs::read_to_string(src.join("Cargo.lock")).context(
+        "vendor = \"cargo\" needs a Cargo.lock at the top of the source, or in its cargo-dir",
+    )?;
     let locked = locked_crates(&lockfile)?;
     if !locked.git.is_empty() {
-        return vendor_cargo_git(layout, src, locked.git.len());
+        return vendor_cargo_git(layout, src, inside, locked.git.len());
     }
     let crates = locked.crates;
     let vendor = src.join(".hideforge-vendor");
@@ -287,9 +296,11 @@ fn vendor_cargo(layout: &Layout, src: &Path) -> Result<()> {
     fs::create_dir_all(src.join(".cargo"))?;
     fs::write(
         src.join(".cargo/config.toml"),
-        "[source.crates-io]\nreplace-with = \"hideforge-vendor\"\n\n\
-         [source.hideforge-vendor]\ndirectory = \"/build/src/.hideforge-vendor\"\n\n\
-         [net]\noffline = true\n",
+        format!(
+            "[source.crates-io]\nreplace-with = \"hideforge-vendor\"\n\n\
+             [source.hideforge-vendor]\ndirectory = \"{inside}/.hideforge-vendor\"\n\n\
+             [net]\noffline = true\n"
+        ),
     )?;
     Ok(())
 }
@@ -305,7 +316,7 @@ fn vendor_cargo(layout: &Layout, src: &Path) -> Result<()> {
 /// in Cargo.lock, crates.io packages by checksum, which cargo verifies, and
 /// Cargo.lock by the recipe's digest of the source. The builder's cargo
 /// shapes only how the vendored manifests are written.
-fn vendor_cargo_git(layout: &Layout, src: &Path, git: usize) -> Result<()> {
+fn vendor_cargo_git(layout: &Layout, src: &Path, inside: &str, git: usize) -> Result<()> {
     eprintln!("  vendor with cargo ({git} packages from git)");
     let vendor = src.join(".hideforge-vendor");
     let output = Command::new("cargo")
@@ -331,7 +342,7 @@ fn vendor_cargo_git(layout: &Layout, src: &Path, git: usize) -> Result<()> {
         .context("cargo vendor printed something that is not UTF-8")?
         .replace(
             &vendor.display().to_string(),
-            "/build/src/.hideforge-vendor",
+            &format!("{inside}/.hideforge-vendor"),
         );
     // Without it, cargo would go to the network for the very sources just
     // vendored, and fail much later, offline, in the sandbox.
@@ -453,7 +464,10 @@ mod tests {
         fs::write(dir.join("dest/copied.run"), "x").unwrap();
         let copied = [dir.join("dest/copied.run")];
         assert_eq!(newest_mtime(&dir, &copied).unwrap(), 1_000_000_000);
-        assert_eq!(newest_mtime(&dir.join("dest"), &copied).unwrap(), 315_532_800);
+        assert_eq!(
+            newest_mtime(&dir.join("dest"), &copied).unwrap(),
+            315_532_800
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

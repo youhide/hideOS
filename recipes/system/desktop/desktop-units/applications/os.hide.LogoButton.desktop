@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=hideOS
+Comment=The hideOS logo in the menu bar, which opens Applications
+Type=Application
+Exec=cosmic-panel-button os.hide.Applications
+Icon=os.hide.Logo-symbolic
+NoDisplay=true
+X-CosmicApplet=true
+X-OverflowPriority=10

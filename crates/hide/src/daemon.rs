@@ -44,6 +44,11 @@ async fn serve() -> Result<()> {
     let _connection = zbus::connection::Builder::system()?
         .name(NAME)?
         .serve_at(PATH, update)?
+        // First-boot setup, on the same name: see setup_service.rs.
+        .serve_at(
+            crate::setup_service::PATH,
+            crate::setup_service::Setup1::default(),
+        )?
         .build()
         .await
         .context("taking os.hide.Update1 on the system bus")?;

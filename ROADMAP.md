@@ -193,7 +193,14 @@ Minimal.
       the deployments, going back, the disk's protection and the
       extensions, from hideupd, and "Update now" from the channel. The
       update applet in the panel: "Restart to update" once one is staged.
-- [ ] `hidesetup`: first-boot setup.
+- [x] `hidesetup`: first-boot setup, as a Mac's — language, keyboard,
+      Wi-Fi, time zone, the account, the disk's passphrase and a recovery
+      key — in libcosmic, on hideupd's `os.hide.Setup1`. The installer only
+      writes the disk; `cargo xtask setup-test` sets up an installed
+      Workstation as the greeter and logs in to the account it made.
+- [x] The menu bar as a Mac's: hideOS's logo in the corner, opening
+      Applications; the power menu by the clock; no coloured frame round
+      the focused window.
 - [x] The `workstation` image: `minimal-base` and the desktop layer.
 - [x] Flatpak with Flathub and `xdg-desktop-portal-cosmic`: Flathub's
       remote from /usr, its signed summary verified with GnuPG, sandboxes

@@ -14,6 +14,9 @@ build = ["toolchain"]
 run = [
     "minimal-base",
     "desktop-units",
+    # First-boot setup, and the languages and time zones it offers.
+    "hidesetup",
+    "locales",
     "fonts",
     "hicolor-icon-theme",
     # Dead keys and the Compose key: libxkbcommon reads these tables.

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <path fill="#bebebe" fill-rule="evenodd" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z"/>
+  <path fill="none" stroke="#bebebe" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M5.6 5.4 8.2 8l-2.6 2.6"/>
+  <rect fill="#bebebe" x="8.7" y="9.4" width="2.6" height="1.5" rx=".75"/>
+</svg>

@@ -99,6 +99,14 @@ fn interact() -> Result<()> {
         }
     }
 
+    // The Workstation sets up at its first boot, as a Mac does: the person,
+    // their passphrase and the recovery key are hidesetup's. Minimal has
+    // no screen for that, and asks here.
+    let edition = payload_edition(&payload).unwrap_or_else(|| "minimal".to_owned());
+    if edition != "minimal" {
+        return install_for_setup(payload, target, keep_home, existing_root.as_deref());
+    }
+
     println!();
     let (passphrase, encrypt) = match existing_root.as_ref().filter(|_| keep_home) {
         Some(root) if is_luks(root) => loop {
@@ -152,6 +160,7 @@ fn interact() -> Result<()> {
         recovery_key: recovery_key.clone(),
         swap_mib: Some(memory_mib()?),
         keep_home,
+        setup_key: false,
     };
     install(&options)?;
     copy_recovery()?;
@@ -179,6 +188,94 @@ fn interact() -> Result<()> {
         ask("Press Enter once it is written down.")?;
     }
     Ok(())
+}
+
+/// The Workstation's install: the disk, encrypted with a setup key unless
+/// the person says not to, and nothing personal — the first boot asks for
+/// the rest. A reinstall keeps the disk's passphrase and recovery key, so
+/// it opens with them; setup then asks only for the account.
+fn install_for_setup(
+    payload: PathBuf,
+    target: PathBuf,
+    keep_home: bool,
+    existing_root: Option<&Path>,
+) -> Result<()> {
+    println!();
+    let (encrypt, setup_key) = match existing_root.filter(|_| keep_home) {
+        Some(root) if is_luks(root) => loop {
+            let answer = ask_hidden("Disk passphrase or recovery key: ")?;
+            if opens(root, &answer) {
+                break (Some(answer), false);
+            }
+            println!("  That does not open the disk.");
+        },
+        Some(_) => (None, false),
+        None => {
+            let encrypt = !matches!(
+                ask("Encrypt the disk? [Y/n]: ")?.to_lowercase().as_str(),
+                "n" | "no"
+            );
+            if encrypt {
+                let mut random = [0u8; 32];
+                fs::File::open("/dev/urandom")
+                    .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut random))
+                    .context("reading /dev/urandom")?;
+                let key: String = random.iter().map(|b| format!("{b:02x}")).collect();
+                (Some(key), true)
+            } else {
+                (None, false)
+            }
+        }
+    };
+    println!();
+    let options = Options {
+        payload,
+        disk: target,
+        poweroff: false,
+        user: None,
+        encrypt,
+        recovery_key: None,
+        swap_mib: Some(memory_mib()?),
+        keep_home,
+        setup_key,
+    };
+    install(&options)?;
+    copy_recovery()?;
+    println!();
+    match crate::secureboot::run(&["enroll".to_owned()]) {
+        Ok(()) => println!("Secure Boot is on with hideOS's keys from the next start."),
+        Err(why) => println!("Secure Boot keys not enrolled: {why:#}"),
+    }
+    println!();
+    println!("hideOS is installed. Remove the installer and restart:");
+    println!("the first start sets it up — language, network and your account.");
+    Ok(())
+}
+
+/// The edition a payload installs, from the name of the kernel image it
+/// carries for the ESP — `hideos-EDITION-VERSION-DIGEST.efi` — found by
+/// reading the archive's headers and seeking past everything else.
+fn payload_edition(payload: &Path) -> Option<String> {
+    let file = fs::File::open(payload).ok()?;
+    let mut archive = tar::Archive::new(file);
+    for entry in archive.entries_with_seek().ok()? {
+        let entry = entry.ok()?;
+        let path = entry.path().ok()?.to_string_lossy().into_owned();
+        let Some(name) = path
+            .strip_prefix("esp/EFI/Linux/hideos-")
+            .and_then(|rest| rest.strip_suffix(".efi"))
+        else {
+            continue;
+        };
+        // The edition is what comes before the version, the first part
+        // that is all digits.
+        let parts: Vec<&str> = name.split('-').collect();
+        let version = parts
+            .iter()
+            .position(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))?;
+        return Some(parts.get(..version)?.join("-"));
+    }
+    None
 }
 
 /// The recovery system, from the medium onto the new disk's ESP, where

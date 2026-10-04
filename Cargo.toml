@@ -8,6 +8,8 @@ members = [
     "crates/hidestage",
     "crates/xtask",
 ]
+# Its own workspace and lockfile: see its Cargo.toml.
+exclude = ["crates/hidesetup"]
 
 [workspace.package]
 version = "0.0.0"

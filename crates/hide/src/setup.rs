@@ -32,7 +32,7 @@ pub fn run(args: &[String]) -> Result<()> {
 
 /// `/etc/subuid` and `/etc/subgid`: a range for each person, for rootless
 /// containers. See hide::subid.
-fn subordinate_ids(root: &Path) -> Result<()> {
+pub(crate) fn subordinate_ids(root: &Path) -> Result<()> {
     let passwd = fs::read_to_string(root.join("etc/passwd")).unwrap_or_default();
     for name in ["subuid", "subgid"] {
         let path = root.join("etc").join(name);

@@ -50,6 +50,7 @@ fn main() -> ExitCode {
         Some("sysext-test") => sysext_test(args.get(1..).unwrap_or_default()),
         Some("desktop-test") => desktop_test(args.get(1..).unwrap_or_default()),
         Some("desktop-shell") => desktop_shell(args.get(1..).unwrap_or_default()),
+        Some("setup-test") => setup_test(args.get(1..).unwrap_or_default()),
         Some("hw-test") => hw_test(args.get(1..).unwrap_or_default()),
         Some("registry-test") => registry_test(args.get(1..).unwrap_or_default()),
         Some("secureboot-keys") => secureboot_keys().map(|_| ()),
@@ -113,8 +114,11 @@ fn usage() -> &'static str {
     installer [--arch ARCH] [--edition E]
                                   an installer medium: a disk image with the
                                   installer and E's payload, for a USB stick
-    installer-test [--arch ARCH]  boot the installer beside an empty disk,
-                                  answer it, and boot what it installed
+    installer-test [--arch ARCH] [--edition E]
+                                  boot the installer beside an empty disk,
+                                  answer it, and boot what it installed; the
+                                  Workstation's asks only about the disk and
+                                  starts first-boot setup
     sysext-test [--arch ARCH]     system extensions: refused unsigned, left out
                                   when built for another image, merged over
                                   /usr when signed for this one
@@ -133,6 +137,12 @@ fn usage() -> &'static str {
     desktop-test [--arch ARCH]    install the Workstation and check what it adds:
                                   hideupd on the bus, polkit's actions, Flathub
                                   reached and verified, a sandbox as a user
+    setup-test [--arch ARCH]      install the Workstation encrypted and with no
+                                  account, as the installer does: first-boot
+                                  setup comes up, takes each choice as the
+                                  greeter, makes the account, gives the disk
+                                  its passphrase and a recovery key, then the
+                                  login screen lets the person in
     desktop-shell [--arch ARCH]   boot the disk desktop-test installed, log in at the
                                   greeter, then run each file put in the image
                                   directory's desktop-shell/in as a command on
@@ -141,7 +151,7 @@ fn usage() -> &'static str {
     screenshot [--arch ARCH] [--edition E] [--login] [--then STEPS]
                                   boot it and save a PNG of the screen;
                                   --login logs in at the greeter first;
-                                  --then key:meta_l-t;type:TEXT;wait:5
+                                  --then key:meta_l-t;type:TEXT;wait:5;mouse:640 400
     hideboot-screenshot [--arch ARCH] [--no-build] [--manager FILE] [--display WxH]
                                   install Minimal, give its ESP an entry in
                                   each state and the recovery system, and
@@ -837,6 +847,19 @@ fn install_payload(
     disk: &Path,
     extra: &str,
 ) -> Result<(), String> {
+    let user = format!("--user {DEV_USER} --password {DEV_USER} {extra}");
+    install_payload_as(arch, edition, dir, disk, &user)
+}
+
+/// `install_payload` with every argument for `hide install` given: with
+/// no `--user`, the disk is one first-boot setup has yet to set up.
+fn install_payload_as(
+    arch: Arch,
+    edition: Edition,
+    dir: &Path,
+    disk: &Path,
+    arguments: &str,
+) -> Result<(), String> {
     let dir = dir.to_path_buf();
     // Every edition is installed by Minimal, as on a real machine.
     let (kernel, initrd) = ram_image(arch, &image_dir(MINIMAL, arch)?)?;
@@ -871,8 +894,7 @@ fn install_payload(
         .arg("-append")
         .arg(format!(
             "console={} rdinit=/usr/bin/hide panic=-1 -- \
-             install --payload /dev/vdb --disk /dev/vda --poweroff \
-             --user {DEV_USER} --password {DEV_USER} {extra}",
+             install --payload /dev/vdb --disk /dev/vda --poweroff {arguments}",
             arch.console
         ))
         .arg("-drive")
@@ -1891,6 +1913,282 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
     }
 }
 
+/// First-boot setup, as a Workstation from the installer meets it: an
+/// encrypted disk opened by the setup key, no account, hidesetup on the
+/// screen. Each page's call is made as the greeter's user, as hidesetup
+/// makes it; then the login screen, the account, and a disk that asks for
+/// the new passphrase.
+fn setup_test(args: &[String]) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let arch = find_arch(args)?;
+    let edition = EDITIONS
+        .iter()
+        .copied()
+        .find(|e| e.name == "workstation")
+        .ok_or("no workstation edition")?;
+    build_image(arch, edition, image_version()?, "", None)?;
+    let dir = image_dir(edition, arch)?;
+    let disk = dir.join("setup-test.raw");
+    fresh_firmware_variables(&dir);
+    // What the installer does for the Workstation: a random setup key on
+    // the ESP; here a known one, to check it is gone after.
+    install_payload_as(
+        arch,
+        edition,
+        &dir,
+        &disk,
+        &format!("--encrypt {DEV_DISK_PASSPHRASE} --setup-key"),
+    )?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let boot_timeout = arch.timeout.max(Duration::from_secs(300));
+    let prompt = "Passphrase for the hideOS disk";
+    let socket = monitor_path("setup-test.sock");
+    let start = |socket: &Path| -> Result<Guest, String> {
+        let _ = fs::remove_file(socket);
+        let mut command = disk_qemu(arch, edition, &dir, false)?;
+        command
+            .arg("-drive")
+            .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+            .args(DESKTOP_DEVICES)
+            .arg("-monitor")
+            .arg(format!("unix:{},server,nowait", socket.display()));
+        Guest::spawn(arch, command)
+    };
+    let screen = |name: &str| -> Result<PathBuf, String> {
+        let shot = monitor_path("setup-test.png");
+        let mut monitor = UnixStream::connect(&socket).map_err(|e| format!("QEMU monitor: {e}"))?;
+        monitor
+            .write_all(format!("screendump {} -f png\n", shot.display()).as_bytes())
+            .map_err(|e| format!("QEMU monitor: {e}"))?;
+        thread::sleep(Duration::from_secs(3));
+        let png = dir.join(name);
+        let _ = fs::rename(&shot, &png).or_else(|_| fs::copy(&shot, &png).map(|_| ()));
+        Ok(png)
+    };
+    // A call to os.hide.Setup1 as `user`: zsh's USERNAME, set by root,
+    // becomes that user. SecureDisk makes two LUKS keyslots, each with
+    // Argon2's memory-hard derivation: longer than dbus-send's 25 seconds
+    // in a VM.
+    let setup = |user: &str, call: &str| {
+        format!(
+            "( USERNAME={user}; dbus-send --system --print-reply --reply-timeout=300000 \
+             --dest=os.hide.Update1 /os/hide/Setup1 os.hide.Setup1.{call} )"
+        )
+    };
+    let greeter = |call: &str| setup("cosmic-greeter", call);
+
+    println!("boot 1: the setup key opens the disk, and setup is on the screen");
+    let mut guest = start(&socket)?;
+    let up = guest.wait_for("reached target default", boot_timeout);
+    check(
+        "the setup key opens the disk, with nothing asked",
+        up && !guest.output().contains(prompt),
+        &guest.output(),
+    );
+    if !up {
+        return Err("the disk did not boot".into());
+    }
+    guest.shell()?;
+    let out = guest.run(
+        "for i in {1..120}; do for p in /proc/[0-9]*; do [[ $(<$p/comm) == hidesetup ]] \
+         && print \"setup up as $(stat -c %U $p)\" && break 2; done 2>/dev/null; sleep 1; done; \
+         sleep 15; hide status",
+        Duration::from_secs(300),
+    )?;
+    let png = screen("setup-test.png")?;
+    check(
+        "hidesetup is on the screen, as the greeter's user",
+        out.contains("setup up as cosmic-greeter"),
+        &out,
+    );
+    check(
+        "hide status says the setup key opened it",
+        out.contains("setup key"),
+        &out,
+    );
+    println!("        screen: {}", png.display());
+
+    let out = guest.run(
+        &format!(
+            "{}; {}; {}; {}; {}",
+            greeter("Needed"),
+            greeter("Languages"),
+            greeter("Layouts") + " | grep -c '\"br\"'",
+            greeter("Zones") + " | grep -c America/Sao_Paulo",
+            greeter("DiskNeedsPassphrase"),
+        ),
+        minute,
+    )?;
+    check(
+        "it offers languages, layouts and zones, and knows the disk needs a passphrase",
+        out.contains("pt_BR.UTF-8")
+            && out.contains("de_DE.UTF-8")
+            && out.matches("boolean true").count() == 2
+            && out.lines().filter(|l| l.trim() == "1").count() == 2,
+        &out,
+    );
+    let out = guest.run(&setup("nobody", "SetLanguage string:pt_BR.UTF-8"), minute)?;
+    check(
+        "anyone but the greeter is refused",
+        out.contains("AccessDenied"),
+        &out,
+    );
+    let out = guest.run(&greeter("SetZone string:../../etc/shadow"), minute)?;
+    check(
+        "a zone outside zoneinfo is refused",
+        out.contains("InvalidArgs"),
+        &out,
+    );
+
+    let out = guest.run(
+        &format!(
+            "{} && {} && {} && {} && print chosen; cat /etc/environment; date +%z; \
+             cat /var/lib/cosmic-greeter/.config/cosmic/com.system76.CosmicComp/v1/xkb_config",
+            greeter("SetLanguage string:pt_BR.UTF-8"),
+            greeter("SetKeyboard string:br string:"),
+            greeter("SetZone string:America/Sao_Paulo"),
+            greeter(&format!(
+                "CreateAccount 'string:Ada Lovelace' string:ada string:{DEV_USER}"
+            )),
+        ),
+        minute,
+    )?;
+    check(
+        "the language, keyboard, time zone and account are taken",
+        out.contains("chosen")
+            && out.contains("LANG=pt_BR.UTF-8")
+            && out.contains("-0300")
+            && out.contains("layout: \"br\""),
+        &out,
+    );
+    let out = guest.run(
+        "id ada; stat -c '%U %a' /home/ada; \
+         grep layout /home/ada/.config/cosmic/com.system76.CosmicComp/v1/xkb_config; \
+         grep ^ada: /etc/subuid; \
+         print clock $(</home/ada/.config/cosmic/com.system76.CosmicAppletTime/v1/military_time)",
+        minute,
+    )?;
+    check(
+        "the account administers the machine, with its home, keyboard, Brazil's 24-hour \
+         clock and subordinate IDs",
+        out.contains("uid=1000(ada)")
+            && out.contains("wheel")
+            && out.contains("ada 700")
+            && out.contains("\"br\"")
+            && out.contains("ada:")
+            && out.contains("clock true"),
+        &out,
+    );
+
+    let out = guest.run(&greeter(&format!("SecureDisk string:{DEV_USER}")), minute)?;
+    let recovery = out
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("string \""))
+        .and_then(|l| l.strip_suffix('"'))
+        .unwrap_or_default()
+        .to_owned();
+    check(
+        "the disk takes the person's passphrase and gives a recovery key",
+        recovery.len() >= 40 && recovery.contains('-'),
+        &out,
+    );
+    let out = guest.run(
+        &format!(
+            "dev=$(cryptsetup status hideos-root | awk '/device:/ {{print $2}}'); \
+             for key in {DEV_USER} {recovery} {DEV_DISK_PASSPHRASE}; do \
+             print -rn -- $key | cryptsetup open --test-passphrase $dev --key-file - \
+             && print \"opens: $key\" || print \"refused: $key\"; done; \
+             mount -o ro /dev/vda1 /mnt && ls /mnt/EFI/hideos; umount /mnt"
+        ),
+        minute,
+    )?;
+    check(
+        "the passphrase and the recovery key open it, the setup key no longer does and is gone",
+        out.contains(&format!("opens: {DEV_USER}"))
+            && out.contains(&format!("opens: {recovery}"))
+            && out.contains(&format!("refused: {DEV_DISK_PASSPHRASE}"))
+            && !out.contains("setup.key"),
+        &out,
+    );
+
+    let out = guest.run(
+        &format!(
+            "{} && print finished; ls /var/lib/hide/setup-done; {}",
+            greeter("Finish"),
+            greeter("SetLanguage string:en_US.UTF-8")
+        ),
+        minute,
+    )?;
+    check(
+        "setup finishes, and answers no one after",
+        out.contains("finished") && !out.contains("No such file") && out.contains("AccessDenied"),
+        &out,
+    );
+
+    // hidesetup leaves when Finish answers; here the calls were made
+    // around it, so it is closed as it would close itself.
+    guest.run(
+        "for p in /proc/[0-9]*; do [[ $(<$p/comm) == hidesetup ]] && kill ${p#/proc/}; done \
+         2>/dev/null; for i in {1..60}; do for p in /proc/[0-9]*; do \
+         [[ $(<$p/comm) == cosmic-greeter ]] && break 2; done 2>/dev/null; sleep 1; done; sleep 10",
+        Duration::from_secs(120),
+    )?;
+    let png = screen("setup-test-greeter.png")?;
+    println!("        login screen: {}", png.display());
+    log_in(&mut guest, &socket)?;
+    let out = guest.run(
+        "sleep 20; for p in /proc/[0-9]*; do [[ $(<$p/comm) == cosmic-panel ]] && \
+         { stat -c %U $p; tr '\\0' '\\n' < $p/environ | grep ^LANG=; break; }; done 2>/dev/null",
+        Duration::from_secs(120),
+    )?;
+    // The pointer away from the menu bar's corner, where it would hide the
+    // logo.
+    if let Ok(mut monitor) = UnixStream::connect(&socket) {
+        let _ = monitor.write_all(b"mouse_move 640 400\n");
+        thread::sleep(Duration::from_secs(1));
+    }
+    let png = screen("setup-test-desktop.png")?;
+    check(
+        "the login screen lets the new account in, in its language",
+        out.contains("ada") && out.contains("LANG=pt_BR.UTF-8"),
+        &out,
+    );
+    println!("        desktop: {}", png.display());
+    guest.type_line("poweroff")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+
+    println!("boot 2: the disk asks for the person's passphrase");
+    let mut guest = start(&socket)?;
+    let asked = guest.wait_for(prompt, boot_timeout);
+    check("it asks", asked, &guest.output());
+    guest.type_line(DEV_USER)?;
+    let up = guest.wait_for("reached target default", boot_timeout);
+    check("the person's passphrase opens it", up, &guest.output());
+    drop(guest);
+    let _ = fs::remove_file(&socket);
+
+    if failures.is_empty() {
+        let _ = fs::remove_file(&disk);
+        println!("{}: first-boot setup sets the machine up", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
 fn net_test(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let dir = image_dir(MINIMAL, arch)?;
@@ -2111,8 +2409,120 @@ fn installer(args: &[String]) -> Result<PathBuf, String> {
 
 /// The installer, driven as a person would: answers typed on its console.
 /// Then the disk it made boots, opened with the recovery key it showed.
+/// The Workstation's installer, which leaves the rest to first-boot
+/// setup: it asks for the disk and whether to encrypt it, nothing more, and
+/// the disk it writes opens with its setup key and starts hidesetup.
+fn installer_setup_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let edition = find_edition(args)?;
+    let medium = installer(args)?;
+    let dir = image_dir(edition, arch)?;
+    let disk = dir.join("installer-test.raw");
+    let _ = fs::remove_file(&disk);
+    fresh_firmware_variables(&dir);
+    fs::File::create(&disk)
+        .and_then(|f| f.set_len(DISK_SIZE))
+        .map_err(|e| format!("creating {}: {e}", disk.display()))?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let boot_timeout = arch.timeout.max(Duration::from_secs(300));
+
+    let mut command = disk_qemu(arch, MINIMAL, &image_dir(MINIMAL, arch)?, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .arg("-drive")
+        .arg(format!(
+            "if=virtio,format=raw,readonly=on,file={}",
+            medium.display()
+        ));
+    let mut guest = Guest::spawn(arch, command)?;
+    let mut asked = true;
+    for (prompt, text) in [
+        ("Install on which disk?", "1"),
+        ("Type `erase` to continue", "erase"),
+        ("Encrypt the disk?", "y"),
+    ] {
+        asked &= guest.wait_for(prompt, boot_timeout);
+        guest.type_line(text)?;
+        thread::sleep(Duration::from_millis(500));
+    }
+    check(
+        "the installer asks for the disk and whether to encrypt it",
+        asked,
+        &guest.output(),
+    );
+    let installed = guest.wait_for("the first start sets it up", Duration::from_secs(1500));
+    let output = guest.output();
+    check(
+        "it installs, asking for no passphrase and no account",
+        installed && !output.contains("Disk passphrase:") && !output.contains("login name"),
+        &output,
+    );
+    if guest.wait_for("Press Enter to turn the machine off.", minute) {
+        guest.type_line("")?;
+    }
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+
+    let mut command = disk_qemu(arch, edition, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(DESKTOP_DEVICES);
+    let mut guest = Guest::spawn(arch, command)?;
+    let up = guest.wait_for("reached target default", boot_timeout);
+    check(
+        "the disk opens with its setup key, nothing asked",
+        up && !guest.output().contains("Passphrase for the hideOS disk"),
+        &guest.output(),
+    );
+    if up {
+        guest.shell()?;
+        let out = guest.run(
+            "for i in {1..120}; do for p in /proc/[0-9]*; do [[ $(<$p/comm) == hidesetup ]] \
+             && print setup-up && break 2; done 2>/dev/null; sleep 1; done; \
+             hide status; ls /var/lib/hide/setup-done",
+            Duration::from_secs(300),
+        )?;
+        check(
+            "first-boot setup starts, on an encrypted disk with no account",
+            out.contains("setup-up")
+                && out.contains("encrypted (LUKS2)")
+                && out.contains("setup key")
+                && out.contains("No such file"),
+            &out,
+        );
+    }
+    drop(guest);
+
+    if failures.is_empty() {
+        let _ = fs::remove_file(&disk);
+        println!(
+            "{}: the {} installer leaves the rest to first-boot setup",
+            arch.name, edition.name
+        );
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
 fn installer_test(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
+    if find_edition(args)?.name != MINIMAL.name {
+        return installer_setup_test(args);
+    }
     let medium = installer(args)?;
     let dir = image_dir(MINIMAL, arch)?;
     let disk = dir.join("installer-test.raw");
@@ -3961,6 +4371,12 @@ fn desktop_screenshot(arch: Arch, edition: Edition, login: bool, then: &str) -> 
                         }
                         monitor.write_all(b"sendkey ret\n")?;
                         thread::sleep(Duration::from_secs(2));
+                    }
+                    // The pointer, to `X Y` on the tablet: away from what it
+                    // would hide.
+                    Some(("mouse", at)) => {
+                        monitor.write_all(format!("mouse_move {at}\n").as_bytes())?;
+                        thread::sleep(Duration::from_secs(1));
                     }
                     Some(("wait", seconds)) => {
                         let seconds = seconds.parse().unwrap_or(5);

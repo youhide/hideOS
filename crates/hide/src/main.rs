@@ -43,6 +43,8 @@ mod secureboot;
 #[cfg(target_os = "linux")]
 mod setup;
 #[cfg(target_os = "linux")]
+mod setup_service;
+#[cfg(target_os = "linux")]
 mod shell;
 
 use std::process::ExitCode;

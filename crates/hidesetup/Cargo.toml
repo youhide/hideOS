@@ -1,0 +1,24 @@
+# First-boot setup, as on a Mac: the language, the keyboard, a network,
+# the time zone, the account, and the disk's passphrase and recovery key.
+# See ARCHITECTURE.md, "First-boot setup".
+#
+# Not part of the workspace: it builds against libcosmic, at the commit
+# COSMIC 1.9's applications use, and its hundreds of crates would otherwise
+# be in the lockfile — and the vendored sources — of every hideOS program.
+# hideforge builds it from its own Cargo.lock (`cargo-dir`).
+[package]
+name = "hidesetup"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+libcosmic = { git = "https://github.com/pop-os/libcosmic.git", rev = "08a09e3dfa1f729d52585fcedd6e731130235363", default-features = false, features = ["tokio", "winit", "wgpu"] }
+tokio = { version = "1", features = ["time"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[profile.release]
+panic = "unwind"

@@ -24,8 +24,11 @@ use crate::sys::dm;
 pub const MAPPED_NAME: &str = "hideos-root";
 /// Where the sealed key is on the ESP. See `hide tpm-enroll`.
 const SEALED_PATH: &str = "EFI/hideos/root.tpm2";
+/// The installer's random key, on the ESP until first-boot setup replaces
+/// it with the person's passphrase. See ARCHITECTURE.md, "First-boot setup".
+const SETUP_KEY_PATH: &str = "EFI/hideos/setup.key";
 /// How the root was opened, for `hide tpm-enroll` once the system runs:
-/// `tpm`, `passphrase`, or `passphrase tpm-refused`.
+/// `setup`, `tpm`, `passphrase`, or `passphrase tpm-refused`.
 pub const UNLOCK_NOTE: &str = "/run/hidestage/unlock";
 const ESP_MOUNT: &str = "/run/hidestage/esp";
 const TPM: &str = "/dev/tpmrm0";
@@ -44,10 +47,15 @@ pub fn open(device: &Path, esp_label: &str) -> Result<PathBuf, BootError> {
     };
     say(&format!("hidestage: {} is encrypted", device.display()));
 
-    let (key, how) = match tpm_key(&header, esp_label) {
-        TpmOutcome::Key(key) => (key, "tpm"),
-        TpmOutcome::Refused => (ask(&header, &file)?, "passphrase tpm-refused"),
-        TpmOutcome::Absent => (ask(&header, &file)?, "passphrase"),
+    // A disk no one has set up yet opens with the installer's key, and
+    // only then with the TPM or a passphrase, which it does not have yet.
+    let (key, how) = match setup_key(&header, &file, esp_label) {
+        Some(key) => (key, "setup"),
+        None => match tpm_key(&header, esp_label) {
+            TpmOutcome::Key(key) => (key, "tpm"),
+            TpmOutcome::Refused => (ask(&header, &file)?, "passphrase tpm-refused"),
+            TpmOutcome::Absent => (ask(&header, &file)?, "passphrase"),
+        },
     };
     let path = map(&header, &key, device)?;
     let _ = fs::create_dir_all("/run/hidestage");
@@ -110,15 +118,34 @@ fn tpm_key(header: &Header, esp_label: &str) -> TpmOutcome {
     }
 }
 
-/// The sealed key, from the ESP, mounted read-only for as long as it takes
-/// to read one file.
+/// The sealed key, from the ESP.
 fn read_sealed(esp_label: &str) -> Option<Sealed> {
+    Sealed::from_bytes(&read_esp(esp_label, SEALED_PATH)?).ok()
+}
+
+/// The installer's setup key, if it is still on the ESP and opens this
+/// volume. One that does not — left from another install — is passed over
+/// for the ordinary ways in, not an error.
+fn setup_key(header: &Header, device: &File, esp_label: &str) -> Option<Key> {
+    let bytes = zeroize::Zeroizing::new(read_esp(esp_label, SETUP_KEY_PATH)?);
+    match header.unlock(device, &bytes) {
+        Ok(key) => Some(key),
+        Err(_) => {
+            say("hidestage: the setup key on the ESP does not open this disk");
+            None
+        }
+    }
+}
+
+/// One file from the ESP, mounted read-only for as long as it takes to
+/// read it.
+fn read_esp(esp_label: &str, path: &str) -> Option<Vec<u8>> {
     let esp = find_partition(esp_label)?;
     fs::create_dir_all(ESP_MOUNT).ok()?;
     mount(&esp, ESP_MOUNT, "vfat", MountFlags::RDONLY, None).ok()?;
-    let bytes = fs::read(Path::new(ESP_MOUNT).join(SEALED_PATH));
+    let bytes = fs::read(Path::new(ESP_MOUNT).join(path));
     let _ = unmount(ESP_MOUNT, UnmountFlags::empty());
-    Sealed::from_bytes(&bytes.ok()?).ok()
+    bytes.ok()
 }
 
 fn find_partition(label: &str) -> Option<PathBuf> {

@@ -1,0 +1,30 @@
+# The languages first-boot setup offers, besides the ones glibc's recipe
+# compiles (C, en_US and pt_BR): compiled here from glibc's own sources, one
+# directory each (--no-archive), since glibc's package owns the archive.
+# glibc reads the archive first and these directories after it.
+#
+# Only languages whose script the system's fonts draw (Open Sans: Latin,
+# Greek, Cyrillic). Chinese, Japanese and Korean come with a CJK font.
+[package]
+name = "locales"
+version = "1"
+description = "Compiled locales for the languages hideOS offers"
+license = "LGPL-2.1-or-later"
+
+[depends]
+build = ["toolchain"]
+run = ["glibc"]
+
+[build]
+script = """
+for locale in \
+    cs_CZ da_DK de_AT de_CH de_DE el_GR en_AU en_CA en_GB es_AR es_ES es_MX \
+    fi_FI fr_CA fr_FR hu_HU it_IT nb_NO nl_NL pl_PL pt_PT ro_RO \
+    ru_RU sv_SE tr_TR uk_UA
+do
+    # Named with the codeset as glibc normalises it, which is the name it
+    # looks for whether LANG says UTF-8 or utf8.
+    localedef --no-archive -i "$locale" -f UTF-8 "$locale.utf8"
+done
+test -d /usr/lib/locale/uk_UA.utf8
+"""

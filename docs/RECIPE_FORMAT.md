@@ -133,6 +133,22 @@ repository is included, so documentation does not reach a build.
 It is how hideOS's own programs — hidestage, hide — are built by the same
 toolchain, in the same sandbox, as everything else.
 
+## `build.cargo-dir`
+
+```toml
+[build]
+workspace = true
+vendor = "cargo"
+cargo-dir = "crates/hidesetup"
+```
+
+With `vendor = "cargo"`: the directory, under the source, whose
+`Cargo.lock` is vendored, and where the cargo configuration that points at
+the vendored crates is written — so the build script runs cargo there. For
+a crate in the workspace's tree that keeps a lockfile of its own and stays
+out of the workspace, as hidesetup does: libcosmic and its hundreds of
+crates then reach no other build from the workspace.
+
 ## `[depends]`
 
 | Key     | Meaning                                                                          |

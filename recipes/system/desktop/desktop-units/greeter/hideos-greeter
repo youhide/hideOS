@@ -1,0 +1,14 @@
+#!/bin/sh
+# What greetd shows: first-boot setup on a machine no one has set up yet,
+# the login screen after. Both in the greeter's own compositor, as its own
+# user, with hideOS's COSMIC defaults first, as in the session.
+#
+# When setup is done, hidesetup exits, cosmic-comp with it, and greetd —
+# whose greeter has gone without a login — is started again by oxinit
+# (restart = "always"); this time the mark is there and the login screen
+# comes up. See ARCHITECTURE.md, "First-boot setup".
+export XDG_DATA_DIRS=/usr/share/hideos:/usr/local/share:/usr/share
+if [ ! -e /var/lib/hide/setup-done ] && [ -x /usr/bin/hidesetup ]; then
+    exec cosmic-comp hidesetup
+fi
+exec cosmic-greeter-start

@@ -160,6 +160,21 @@ the host online); bubblewrap makes an unprivileged sandbox for a user; the
 portals, Flatpak's system helper and Settings' Updates page are in the
 image. The first Workstation build is most of a day; see [[Building]].
 
+### `setup-test`
+
+Installs the Workstation as the installer does — encrypted, with a setup
+key and no account — and checks first-boot setup: the setup key opens the
+disk with nothing asked; hidesetup is on the screen as the greeter's user;
+it offers languages, layouts and zones; anyone but the greeter is refused,
+and a zone outside `/usr/share/zoneinfo` too. Then, as the greeter, each
+page's call: the language, keyboard, time zone and account are taken; the
+account is an administrator with its home, keyboard, clock and subordinate
+IDs; the disk takes the passphrase and gives a recovery key, both open it
+and the setup key no longer does; setup finishes and answers no one after.
+The login screen lets the new account in, in its language, and the next
+boot asks for the passphrase and opens with it. Saves `setup-test.png`,
+`setup-test-greeter.png` and `setup-test-desktop.png`.
+
 ## Pictures
 
 Not tests, but real boots, and how the site's and the READMEs' pictures

@@ -68,6 +68,10 @@ pub(crate) struct Options {
     /// whose system no longer starts, or who wants a clean one, does
     /// without losing their files.
     pub(crate) keep_home: bool,
+    /// `encrypt` is a setup key, not a person's passphrase: written to the
+    /// ESP, where hidestage finds it, until first-boot setup replaces it.
+    /// See ARCHITECTURE.md, "First-boot setup".
+    pub(crate) setup_key: bool,
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -98,6 +102,7 @@ fn parse(args: &[String]) -> Result<Options> {
     let mut swap_mib = None;
     let mut encrypt = None;
     let mut keep_home = false;
+    let mut setup_key = false;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -111,12 +116,18 @@ fn parse(args: &[String]) -> Result<Options> {
             "--password" => password = iter.next().cloned(),
             // On the command line, like --password: development disks only.
             "--encrypt" => encrypt = iter.next().cloned(),
+            // --encrypt's value is a setup key, left on the ESP for
+            // first-boot setup, as the installer does for the Workstation.
+            "--setup-key" => setup_key = true,
             "--swap" => {
                 let value = iter.next().context("--swap takes a size in MiB")?;
                 swap_mib = Some(value.parse().context("--swap takes a size in MiB")?);
             }
             other => bail!("unknown argument `{other}`"),
         }
+    }
+    if setup_key && encrypt.is_none() {
+        bail!("--setup-key names --encrypt's value a setup key: give --encrypt");
     }
     let user = match (user, password) {
         (Some(name), Some(password)) => Some((name, password)),
@@ -132,6 +143,7 @@ fn parse(args: &[String]) -> Result<Options> {
         recovery_key: None,
         swap_mib,
         keep_home,
+        setup_key,
     })
 }
 
@@ -299,6 +311,23 @@ pub(crate) fn install(options: &Options) -> Result<()> {
     if let Some((name, password)) = &options.user {
         add_user(&root_mount, name, password)?;
         say(&format!("user {name} created"));
+        // An account made here is the setup a person would have done at
+        // the first boot: Minimal's, and every development disk's.
+        let mark = root_mount
+            .join("@var")
+            .join(crate::setup_service::SETUP_DONE.trim_start_matches("/var/"));
+        if let Some(parent) = mark.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&mark, "")?;
+    }
+    if let (true, Some(key)) = (options.setup_key, &options.encrypt) {
+        let path = esp_mount.join(crate::setup_service::SETUP_KEY);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, key).context("writing the setup key to the ESP")?;
+        say("setup key on the ESP, until first-boot setup");
     }
 
     rustix::fs::sync();

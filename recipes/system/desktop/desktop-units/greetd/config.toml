@@ -7,8 +7,8 @@ vt = 1
 [general]
 service = "cosmic-greeter"
 
-# hideOS's COSMIC defaults first, as in the session (start-cosmic): the
-# greeter in Dracula too.
+# First-boot setup until it is done, the login screen after; see
+# hideos-greeter.
 [default_session]
-command = "env XDG_DATA_DIRS=/usr/share/hideos:/usr/local/share:/usr/share cosmic-greeter-start"
+command = "/usr/libexec/hideos-greeter"
 user = "cosmic-greeter"

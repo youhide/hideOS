@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Applications
+Comment=Every application installed
+Type=Application
+Exec=cosmic-app-library
+Icon=os.hide.Logo-symbolic
+NoDisplay=true

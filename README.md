@@ -13,7 +13,9 @@ and boots it sealed — UEFI, hideBoot, a kernel image carrying the
 system's digest, a read-only root checked by fs-verity — under oxinit, in
 QEMU: Minimal to a shell, Workstation to the COSMIC desktop, with Flatpak
 and Flathub, and `hide shell` for development tools in rootless Podman
-containers. It installs from its own installer, enrolls its own Secure Boot
+containers. It installs from its own installer and sets itself up at the
+first start as a Mac does — language, keyboard, Wi-Fi, time zone, the
+account, the disk's passphrase and recovery key — enrolls its own Secure Boot
 keys, opens an encrypted disk with the TPM, updates whole from
 ghcr.io/youhide/hideos and rolls back by itself, with a hardware watchdog
 for a boot that hangs. Not yet for daily use; see [ROADMAP.md](ROADMAP.md). Site and wiki:
@@ -22,6 +24,8 @@ for a boot that hangs. Not yet for daily use; see [ROADMAP.md](ROADMAP.md). Site
 ![hideOS Workstation: the COSMIC desktop in hideOS's Dracula theme, its menu bar laid out like a Mac's, a terminal showing `hide status` — the running deployment, the disk, and updates from ghcr.io/youhide/hideos:workstation-edge](docs/images/workstation-desktop.png)
 
 ![Settings → System → Updates: updates from the edge channel with "Update now", the deployment that runs, and going back to the previous one](docs/images/workstation-updates.png)
+
+![First-boot setup, full screen: Welcome to hideOS, choose your language](docs/images/workstation-setup.png)
 
 ![cosmic-greeter in Dracula's colours, asking for the password of hide](docs/images/workstation-greeter.png)
 

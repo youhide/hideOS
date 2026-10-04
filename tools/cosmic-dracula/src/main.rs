@@ -56,6 +56,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     builder.warning = Some(rgb(ORANGE));
     builder.destructive = Some(rgb(RED));
     builder.window_hint = Some(rgb(PURPLE));
+    // No coloured frame round the focused window: a Mac tells it by its
+    // shadow and its title, which COSMIC's windows already show. The hint
+    // is a width in pixels; 0 draws none, in cosmic-comp and in libcosmic.
+    builder.active_hint = 0;
 
     let mut theme: Theme = builder.clone().build();
     theme.name = String::from("Dracula");

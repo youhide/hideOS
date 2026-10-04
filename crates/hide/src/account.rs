@@ -108,6 +108,48 @@ pub fn add_first_user(
     })
 }
 
+/// The account at `FIRST_UID`, if there is one, and the files without it:
+/// its passwd, shadow and own group lines, and its name in the admin
+/// groups. First-boot setup takes back the account an unfinished setup
+/// made, so the person can make it again after a restart.
+pub fn without_first_user(files: &Files) -> Option<(String, Files)> {
+    let first = FIRST_UID.to_string();
+    let name = files.passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        (fields.nth(1)? == first).then(|| name.to_owned())
+    })?;
+    let keep = |table: &str| {
+        table
+            .lines()
+            .filter(|l| l.split(':').next() != Some(name.as_str()))
+            .map(|l| format!("{l}\n"))
+            .collect::<String>()
+    };
+    let mut group = String::new();
+    for line in keep(&files.group).lines() {
+        let mut fields: Vec<String> = line.split(':').map(str::to_owned).collect();
+        let is_admin = fields
+            .first()
+            .is_some_and(|g| ADMIN_GROUPS.contains(&g.as_str()));
+        if is_admin && let Some(members) = fields.get_mut(3) {
+            *members = members
+                .split(',')
+                .filter(|m| !m.is_empty() && *m != name)
+                .collect::<Vec<_>>()
+                .join(",");
+        }
+        group.push_str(&fields.join(":"));
+        group.push('\n');
+    }
+    let files = Files {
+        passwd: keep(&files.passwd),
+        group,
+        shadow: keep(&files.shadow),
+    };
+    Some((name, files))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +187,17 @@ mod tests {
         ShaCrypt::default()
             .verify_password(b"s3cret", hash)
             .unwrap();
+    }
+
+    #[test]
+    fn the_first_user_is_taken_back_as_it_was_added() {
+        let mut start = base();
+        start.group = "root:x:0:\nwheel:x:10:admin\nusers:x:100:\n".to_owned();
+        let added = add_first_user(&start, "youri", "Youri", "s3cret", &SALT).unwrap();
+        let (name, back) = without_first_user(&added).unwrap();
+        assert_eq!(name, "youri");
+        assert_eq!(back, start);
+        assert!(without_first_user(&base()).is_none());
     }
 
     #[test]

@@ -384,8 +384,15 @@ is written in, so they are indistinguishable from the rest of the desktop:
 | Settings → System → Recovery  | Deployments on disk, pin, roll back, recovery key status        | `hideupd`         |
 | Settings → System → Extensions| Installed and available system extensions (NVIDIA, …)           | `hideupd`         |
 | Update applet in the panel    | "Restart to update" when a deployment is staged                 | `hideupd`         |
-| First-boot setup              | User, network, disk-encryption PIN, recovery key                | `hidesetup`       |
+| First-boot setup              | Language, keyboard, Wi-Fi, time zone, account, disk passphrase, recovery key | `hideupd` (`os.hide.Setup1`) |
 | `cosmic-store`                | Flatpak applications (upstream; hideOS adds its remote)         | Flatpak           |
+
+The desktop is laid out as a Mac's. The menu bar is thin: hideOS's logo in
+the corner where a Mac has its apple, opening Applications; on the right the
+status applets, the update applet, the power menu (lock, log out, restart,
+shut down) and the weekday, date and time. The dock holds the applications.
+The focused window has no coloured frame (COSMIC's active hint is 0): as on
+a Mac, its shadow and its title say which it is.
 
 `hideupd` exposes a D-Bus API (`os.hide.Update1`), defined in this repository
 and generated with `zbus`; the `hide` CLI and the Settings pages are both
@@ -578,7 +585,7 @@ What "no BSOD" means concretely, layer by layer:
 | The compositor crashes                  | The session restarts; Flatpak apps keep their state where they can   |
 | GPU hang                                | Kernel driver reset; compositor recovers the context                 |
 | Disk corruption in user data            | btrfs checksums detect it; scrub on a monthly timer; `/home` snapshots |
-| Lost disk password                      | Recovery key, printed at install                                     |
+| Lost disk password                      | Recovery key, shown once at first-boot setup (Minimal: at install)   |
 | Everything else                         | Recovery system on the ESP: rollback or a shell; the installer reinstalls keeping `/home` |
 
 Nothing is published that has not booted. Every image boots in QEMU in CI, x86_64
@@ -622,7 +629,7 @@ panics, one that hangs. Each must end in the previous deployment.
   nothing in C runs in the initrd. With a TPM and a sealed key on the ESP
   (`EFI/hideos/root.tpm2` — not secret: only that TPM, in that boot state,
   opens it), the disk opens by itself; otherwise hidestage asks for the
-  passphrase, or the recovery key the installer showed, on the console. The
+  passphrase, or the recovery key setup showed, on the console. The
   key is sealed at the first boot that has a TPM (`hide tpm-enroll`), from
   the running dm-crypt table, so no keyslot is added. When the TPM refuses a
   sealed key — the boot chain changed — the disk asks, and nothing re-seals
@@ -660,9 +667,13 @@ Minimal's kernel and its whole root as the initramfs, booting into `hide
 installer` — and a partition named `hideos-payload` holding E's payload as
 it is, raw. Raw because a tar archive is read from a block device the same
 as from a file, and a FAT file could not hold a payload over 4 GiB. The
-installer asks for the disk, a passphrase and the first account, installs
-with the code `hide install` runs, and shows a recovery key: a second LUKS2
-keyslot, 200 random bits in Crockford base32, shown once.
+installer asks for the disk and whether to encrypt it, and installs with
+the code `hide install` runs. For the Workstation that is all: the person,
+the network and the disk's secrets are the first boot's, as on a Mac (see
+"First-boot setup"). Minimal has no screen to set up on, so its installer
+also asks for the first account and a passphrase, and shows the recovery
+key: a second LUKS2 keyslot, 200 random bits in Crockford base32, shown
+once.
 
 **A reinstall keeps `/home`.** Pointed at a disk that already holds hideOS,
 the installer offers to reinstall rather than erase: it opens the disk with
@@ -672,6 +683,37 @@ included, so what is replaced is the whole system and its configuration.
 The account is asked for again; a home with its name is the account's
 again. `@swap` is made anew too: a swap file kept could hold a hibernated
 system that is no longer there to resume.
+
+### First-boot setup
+
+**Decided: as a Mac does it.** The Workstation's installer writes the disk
+and nothing personal; the first boot opens `hidesetup` where the greeter
+would be, and it asks, a page at a time: the language, the keyboard, a
+Wi-Fi network (skipped when a cable is connected), the time zone, and the
+account — name, login, password. With an encrypted disk it then makes that
+password the disk's passphrase and shows the recovery key, once. Then the
+greeter, and the person logs in.
+
+**The disk before anyone owns it.** An encrypted disk has to open at the
+first boot, before there is a passphrase to type. The installer encrypts it
+with a random setup key, written to the ESP (`EFI/hideos/setup.key`), and
+hidestage tries that key first. Until setup finishes the disk is therefore
+as good as open to whoever holds it — and holds nothing but the system,
+which is public. Setup adds the person's passphrase and the recovery key as
+keyslots, then removes the setup keyslot and the file; from then on the
+disk opens with the TPM, the passphrase or the recovery key, as before.
+
+**Who may do it.** `hidesetup` is a libcosmic application, run as the
+greeter's user, in the greeter's compositor: `hideos-greeter`, greetd's
+session, starts it while `/var/lib/hide/setup-done` does not exist and
+cosmic-greeter after. What it changes, it asks hideupd for, on the system
+bus (`os.hide.Setup1`): the locale, the keyboard, the time zone, the
+account, the disk. hideupd answers only the greeter's user, and only until
+setup is done; after that the interface refuses everything, and the
+Settings pages are how anything changes.
+
+Development disks (`cargo xtask install`) are set up already: they carry
+the account `hide` and the setup-done mark, so the tests log in as before.
 
 ### Recovery
 
@@ -728,6 +770,7 @@ is therefore also a test of the installer.
 | Own UEFI boot manager (`hideboot`), in H7    | **Decided**  | Boot counting is the rollback; it should be ours and in Rust    |
 | Secure Boot with hideOS's own keys           | **Decided**  | The chain is hideOS's alone; Microsoft's db kept for option ROMs; shim maybe later |
 | Updates published on ghcr.io/youhide/hideos  | **Decided**  | Free for a public repository; the release workflow's token pushes |
+| First-boot setup as on a Mac (`hidesetup`)   | **Decided**  | The installer writes a disk; the person is the first boot's     |
 | Device manager and logind in Rust            | **Later**    | eudev and elogind work; replace after the desktop is daily-driven |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI
