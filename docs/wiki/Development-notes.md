@@ -123,4 +123,4 @@ elogind, as a cgroup controller, moves itself out of the cgroup oxinit
 started it in. Signalling the cgroup then reached nothing, and the
 Workstation never powered off. oxinit now also signals the process it
 forked when it is outside its cgroup, and wakes for its shutdown deadline
-(youhide/oxinit#25).
+(youhide/oxinit#25, released in v0.2.0).
