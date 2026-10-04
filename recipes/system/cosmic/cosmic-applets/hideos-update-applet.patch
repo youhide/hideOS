@@ -160,7 +160,7 @@ index 0000000..1726a49
 +                }
 +            }
 +            Message::OpenSettings => {
-+                if let Err(err) = std::process::Command::new("cosmic-settings").spawn() {
++                if let Err(err) = std::process::Command::new("cosmic-settings").arg("updates").spawn() {
 +                    tracing::error!("Failed to spawn cosmic-settings. {err:?}");
 +                }
 +            }

@@ -121,7 +121,10 @@ registry.
       `oci-archive:` or `oci:`: composefs-oci writes the objects the store
       lacks, sealed, and regenerates the boot image, which must have the
       digest the image's own UKI boots.
-- [ ] Pulling from a registry, and pushing to one from the build.
+- [x] Pulling from a registry — `hide`'s own OCI client, checked by
+      `cargo xtask registry-test` — and pushing to one from the build:
+      `cargo xtask publish` put `minimal-edge` and `workstation-edge` on
+      ghcr.io/youhide/hideos.
 - [x] Applying an update: the UKI renamed into place with `+3` tries — the
       commit point — and a durable rename, which FAT needs spelled out.
 - [x] `hide boot-ok`: mark the booted deployment good once the edition's

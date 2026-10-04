@@ -1,14 +1,24 @@
 hideOS: System → Updates, a page that shows the deployments hideupd
-(os.hide.Update1) reports and goes back to the previous one, with the
-disk's protection and the system extensions. hideOS's own, so not sent
-upstream: it talks to a hideOS service. Under page-about, which brings
-zbus; no new crates, so the vendored Cargo.lock still builds it.
+(os.hide.Update1) reports, updates from the channel and goes back to the
+previous one, with the disk's protection and the system extensions;
+`cosmic-settings updates` opens it. hideOS's own, so not sent upstream:
+it talks to a hideOS service. Under page-about, which brings zbus; no new
+crates, so the vendored Cargo.lock still builds it.
 
 diff --git a/cosmic-settings/src/app.rs b/cosmic-settings/src/app.rs
-index e002ec9..0a768cf 100644
+index e002ec9..aa23395 100644
 --- a/cosmic-settings/src/app.rs
 +++ b/cosmic-settings/src/app.rs
-@@ -415,6 +415,12 @@ impl cosmic::Application for SettingsApp {
+@@ -82,6 +82,8 @@ impl SettingsApp {
+             PageCommands::AccessibilityOsk => self.pages.page_id::<accessibility::osk::Page>(),
+             #[cfg(feature = "page-about")]
+             PageCommands::About => self.pages.page_id::<system::about::Page>(),
++            #[cfg(feature = "page-about")]
++            PageCommands::Updates => self.pages.page_id::<system::hideos::Page>(),
+             PageCommands::Appearance { command: _ } => {
+                 self.pages.page_id::<desktop::appearance::Page>()
+             }
+@@ -415,6 +417,12 @@ impl cosmic::Application for SettingsApp {
                          return page.update(message).map(Into::into);
                      }
                  }
@@ -21,6 +31,20 @@ index e002ec9..0a768cf 100644
                  #[cfg(feature = "page-accessibility")]
                  crate::pages::Message::AccessibilityMagnifier(message) => {
                      if let Some(page) = self.pages.page_mut::<accessibility::magnifier::Page>() {
+diff --git a/cosmic-settings/src/main.rs b/cosmic-settings/src/main.rs
+index faf1a8f..67da57c 100644
+--- a/cosmic-settings/src/main.rs
++++ b/cosmic-settings/src/main.rs
+@@ -74,6 +74,9 @@ pub enum PageCommands {
+     /// About settings page
+     #[cfg(feature = "page-about")]
+     About,
++    /// hideOS: the Updates page
++    #[cfg(feature = "page-about")]
++    Updates,
+     /// Appearance settings page
+     Appearance {
+         #[command(subcommand)]
 diff --git a/cosmic-settings/src/pages/mod.rs b/cosmic-settings/src/pages/mod.rs
 index 01170b1..0ca0887 100644
 --- a/cosmic-settings/src/pages/mod.rs
@@ -34,9 +58,9 @@ index 01170b1..0ca0887 100644
      Appearance(desktop::appearance::Message),
      Applications(applications::Message),
      #[cfg(feature = "page-bluetooth")]
-diff --git a/cosmic-settings/src/pages/system/hideos.rs b/cosmic-settings/src/pages/system/hideos.rs
+diff --git a/b/cosmic-settings/src/pages/system/hideos.rs b/cosmic-settings/src/pages/system/hideos.rs
 new file mode 100644
-index 0000000..2241b6e
+index 0000000..e68a37c
 --- /dev/null
 +++ b/cosmic-settings/src/pages/system/hideos.rs
 @@ -0,0 +1,325 @@

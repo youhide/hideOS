@@ -22,6 +22,7 @@ trait Update1 {
     fn add_extension(&self, image: &str) -> zbus::Result<u32>;
     fn remove_extension(&self, name: &str) -> zbus::Result<u32>;
     fn collect(&self) -> zbus::Result<u32>;
+    fn status(&self) -> zbus::Result<String>;
 
     #[zbus(signal)]
     fn progress(&self, job: u32, line: String) -> zbus::Result<()>;
@@ -56,6 +57,30 @@ pub fn through_daemon(operation: Operation<'_>) -> Option<Result<()>> {
             return None;
         }
         Some(run(&connection, operation).await)
+    })
+}
+
+/// `hide status` for someone who is not root, who cannot mount the ESP
+/// it reads: hideupd's answer, which anyone may ask for. `None` when there
+/// is no hideupd, and the caller tries itself.
+pub fn status_through_daemon() -> Option<Result<()>> {
+    if std::env::var_os(DIRECT).is_some() {
+        return None;
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    runtime.block_on(async {
+        let connection = zbus::Connection::system().await.ok()?;
+        let proxy = Update1Proxy::new(&connection).await.ok()?;
+        Some(match proxy.status().await {
+            Ok(text) => {
+                print!("{text}");
+                Ok(())
+            }
+            Err(e) => Err(anyhow::anyhow!("hideupd: {e}")),
+        })
     })
 }
 

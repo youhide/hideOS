@@ -150,6 +150,9 @@ fn through_daemon(args: &[String]) -> Option<anyhow::Result<()>> {
         }
         image.to_owned()
     };
+    if matches!(args, [cmd] if cmd == "status") && !rustix::process::geteuid().is_root() {
+        return client::status_through_daemon();
+    }
     let image;
     let operation = match args {
         [cmd, flag, given] if cmd == "update" && flag == "--image" => {
