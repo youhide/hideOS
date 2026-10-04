@@ -171,18 +171,20 @@ Minimal.
 - [x] dbus-daemon, elogind, polkit.
 - [x] Mesa (llvmpipe, softpipe, virgl, radeonsi). [ ] Intel's iris, which
       needs clang's OpenCL front end and the SPIR-V tools.
-- [x] PipeWire and WirePlumber, started for the session through XDG
-      autostart until oxinit runs per-user services.
-- [ ] Per-user services in oxinit (oxinit-side work). Until then the
-      session's output goes to `~/.local/state/cosmic-session.log`.
+- [x] PipeWire, WirePlumber and pipewire-pulse, as units of the session's
+      own `oxinit --user` (oxinit M18), their output in
+      `~/.local/state/oxinit/log`; RealtimeKit for their threads.
+- [x] Per-user services in oxinit: `start-cosmic` runs the manager beside
+      cosmic-session — `cargo xtask desktop-test` finds its sockets and
+      PipeWire's in the session's runtime directory.
 - [x] greetd + cosmic-greeter, the COSMIC session and applications.
 - [x] `os.hide.Update1` D-Bus API on hideupd (`hide daemon`); the `hide` CLI
       moved onto it, root or polkit to change anything. Checked by
       `cargo xtask update-test`.
 - [x] Settings → System → Updates, in libcosmic (a cosmic-settings patch):
       the deployments, going back, the disk's protection and the
-      extensions, from hideupd. [ ] The update applet in the panel; pages
-      for updating from a channel once there are channels.
+      extensions, from hideupd, and "Update now" from the channel. The
+      update applet in the panel: "Restart to update" once one is staged.
 - [ ] `hidesetup`: first-boot setup.
 - [x] The `workstation` image: `minimal-base` and the desktop layer.
 - [x] Flatpak with Flathub and `xdg-desktop-portal-cosmic`: Flathub's
@@ -190,7 +192,9 @@ Minimal.
       by bubblewrap with user namespaces — `cargo xtask desktop-test`.
 - [x] Dracula, hideOS's default COSMIC theme and terminal colours
       (`tools/cosmic-dracula`); a person changes it in Settings.
-- [ ] `hide shell`: toolbox-style Podman containers.
+- [x] `hide shell`: toolbox-style rootless Podman containers sharing the
+      home, the display and the session — `cargo xtask desktop-test` enters
+      one as the person and finds the host's files there.
 
 Done when: the author uses it as the daily workstation for a week without
 reaching for another machine. CI boots to the greeter and logs in.

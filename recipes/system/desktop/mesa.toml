@@ -1,9 +1,22 @@
 # Wayland only. llvmpipe and softpipe draw without a GPU — in QEMU, and
 # on any machine whose GPU is not supported yet; virgl is QEMU's
-# accelerated GPU; radeonsi is AMD. Intel's iris needs clang's OpenCL
-# front end and the SPIR-V tools at build time, and comes with real
-# hardware in H4. No Vulkan drivers yet: COSMIC's renderer falls back
-# to GLES.
+# accelerated GPU; radeonsi is AMD; iris is Intel, Broadwell (Gfx8)
+# onwards — Gfx8 through the ELK compiler, which is on by default. No
+# Vulkan drivers yet: COSMIC's renderer falls back to GLES.
+#
+# iris carries OpenCL C kernels (BLORP's blits and clears, indirect
+# draw generation, query copies), compiled while Mesa builds: mesa_clc
+# — clang's OpenCL front end, from libclang-cpp, and LLVMSPIRVLib —
+# turns them into SPIR-V, SPIRV-Tools links that, and vtn_bindgen2
+# turns it into C that builds NIR, compiled into the driver. Both
+# programs are built here from the same LLVM and run only during this
+# build; neither is installed (install-mesa-clc stays off), so the
+# image gets no clang, no translator and no OpenCL. mesa-clc and
+# spirv-tools are enabled explicitly, so that a missing dependency
+# fails the configure instead of quietly dropping iris. libclc is not
+# needed: only rusticl and Microsoft's CLC link it, both off.
+# SPIRV-Tools is static (spirv-tools's recipe), so what Mesa uses of
+# it is inside libgallium, and no new library reaches the image.
 [package]
 name = "mesa"
 version = "26.2.4"
@@ -16,7 +29,7 @@ url = "https://archive.mesa3d.org/mesa-26.2.4.tar.xz"
 sha256 = "bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9"
 
 [depends]
-build = ["buildtools", "llvm", "libdrm", "wayland", "wayland-protocols", "expat", "zstd", "elfutils", "eudev"]
+build = ["buildtools", "llvm", "spirv-tools", "spirv-llvm-translator", "libdrm", "wayland", "wayland-protocols", "expat", "zstd", "elfutils", "eudev"]
 run = ["glibc", "gcc", "zlib", "llvm", "libdrm", "wayland", "expat", "zstd", "elfutils", "eudev"]
 
 [build]
@@ -37,7 +50,7 @@ meson setup build . \\
     -Dgles2=enabled \\
     -Dopengl=true \\
     -Dglvnd=disabled \\
-    -Dgallium-drivers=llvmpipe,softpipe,virgl,radeonsi \\
+    -Dgallium-drivers=llvmpipe,softpipe,virgl,radeonsi,iris \\
     -Dvulkan-drivers=[] \\
     -Dllvm=enabled \\
     -Dshared-llvm=enabled \\
@@ -47,6 +60,9 @@ meson setup build . \\
     -Dvideo-codecs=[] \\
     -Dgallium-rusticl=false \\
     -Dmicrosoft-clc=disabled \\
+    -Dmesa-clc=enabled \\
+    -Dinstall-mesa-clc=false \\
+    -Dspirv-tools=enabled \\
     -Dteflon=false \\
     -Dvalgrind=disabled \\
     -Dlibunwind=disabled \\

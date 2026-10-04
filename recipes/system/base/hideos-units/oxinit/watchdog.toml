@@ -1,0 +1,9 @@
+# The hardware watchdog, from oxinit on. hidestage arms it with
+# `hideos.watchdog` to cover the initramfs; oxinit takes it over, feeds it
+# from its loop, and stops feeding if `boot-ok` — the deployment marked
+# good — has not come up in time. The machine then resets, the boot
+# manager counts a failed attempt, and enough of them roll back. A hang of
+# PID 1 itself is the same reset. See ARCHITECTURE.md, "Failure policy".
+timeout-sec = "30s"
+boot-unit   = "boot-ok"
+boot-sec    = "3min"

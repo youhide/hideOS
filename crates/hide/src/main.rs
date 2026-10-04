@@ -25,6 +25,8 @@ mod daemon;
 #[cfg(target_os = "linux")]
 mod deploy;
 #[cfg(target_os = "linux")]
+mod efivars;
+#[cfg(target_os = "linux")]
 mod ext;
 #[cfg(target_os = "linux")]
 mod install;

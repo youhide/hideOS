@@ -1,0 +1,11 @@
+# Audio and screen capture. Ordered after the log writer, not requiring
+# it: without one, output waits in the pipe rather than the sound going.
+[unit]
+description = "PipeWire"
+after       = ["oxlogd"]
+
+[service]
+exec        = "/usr/bin/pipewire"
+restart     = "on-failure"
+restart-sec = "1s"
+output      = "log"

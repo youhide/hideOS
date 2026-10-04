@@ -151,6 +151,18 @@ impl Update1 {
             .collect())
     }
 
+    /// The image an update with none named takes: the registry's, for this
+    /// edition and the configured channel. Empty if update.conf names none.
+    /// Anyone may ask.
+    async fn channel(&self) -> fdo::Result<String> {
+        let text = self.read(&["status", "--porcelain"]).await?;
+        Ok(text
+            .lines()
+            .find_map(|line| line.strip_prefix("channel\t"))
+            .unwrap_or_default()
+            .to_owned())
+    }
+
     /// How the disk is protected, as `hide status` says it. Anyone may ask.
     async fn disk(&self) -> fdo::Result<String> {
         let text = self.read(&["status", "--porcelain"]).await?;

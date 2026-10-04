@@ -1,0 +1,65 @@
+# Translates LLVM IR to SPIR-V. Mesa's mesa_clc compiles the OpenCL C
+# kernels inside Intel's iris with clang and turns them into SPIR-V with
+# this library; mesa_clc runs only during Mesa's build, so this is a
+# build tool and never in an image.
+#
+# Upstream branches it per LLVM release, and Mesa accepts only the
+# branch matching its LLVM's major and minor: v23.1.x for LLVM 23.1.
+# Bump it together with llvm. The tag archive: a lightweight tag, no
+# tarball or signature published.
+#
+# A static library, linked into mesa_clc, which links libLLVM.so for
+# the LLVM underneath (LLVM_LINK_LLVM_DYLIB, from LLVM's CMake
+# package); llvm-spirv, the command-line tool, comes along with it.
+# The SPIR-V headers are spirv-headers', from the same Vulkan SDK as
+# spirv-tools: upstream would download its own pin, a few commits older,
+# which is a strict ancestor of them.
+[package]
+name = "spirv-llvm-translator"
+version = "23.1.2"
+description = "LLVM IR to SPIR-V translator, for Mesa's OpenCL C kernel compiler"
+license = "NCSA"
+homepage = "https://github.com/KhronosGroup/SPIRV-LLVM-Translator"
+
+[[source]]
+url = "https://github.com/KhronosGroup/SPIRV-LLVM-Translator/archive/refs/tags/v23.1.2.tar.gz"
+sha256 = "b657254b5e0a2dda7914a8cb1eace467f22847d75d877b83829026c1452f827a"
+
+[depends]
+build = ["toolchain", "cmake", "ninja", "llvm", "spirv-headers"]
+run = ["glibc", "gcc", "llvm"]
+
+# LLVM's recipe deletes its static component libraries, since
+# everything links libLLVM.so, but LLVM's CMake package still names
+# them, and CMake refuses a package whose files are missing. Changing
+# that in the llvm recipe would rebuild LLVM. This build links
+# libLLVM.so too, never the components, so empty archives stand in for
+# the missing ones while CMake configures and are removed straight
+# after: created and deleted in the same build, they leave nothing in
+# the output. A build that did link one would fail on the missing file.
+#
+# Four compile jobs and one link at a time, as llvm's recipe, for the
+# builder's eight gigabytes.
+[build]
+script = """
+stubs=
+for a in $(grep -o '/lib/libLLVM[^"/]*\\.a' /usr/lib/cmake/llvm/LLVMExports-release.cmake | sort -u); do
+    if [ ! -e "/usr$a" ]; then
+        printf '!<arch>\\n' > "/usr$a"
+        stubs="$stubs /usr$a"
+    fi
+done
+cmake -G Ninja -S . -B build \\
+    -DCMAKE_BUILD_TYPE=Release \\
+    -DCMAKE_INSTALL_PREFIX=/usr \\
+    -DLLVM_DIR=/usr/lib/cmake/llvm \\
+    -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR=/usr \\
+    -DLLVM_SPIRV_INCLUDE_TESTS=OFF \\
+    -DBUILD_SHARED_LIBS=OFF \\
+    -DCCACHE_ALLOWED=OFF \\
+    -DLLVM_PARALLEL_COMPILE_JOBS=4 \\
+    -DLLVM_PARALLEL_LINK_JOBS=1
+rm -f $stubs
+ninja -C build -j "$JOBS"
+ninja -C build install
+"""

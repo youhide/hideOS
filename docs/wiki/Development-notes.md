@@ -91,3 +91,36 @@ zero-length UKI on the ESP. A rename on FAT can reach the disk before the
 file's data does. Renames on the ESP now sync the file under its new name,
 its directory and the filesystem (`rename_durably` in
 `crates/hide/src/deploy.rs`).
+
+## Stopping `cargo xtask` leaves the builder running
+
+`cargo xtask` runs hideforge in a docker container, and killing xtask does
+not stop it: the build goes on in the background, holding `/work`. A new
+build started then collides with it (see "One image build at a time") —
+"Text file busy" on hideforge's own binary is the sign. Stop it with
+`docker ps -q | xargs docker kill` before starting another.
+
+## `SOURCE_DATE_EPOCH` counts unpacked files only
+
+hideforge sets `SOURCE_DATE_EPOCH` to the newest file the sources unpack
+to. It used to count every directory entry, including the directories it
+makes for a source's `dest` and sources copied in whole (`extract =
+false`) — both made at build time, so the epoch was the time of the build
+and the kernel's build timestamp changed every time. A copied source is now
+given the epoch instead (`newest_mtime` in `crates/hideforge/src/fetch.rs`).
+
+## The kernel's modules are indexed after they are installed
+
+`make modules_install` runs depmod with `-b $INSTALL_MOD_PATH`, and the
+kernel installs to `$INSTALL_MOD_PATH/lib/modules`. With `/usr` for the
+first, kmod — built with `/usr/lib/modules` as its module directory —
+looks in `/usr/usr/lib/modules`. `linux.toml` installs with `DEPMOD=true`
+and runs `depmod` itself.
+
+## Daemons that leave their cgroup
+
+elogind, as a cgroup controller, moves itself out of the cgroup oxinit
+started it in. Signalling the cgroup then reached nothing, and the
+Workstation never powered off. oxinit now also signals the process it
+forked when it is outside its cgroup, and wakes for its shutdown deadline
+(youhide/oxinit#25).

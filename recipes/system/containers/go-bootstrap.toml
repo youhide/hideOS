@@ -77,7 +77,9 @@ run = []
 
 [build]
 script = """
-export CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off
+# cmd/dist makes its scratch directory in $TMPDIR, else /var/tmp, which the
+# build root has none of.
+export CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off TMPDIR=/tmp
 unset GOFLAGS GOROOT GOPATH
 
 if [ "$ARCH" = x86_64 ]; then

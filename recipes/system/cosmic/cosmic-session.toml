@@ -11,7 +11,7 @@ sha256 = "e6d093938ab59baafdccac576cb0bc1a1966c825a5fedf9cb498061d8099ed57"
 
 [depends]
 build = ["toolchain", "stage1-rust", "just"]
-run = ["glibc", "gcc", "dbus"]
+run = ["glibc", "gcc", "dbus", "oxinit"]
 
 [build]
 vendor = "cargo"
@@ -21,13 +21,16 @@ export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
 # autostart: without systemd, cosmic-session is what runs
 # $XDG_CONFIG_DIRS/autostart.
 cargo build --release --frozen --features autostart
+# Its systemd units, which nothing here runs — only its own: the
+# directory can hold what the recipes before this one installed.
+{ find /usr/lib/systemd -type f 2>/dev/null || true; } | sort > /tmp/systemd-before
 just rootdir=/ prefix=/usr install
-rm -rf /usr/lib/systemd
+{ find /usr/lib/systemd -type f 2>/dev/null || true; } | sort |
+    comm -13 /tmp/systemd-before - | xargs -r rm -f
 # The session's output, to a file in the user's state directory: with
 # no journald, and greetd keeping nothing a session prints, a desktop
 # that fails to start would otherwise leave no trace. And hideOS's
-# autostart directory, which starts PipeWire for the session; both
-# until oxinit runs per-user services and oxlogd keeps their logs.
+# autostart directory, for what has to run inside the session.
 # And hideOS's defaults first among the data directories, where
 # COSMIC looks for its default configuration, then the applications
 # Flatpak exports, the user's before the system's: flatpak's own
@@ -38,11 +41,34 @@ test "$(sed -n 3p /usr/bin/start-cosmic)" = "set -e"
     cat <<'END'
 state="${XDG_STATE_HOME:-$HOME/.local/state}"
 mkdir -p "$state" && exec >>"$state/cosmic-session.log" 2>&1
-export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-/etc/xdg}:/usr/share/hideos/xdg"
-export XDG_DATA_DIRS="/usr/share/hideos:$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+# Once: start-cosmic runs itself again in a login shell, which keeps them.
+case ":${XDG_CONFIG_DIRS:-}:" in
+*:/usr/share/hideos/xdg:*) ;;
+*) export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-/etc/xdg}:/usr/share/hideos/xdg" ;;
+esac
+case ":${XDG_DATA_DIRS:-}:" in
+*:/usr/share/hideos:*) ;;
+*) export XDG_DATA_DIRS="/usr/share/hideos:$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
+esac
 END
     tail -n +4 /usr/bin/start-cosmic
 } > start-cosmic
+# The session runs the person's own oxinit beside cosmic-session, inside
+# the session bus dbus-run-session makes: PipeWire and the rest are its
+# units (/usr/lib/oxinit/user-units), stopped when the session ends.
+grep -q '^    exec /usr/bin/dbus-run-session -- /usr/bin/cosmic-session$' start-cosmic
+grep -q '^    exec /usr/bin/cosmic-session$' start-cosmic
+sed -i 's@ /usr/bin/cosmic-session$@ /usr/lib/hideos/cosmic-session@' start-cosmic
 install -m755 start-cosmic /usr/bin/start-cosmic
+install -Dm755 /dev/stdin /usr/lib/hideos/cosmic-session <<'END'
+#!/bin/sh
+/usr/bin/oxinit --user &
+manager=$!
+status=0
+/usr/bin/cosmic-session "$@" || status=$?
+kill -TERM "$manager" 2>/dev/null
+wait "$manager"
+exit "$status"
+END
 head -8 /usr/bin/start-cosmic
 """

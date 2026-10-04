@@ -60,10 +60,35 @@ done < "$FILES/hideos.config"
 make -j"$JOBS" KBUILD_BUILD_USER=hideforge KBUILD_BUILD_HOST=hideforge \\
     KBUILD_BUILD_TIMESTAMP="@$SOURCE_DATE_EPOCH" "$(basename "$image")" modules
 release=$(make -s kernelrelease)
-make INSTALL_MOD_PATH=/usr INSTALL_MOD_STRIP=1 DEPMOD=/usr/bin/depmod modules_install
-# modules_install links build/ to this source tree, which is not in the
-# image.
+# Installed under /usr — the kernel puts them in $INSTALL_MOD_PATH/lib/modules
+# — and indexed after: the kernel's depmod step passes `-b /usr`, and this
+# kmod, whose module directory is /usr/lib/modules already, would look in
+# /usr/usr/lib/modules.
+make INSTALL_MOD_PATH=/usr INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
+depmod -a -e -F System.map "$release"
+# modules_install links build/ and source/ to this source tree, which is
+# not kept. Out-of-tree builds name /usr/src/linux-<release> themselves:
+# a build/ link into what images leave out would dangle in every image.
 rm -f "/usr/lib/modules/$release/build" "/usr/lib/modules/$release/source"
 install -Dm644 "$image" "/usr/lib/modules/$release/vmlinuz"
 install -Dm644 .config "/usr/lib/modules/$release/config"
+
+# The build tree, for modules built outside the kernel — NVIDIA's, in its
+# system extension — at /usr/src/linux-<release>, which images leave out:
+# what the kernel's Makefiles read when a module is built against it, as
+# distributions' kernel-headers packages carry it.
+tree="/usr/src/linux-$release"
+install -Dm644 -t "$tree" .config Makefile Module.symvers System.map
+install -Dm644 -t "$tree/kernel" kernel/Makefile
+cp -a scripts include "$tree/"
+if [ "$ARCH" = x86_64 ]; then
+    install -Dm644 -t "$tree/arch/x86" arch/x86/Makefile arch/x86/Makefile_32.cpu
+    cp -a arch/x86/include "$tree/arch/x86/"
+    install -Dm644 -t "$tree/arch/x86/kernel" arch/x86/kernel/asm-offsets.s
+    install -Dm755 -t "$tree/tools/objtool" tools/objtool/objtool
+fi
+find . -path ./scripts -prune -o \\( -name 'Kbuild*' -o -name 'Kconfig*' \\) -type f -print |
+    while read -r f; do install -Dm644 "$f" "$tree/$f"; done
+# The build artefacts of the tree's own tools stay; the objects do not.
+find "$tree" -name '*.o' -delete -o -name '.*.cmd' -delete
 """

@@ -39,13 +39,14 @@ new file mode 100644
 index 0000000..2241b6e
 --- /dev/null
 +++ b/cosmic-settings/src/pages/system/hideos.rs
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,325 @@
 +// SPDX-License-Identifier: GPL-3.0-only
 +
-+//! hideOS: System → Updates. The deployments on the machine, in the order
-+//! they boot, going back to the previous one, how the disk is protected,
++//! hideOS: System → Updates. Updating from the channel, the deployments on
++//! the machine in the order they boot, going back to the previous one, how
++//! the disk is protected,
 +//! and the system extensions — as hideupd, `os.hide.Update1` on the system
-+//! bus, reports them. Going back asks hideupd, which asks polkit, whose
++//! bus, reports them. Updating and going back ask hideupd, which asks polkit, whose
 +//! agent asks for the password. A hideOS patch: see hideOS's
 +//! ARCHITECTURE.md, "The desktop".
 +
@@ -65,6 +66,8 @@ index 0000000..2241b6e
 +    fn deployments(&self) -> zbus::Result<Vec<(String, u64, String, String, bool, bool)>>;
 +    fn disk(&self) -> zbus::Result<String>;
 +    fn extensions(&self) -> zbus::Result<String>;
++    fn channel(&self) -> zbus::Result<String>;
++    fn update(&self, image: &str) -> zbus::Result<u32>;
 +    fn rollback(&self) -> zbus::Result<u32>;
 +
 +    #[zbus(signal)]
@@ -86,11 +89,14 @@ index 0000000..2241b6e
 +    deployments: Vec<Deployment>,
 +    disk: String,
 +    extensions: String,
++    channel: String,
 +}
 +
 +#[derive(Clone, Debug)]
 +pub enum Message {
 +    Loaded(Result<State, String>),
++    Update,
++    Updated(Result<(), String>),
 +    Rollback,
 +    RolledBack(Result<(), String>),
 +}
@@ -136,7 +142,7 @@ index 0000000..2241b6e
 +    fn info(&self) -> page::Info {
 +        page::Info::new("hideos-updates", "software-update-available-symbolic")
 +            .title("Updates")
-+            .description("The system image, going back, the disk and extensions")
++            .description("Updating the system, going back, the disk and extensions")
 +    }
 +
 +    fn on_enter(&mut self) -> Task<crate::pages::Message> {
@@ -154,10 +160,25 @@ index 0000000..2241b6e
 +            Message::Loaded(state) => {
 +                self.state = Some(state);
 +            }
++            Message::Update => {
++                self.working = true;
++                self.note = Some("Downloading and preparing the update…".to_owned());
++                return cosmic::Task::future(async move { Message::Updated(job(Job::Update).await) })
++                    .map(crate::app::Message::from)
++                    .map(Into::into);
++            }
++            Message::Updated(result) => {
++                self.working = false;
++                self.note = Some(match result {
++                    Ok(()) => "Up to date. A new version, if there was one, starts at the next restart.".to_owned(),
++                    Err(why) => why,
++                });
++                return load().map(crate::app::Message::from).map(Into::into);
++            }
 +            Message::Rollback => {
 +                self.working = true;
 +                self.note = None;
-+                return cosmic::Task::future(async move { Message::RolledBack(rollback().await) })
++                return cosmic::Task::future(async move { Message::RolledBack(job(Job::Rollback).await) })
 +                    .map(crate::app::Message::from)
 +                    .map(Into::into);
 +            }
@@ -197,10 +218,17 @@ index 0000000..2241b6e
 +        deployments,
 +        disk: proxy.disk().await.unwrap_or_default(),
 +        extensions: proxy.extensions().await.unwrap_or_default(),
++        channel: proxy.channel().await.unwrap_or_default(),
 +    })
 +}
 +
-+async fn rollback() -> Result<(), String> {
++enum Job {
++    Update,
++    Rollback,
++}
++
++/// Asks hideupd for a job and waits for it to finish.
++async fn job(job: Job) -> Result<(), String> {
 +    let connection = zbus::Connection::system().await.map_err(|e| e.to_string())?;
 +    let proxy = Update1Proxy::new(&connection)
 +        .await
@@ -210,7 +238,12 @@ index 0000000..2241b6e
 +        .receive_finished()
 +        .await
 +        .map_err(|e| e.to_string())?;
-+    let job = proxy.rollback().await.map_err(|e| match e {
++    let started = match job {
++        // Empty: the channel's image.
++        Job::Update => proxy.update("").await,
++        Job::Rollback => proxy.rollback().await,
++    };
++    let job = started.map_err(|e| match e {
 +        zbus::Error::MethodError(_, Some(text), _) => text,
 +        other => other.to_string(),
 +    })?;
@@ -236,6 +269,22 @@ index 0000000..2241b6e
 +                    column = column.add(settings::item("hideupd", text::body(why.as_str())));
 +                }
 +                Some(Ok(state)) => {
++                    if !state.channel.is_empty() {
++                        column = column.add(
++                            settings::flex_item(
++                                "Updates from",
++                                widget::row::with_children(vec![
++                                    text::body(state.channel.as_str()).into(),
++                                    widget::button::suggested("Update now")
++                                        .on_press_maybe((!page.working).then_some(Message::Update))
++                                        .into(),
++                                ])
++                                .spacing(12)
++                                .align_y(Alignment::Center),
++                            )
++                            .align_items(Alignment::Center),
++                        );
++                    }
 +                    for deployment in &state.deployments {
 +                        let mut notes = vec![deployment.state.as_str()];
 +                        if deployment.running {

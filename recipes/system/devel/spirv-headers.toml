@@ -1,0 +1,34 @@
+# The SPIR-V headers and machine-readable grammars, which SPIRV-Tools
+# generates its tables from and SPIRV-LLVM-Translator compiles against.
+# Both are build tools for Mesa's mesa_clc, so this is never in an image.
+#
+# Pinned to the Vulkan SDK tag, which is the one SPIRV-Tools' own DEPS
+# names for the same SDK: the pair Khronos ships and tests together.
+# The tag archive, as SPIRV-Headers publishes no release tarball and no
+# signature; the tag is a lightweight one, so there is nothing to
+# verify but the digest written here.
+[package]
+name = "spirv-headers"
+version = "1.4.363.0"
+description = "SPIR-V headers and grammars, for SPIRV-Tools and SPIRV-LLVM-Translator"
+license = "MIT"
+homepage = "https://github.com/KhronosGroup/SPIRV-Headers"
+
+[[source]]
+url = "https://github.com/KhronosGroup/SPIRV-Headers/archive/refs/tags/vulkan-sdk-1.4.363.0.tar.gz"
+sha256 = "5b3a0d099f5c7649e29c0938476c462e71d66ad89a0bde42fa1ba3eb476956c9"
+
+[depends]
+build = ["toolchain", "cmake", "ninja"]
+
+# Headers only: nothing is compiled, cmake just installs them with the
+# CMake and pkg-config files that say where they are.
+[build]
+script = """
+cmake -G Ninja -S . -B build \\
+    -DCMAKE_INSTALL_PREFIX=/usr \\
+    -DCMAKE_INSTALL_LIBDIR=lib \\
+    -DSPIRV_HEADERS_ENABLE_TESTS=OFF \\
+    -DSPIRV_HEADERS_ENABLE_INSTALL=ON
+ninja -C build install
+"""

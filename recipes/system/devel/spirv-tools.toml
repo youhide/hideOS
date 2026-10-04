@@ -1,0 +1,50 @@
+# SPIR-V's assembler, validator, linker and optimizer, as libraries.
+# Mesa requires them once it builds mesa_clc — the compiler for the
+# OpenCL C kernels inside Intel's iris — which links SPIR-V modules
+# with them; Mesa's SPIR-V front end also uses them to print a shader
+# when debugging.
+#
+# Static libraries only, which is what SPIRV-Tools.pc names: Mesa links
+# the pieces it uses into libgallium, and no SPIRV-Tools library has to
+# be in an image. Upstream always builds libSPIRV-Tools-shared.so as
+# well; nothing links it. No executables — nothing in hideOS runs
+# spirv-as or spirv-val — and no tests. Warnings are not errors: with
+# a newer GCC than upstream's CI they would break the build for nothing.
+#
+# Pinned to the Vulkan SDK tag, the same SDK as spirv-headers, whose
+# commit is the one this tag's DEPS names. pkg-config reports it as
+# 2026.4 (from CHANGES); Mesa needs at least 2024.1. The tag archive:
+# a lightweight tag, no tarball or signature published.
+[package]
+name = "spirv-tools"
+version = "1.4.363.0"
+description = "SPIR-V tools libraries, for Mesa's OpenCL C kernel compiler"
+license = "Apache-2.0"
+homepage = "https://github.com/KhronosGroup/SPIRV-Tools"
+
+[[source]]
+url = "https://github.com/KhronosGroup/SPIRV-Tools/archive/refs/tags/vulkan-sdk-1.4.363.0.tar.gz"
+sha256 = "e6c83a215538fbfd265ccf398d3877985055df1273dbed73912bd05307664688"
+
+[depends]
+build = ["toolchain", "cmake", "ninja", "python", "spirv-headers"]
+run = ["glibc", "gcc"]
+
+# The version string compiled in is taken from git, which the sandbox
+# does not have; without this it would fall back to a timestamp.
+[build]
+script = """
+export FORCED_BUILD_VERSION_DESCRIPTION=vulkan-sdk-1.4.363.0
+cmake -G Ninja -S . -B build \\
+    -DCMAKE_BUILD_TYPE=Release \\
+    -DCMAKE_INSTALL_PREFIX=/usr \\
+    -DCMAKE_INSTALL_LIBDIR=lib \\
+    -DSPIRV-Headers_SOURCE_DIR=/usr \\
+    -DSPIRV_TOOLS_BUILD_STATIC=ON \\
+    -DBUILD_SHARED_LIBS=OFF \\
+    -DSPIRV_SKIP_EXECUTABLES=ON \\
+    -DSPIRV_SKIP_TESTS=ON \\
+    -DSPIRV_WERROR=OFF
+ninja -C build -j "$JOBS"
+ninja -C build install
+"""

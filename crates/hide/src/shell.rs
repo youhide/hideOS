@@ -98,13 +98,18 @@ fn create(container: &str) -> Result<()> {
         "--network=host",
         "--init",
         "--ulimit=host",
-        "--tz=local",
         "--device",
         "/dev/dri",
     ]
     .iter()
     .map(|s| (*s).to_owned())
     .collect();
+    // The host's time zone, when it has one: podman refuses `--tz=local`
+    // without /etc/localtime, and a machine no one has given a zone is in
+    // UTC, which is also what the container is without the flag.
+    if Path::new("/etc/localtime").exists() {
+        args.push("--tz=local".to_owned());
+    }
     // The home, and the session's runtime directory — the display, sound
     // and session bus sockets are in it.
     for dir in [&home, &runtime] {

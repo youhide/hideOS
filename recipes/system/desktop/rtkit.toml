@@ -1,0 +1,48 @@
+# RealtimeKit: real-time scheduling for a person's programs, on request,
+# within limits — PipeWire asks it for its audio threads, the portal for
+# sandboxed apps. Started by D-Bus when first asked; drops to the rtkit
+# user and chroots to /proc by itself. polkit decides who may ask.
+[package]
+name = "rtkit"
+version = "0.13"
+description = "Real-time scheduling on request"
+license = "GPL-3.0-or-later"
+homepage = "https://github.com/heftig/rtkit"
+
+[[source]]
+url = "https://github.com/heftig/rtkit/archive/refs/tags/v0.13.tar.gz"
+sha256 = "0f9508530868109f0348e044cc1b20893672875467ace6d847ba6364274de003"
+
+[depends]
+build = ["buildtools", "dbus", "libcap"]
+run = ["glibc", "dbus", "libcap", "polkit"]
+
+[build]
+# The build embeds the introspection XML with `xxd -i`, from vim; od does
+# the same here: bytes as a C list, without the trailing comma the source
+# adds its own terminator after.
+script = """
+mkdir -p /tmp/bin
+cat > /tmp/bin/xxd <<'END'
+#!/bin/sh
+od -An -v -tx1 | sed -e 's/ *\\([0-9a-f][0-9a-f]\\)/0x\\1, /g' -e '$ s/, *$//'
+END
+chmod 755 /tmp/bin/xxd
+PATH="/tmp/bin:$PATH" meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --localstatedir=/var \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dlibsystemd=disabled \\
+    -Dinstalled_tests=false
+PATH="/tmp/bin:$PATH" meson compile -C build -j "$JOBS"
+meson install -C build
+# Its own files only: the directories hold what earlier recipes installed.
+rm /usr/lib/systemd/system/rtkit-daemon.service /usr/share/man/man8/rtkitctl.8
+rmdir -p /usr/lib/systemd/system 2>/dev/null || true
+install -Dm644 /dev/stdin /usr/lib/sysusers.d/rtkit.conf <<'END'
+u rtkit - "RealtimeKit" /proc
+END
+"""

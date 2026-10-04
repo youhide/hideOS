@@ -49,6 +49,7 @@ fn main() -> ExitCode {
         Some("crypt-test") => crypt_test(args.get(1..).unwrap_or_default()),
         Some("sysext-test") => sysext_test(args.get(1..).unwrap_or_default()),
         Some("desktop-test") => desktop_test(args.get(1..).unwrap_or_default()),
+        Some("desktop-shell") => desktop_shell(args.get(1..).unwrap_or_default()),
         Some("hw-test") => hw_test(args.get(1..).unwrap_or_default()),
         Some("registry-test") => registry_test(args.get(1..).unwrap_or_default()),
         Some("secureboot-keys") => secureboot_keys().map(|_| ()),
@@ -132,6 +133,11 @@ fn usage() -> &'static str {
     desktop-test [--arch ARCH]    install the Workstation and check what it adds:
                                   hideupd on the bus, polkit's actions, Flathub
                                   reached and verified, a sandbox as a user
+    desktop-shell [--arch ARCH]   boot the disk desktop-test installed, log in at the
+                                  greeter, then run each file put in the image
+                                  directory's desktop-shell/in as a command on
+                                  the serial console, its output to .../out;
+                                  `screenshot` saves the screen, `quit` ends
     screenshot [--arch ARCH] [--edition E] [--login] [--then STEPS]
                                   boot it and save a PNG of the screen;
                                   --login logs in at the greeter first;
@@ -1541,7 +1547,7 @@ fn hw_test(args: &[String]) -> Result<(), String> {
             .args(["sh", "-c"])
             .arg(
                 "objcopy -O binary --only-section=.initrd \"/src/$1\" /tmp/initrd && \
-                 cpio -it < /tmp/initrd 2>/dev/null | head -n 4",
+                 cpio -it < /tmp/initrd 2>/dev/null | head -n 6",
             )
             .arg("sh")
             .arg(relative)
@@ -1567,6 +1573,127 @@ fn hw_test(args: &[String]) -> Result<(), String> {
 /// The Workstation, installed and booted, and checked at its console:
 /// what it adds to Minimal for applications and updates. The desktop
 /// itself is `cargo xtask screenshot --edition workstation --login`.
+/// Logs in at the greeter through QEMU's monitor, as a person types, and
+/// waits for the session's display to appear. The greeter takes keys
+/// before it is drawn, and loses them; so it is tried again, with the
+/// field cleared first, until the session is there.
+fn log_in(guest: &mut Guest, socket: &Path) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let mut monitor = UnixStream::connect(socket).map_err(|e| format!("QEMU monitor: {e}"))?;
+    let mut send = |line: &str| -> Result<(), String> {
+        monitor
+            .write_all(format!("{line}\n").as_bytes())
+            .map_err(|e| format!("QEMU monitor: {e}"))
+    };
+    for _ in 0..5 {
+        for _ in 0..12 {
+            send("sendkey backspace")?;
+            thread::sleep(Duration::from_millis(50));
+        }
+        for c in DEV_USER.chars() {
+            send(&format!("sendkey {}", qcode(c)?))?;
+            thread::sleep(Duration::from_millis(100));
+        }
+        send("sendkey ret")?;
+        let out = guest.run(
+            "for i in {1..60}; do ls /run/user/1000/wayland-[0-9] >/dev/null 2>&1 && break; \
+             sleep 1; done; ls /run/user/1000/wayland-[0-9] >/dev/null 2>&1 && print session-up",
+            Duration::from_secs(120),
+        )?;
+        if out.contains("session-up") {
+            return Ok(());
+        }
+    }
+    Err("the greeter never let the person in".to_owned())
+}
+
+/// A session on the Workstation desktop-test left, for looking at what a
+/// test cannot say: one boot, logged in, and commands taken from files as
+/// they appear, so that each question costs seconds rather than an install.
+fn desktop_shell(args: &[String]) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let arch = find_arch(args)?;
+    let edition = EDITIONS
+        .iter()
+        .copied()
+        .find(|e| e.name == "workstation")
+        .ok_or("no workstation edition")?;
+    let dir = image_dir(edition, arch)?;
+    let disk = dir.join("desktop-test.raw");
+    if !disk.exists() {
+        return Err(format!(
+            "no {}: run `cargo xtask desktop-test` first",
+            disk.display()
+        ));
+    }
+    let work = dir.join("desktop-shell");
+    let (inbox, outbox) = (work.join("in"), work.join("out"));
+    for d in [&inbox, &outbox] {
+        fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    }
+    let socket = monitor_path("desktop-shell.sock");
+    let _ = fs::remove_file(&socket);
+    let mut command = disk_qemu(arch, edition, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(DESKTOP_DEVICES)
+        .arg("-monitor")
+        .arg(format!("unix:{},server,nowait", socket.display()));
+    let mut guest = Guest::spawn(arch, command)?;
+    if !guest.wait_for("reached target default", Duration::from_secs(300)) {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    log_in(&mut guest, &socket)?;
+    let mut monitor = UnixStream::connect(&socket).map_err(|e| format!("QEMU monitor: {e}"))?;
+    let mut send = |line: &str| -> Result<(), String> {
+        monitor
+            .write_all(format!("{line}\n").as_bytes())
+            .map_err(|e| format!("QEMU monitor: {e}"))
+    };
+    println!(
+        "desktop-shell: logged in; commands go in {}",
+        inbox.display()
+    );
+    loop {
+        let mut names: Vec<PathBuf> = fs::read_dir(&inbox)
+            .map_err(|e| e.to_string())?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        names.sort();
+        let Some(next) = names.first() else {
+            thread::sleep(Duration::from_millis(500));
+            continue;
+        };
+        let text = fs::read_to_string(next).map_err(|e| e.to_string())?;
+        let name = next
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let _ = fs::remove_file(next);
+        match text.trim() {
+            "quit" => break,
+            "screenshot" => {
+                let shot = monitor_path("desktop-shell.png");
+                send(&format!("screendump {} -f png", shot.display()))?;
+                thread::sleep(Duration::from_secs(3));
+                let png = outbox.join(format!("{name}.png"));
+                let _ = fs::rename(&shot, &png).or_else(|_| fs::copy(&shot, &png).map(|_| ()));
+                println!("desktop-shell: {name}: {}", png.display());
+            }
+            command => {
+                let out = guest.run(command, Duration::from_secs(600))?;
+                fs::write(outbox.join(format!("{name}.txt")), &out).map_err(|e| e.to_string())?;
+                println!("desktop-shell: {name} done");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn desktop_test(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let edition = EDITIONS
@@ -1671,27 +1798,26 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
     {
         use std::io::Write;
         use std::os::unix::net::UnixStream;
+        log_in(&mut guest, &socket)?;
         let mut monitor = UnixStream::connect(&socket).map_err(|e| format!("QEMU monitor: {e}"))?;
         let mut send = |line: &str| -> Result<(), String> {
             monitor
                 .write_all(format!("{line}\n").as_bytes())
                 .map_err(|e| format!("QEMU monitor: {e}"))
         };
-        for c in DEV_USER.chars() {
-            send(&format!("sendkey {}", qcode(c)?))?;
-            thread::sleep(Duration::from_millis(100));
-        }
-        send("sendkey ret")?;
         let out = guest.run(
             &format!(
-                "for i in {{1..120}}; do ls /run/user/1000/wayland-? >/dev/null 2>&1 && break; \
+                "setopt nonomatch; \
+                 for i in {{1..120}}; do ls /run/user/1000/wayland-[0-9] >/dev/null 2>&1 && break; \
                  sleep 1; done; sleep 20; \
-                 ( USERNAME={DEV_USER}; export XDG_RUNTIME_DIR=/run/user/1000 \
-                 WAYLAND_DISPLAY=$(cd /run/user/1000 && ls wayland-? | head -n 1) \
-                 XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=COSMIC; \
-                 cosmic-term > /tmp/term.log 2>&1 & print $! > /tmp/term.pid ); \
-                 sleep 60; kill -0 $(</tmp/term.pid) && print term-alive; \
-                 grep -v DEBUG /tmp/term.log | tail -n 30"
+                 for p in /proc/[0-9]*; do [[ $(<$p/comm) == cosmic-panel ]] && comp=${{p#/proc/}}; done 2>/dev/null; \
+                 for p in /proc/[0-9]*; do [[ $(<$p/comm) == cosmic-term ]] && print \"already: ${{p#/proc/}} $(tr '\\0' ' ' < $p/cmdline)\"; done 2>/dev/null; \
+                 ( USERNAME={DEV_USER}; \
+                 xargs -0 sh -c 'exec env -i \"$@\" dbus-send --session --print-reply --dest=org.freedesktop.DBus / org.freedesktop.DBus.ListNames' _ < /proc/$comp/environ | grep -i term; \
+                 {{ xargs -0 sh -c 'exec env -i \"$@\" RUST_BACKTRACE=1 cosmic-term --no-daemon' _ < /proc/$comp/environ; \
+                 print \"term exited $?\"; }} > /tmp/term.log 2>&1 & ); \
+                 sleep 60; grep -q 'term exited' /tmp/term.log || print term-alive; \
+                 grep -v -e wgpu -e naga -e calloop -e sctk /tmp/term.log | tail -n 60"
             ),
             Duration::from_secs(300),
         )?;
@@ -1728,13 +1854,34 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
         println!("        {}", out.replace('\n', "\n        "));
     }
     let _ = fs::remove_file(&socket);
+    // With a session up — elogind, which leaves the cgroup oxinit gave it,
+    // the person's own oxinit and its PipeWire — the machine still goes
+    // down, and well inside oxinit's 90-second backstop.
     guest.type_line("poweroff")?;
     let started = Instant::now();
     while !guest.exited() && started.elapsed() < minute {
         thread::sleep(Duration::from_millis(200));
     }
+    let off = guest.exited();
+    check(
+        "the Workstation powers off with a session up, within a minute",
+        off,
+        &guest
+            .output()
+            .lines()
+            .rev()
+            .take(30)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
     drop(guest);
-    let _ = fs::remove_file(&disk);
+    // Kept when something failed, for `cargo xtask desktop-shell`.
+    if failures.is_empty() {
+        let _ = fs::remove_file(&disk);
+    }
 
     if failures.is_empty() {
         println!("{}: the Workstation has what it adds", arch.name);
@@ -3098,15 +3245,16 @@ fn update_test(args: &[String]) -> Result<(), String> {
         .collect();
 
     // N+1: the same system, one version later, which is a different image.
-    // Its watchdog is shortened, so that the hang below costs minutes, not
-    // a quarter of an hour.
+    // Its watchdog is shortened — hidestage's, and oxinit's boot deadline
+    // and timeout after it — so that the hang below costs minutes, not a
+    // quarter of an hour.
     println!("building N+1 (version {})", version + 1);
     build_image(
         arch,
         MINIMAL,
         version + 1,
         "next",
-        Some("hideos.watchdog=45"),
+        Some("hideos.watchdog=45 oxinit.watchdog.boot-sec=45s oxinit.watchdog.timeout-sec=10s"),
     )?;
     let next_dir = dir.join("next");
     // The update as hideforge publishes it: an OCI image, here as an
@@ -3344,16 +3492,18 @@ print panic-ready",
         println!("an image changed after it was built");
         install_disk(arch, MINIMAL, &disk)?;
         let mut guest = boot_until_up(arch, &dir, &disk, Some(&next_image), &mut log)?;
-        // One byte flipped 100 MiB in: inside a layer, whichever it is.
+        // One byte flipped 100 MiB in: inside a layer, whichever it is. In
+        // /var/tmp, on the disk: the image no longer fits in /tmp, which is
+        // memory.
         let out = guest.run(
-            "dd if=/dev/vdb of=/tmp/image.tar bs=1M status=none && \
-             printf x | dd of=/tmp/image.tar bs=1 seek=104857600 conv=notrunc status=none && \
+            "dd if=/dev/vdb of=/var/tmp/image.tar bs=1M status=none && \
+             printf x | dd of=/var/tmp/image.tar bs=1 seek=104857600 conv=notrunc status=none && \
              print tampered",
             minute,
         )?;
         check("N+1's image can be changed", out.contains("tampered"), &out);
         let out = guest.run(
-            "hide update --image oci-archive:/tmp/image.tar; print exit=$?",
+            "hide update --image oci-archive:/var/tmp/image.tar; print exit=$?",
             Duration::from_secs(300),
         )?;
         let status = guest.run("hide status", minute)?;
@@ -3416,7 +3566,12 @@ print panic-ready",
 }
 
 /// What a desktop guest gets: virtio-gpu, keyboard and tablet.
+// One display: QEMU's own VGA left beside the virtio GPU is a second output
+// to the compositor, which opens windows on it, where no screenshot sees
+// them. `-vga` given again replaces the default's.
 const DESKTOP_DEVICES: &[&str] = &[
+    "-vga",
+    "none",
     "-device",
     "virtio-gpu-pci",
     "-device",

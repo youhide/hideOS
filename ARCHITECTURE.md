@@ -483,17 +483,20 @@ allows it.
 These belong in the oxinit repository, not here. They are listed so the two
 roadmaps stay in step.
 
-- **Per-user service management.** PipeWire, WirePlumber, portals and the
-  COSMIC session are per-user services. oxinit today refuses to run unless it
-  is PID 1. A user instance, started per login session, is the largest gap.
-  Until it exists, `start-cosmic` sends the session's output to
-  `~/.local/state/cosmic-session.log`, because nothing else keeps it.
+- ~~**Per-user service management.**~~ Done (oxinit M18): `start-cosmic`
+  runs `oxinit --user` beside cosmic-session, and PipeWire, WirePlumber and
+  pipewire-pulse are its units in `/usr/lib/oxinit/user-units`, their output
+  in `~/.local/state/oxinit/log`. Still open there: one manager per session
+  rather than per person, and no way to hand a running manager a variable
+  the session sets later, such as `WAYLAND_DISPLAY` — the portals are
+  started by the session bus for that reason. `start-cosmic` still sends the
+  session's own output to `~/.local/state/cosmic-session.log`.
 - **A boot-complete signal** that hideOS can hang `hide-boot-ok` on. Possibly
   just a target; to be decided there.
 - **Ordering against devices.** A unit that needs a GPU, a network interface or
   a disk should be able to say so and wait for udev.
-- **Hardware watchdog.** Feed `/dev/watchdog` from the event loop, so a hung
-  PID 1 reboots the machine — and the reboot counts against the deployment.
+- ~~**Hardware watchdog.**~~ Done (oxinit M17): fed from the event loop, with
+  a boot deadline on `boot-ok`.
 
 ## Repositories
 
@@ -537,11 +540,14 @@ crate, each block with a `// SAFETY:` comment. Errors are `thiserror` enums.
 
 **A boot that hangs is a failed boot.** hidestage starts the hardware
 watchdog — 180 seconds, `hideos.watchdog=` on the command line — and lets
-go of it without stopping it, so the kernel leaves it running. `hide
-boot-ok` stops it once the edition's target is reached. A deployment that
-hangs anywhere in between, kernel or userspace, is reset, and the reset is a
+go of it without stopping it, so the kernel leaves it running. oxinit takes
+it over (`/usr/lib/oxinit/watchdog.toml`): it feeds it from its loop for as
+long as the machine runs, and stops feeding if the `boot-ok` unit — the
+deployment marked good, once the edition's target is reached — has not come
+up within three minutes. A deployment that hangs anywhere, kernel or
+userspace, before or after boot, is reset, and a reset before `boot-ok` is a
 failed attempt like a panic (`panic=10` on the command line) or a refused
-seal. When oxinit feeds the watchdog itself, it takes over from `boot-ok`.
+seal.
 
 hidestage has its own last resort, because it runs before anything else can
 help: if it cannot assemble the root, it does not panic the kernel. It prints
@@ -586,13 +592,18 @@ panics, one that hangs. Each must end in the previous deployment.
 - **Secure Boot with hideOS's own keys** — decided. hideOS has its own
   platform key, KEK and db key; the installer enrolls them when the
   firmware is in setup mode, which on most PCs means clearing the factory
-  keys in its setup screen first. Microsoft's KEK and db certificates are
-  enrolled beside them: option ROMs — a discrete GPU's firmware — are
-  signed by Microsoft, and a machine whose db lacks them can lose its
-  display before anything boots. Nothing Microsoft signs is in hideOS's
-  boot chain; trusting their db only keeps the hardware's own firmware
-  working. A Microsoft-signed `shim`, for machines whose firmware cannot be
-  put in setup mode, may come later; it is not the default.
+  keys in its setup screen first (`hide secureboot enroll` does the same
+  later). Microsoft's KEK and db certificates are enrolled beside them
+  (tools/secureboot/microsoft): option ROMs — a discrete GPU's firmware —
+  are signed by Microsoft's UEFI CA, and a machine whose db lacks it can
+  lose its display before anything boots; its Windows CAs keep a Windows
+  beside hideOS booting; its KEK keeps its db and dbx updates — revocations
+  — applying. The price: the UEFI CA also signs other distributions'
+  shims, which then boot too, as with `sbctl enroll-keys --microsoft`.
+  Nothing Microsoft signs is in hideOS's own chain. A Microsoft-signed
+  `shim`, for machines whose firmware cannot be put in setup mode, may come
+  later; it is not the default. `cargo xtask secureboot-test` takes a
+  firmware with no keys to one that enforces hideOS's.
 - **Until then, a development key.** `cargo xtask image` signs the UKI and
   the boot manager with Debian's "snakeoil" key, which Debian's OVMF ships
   already enrolled, with the private half published so that anyone can sign

@@ -31,7 +31,12 @@ build = ["toolchain", "libxcrypt"]
 run = ["glibc"]
 
 [build]
+# Without nscd, lib/nscd.h stubs nscd_flush_cache out with an `int`
+# parameter where callers pass the service's name: an error since GCC 14.
+# The stub takes the name, as the real function does.
 script = """
+sed -i 's/nscd_flush_cache(MAYBE_UNUSED int _1)/nscd_flush_cache(MAYBE_UNUSED const char *_1)/' lib/nscd.h
+grep -q 'nscd_flush_cache(MAYBE_UNUSED const char \\*_1)' lib/nscd.h
 ./configure \\
     --prefix=/usr \\
     --build="$TARGET" \\

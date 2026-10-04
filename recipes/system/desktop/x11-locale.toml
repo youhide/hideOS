@@ -1,0 +1,57 @@
+# The compose tables of libX11's nls directory, without libX11: what
+# libxkbcommon reads for dead keys and the Compose key, in
+# /usr/share/X11/locale. Generated the way libX11's nls/Makefile.am does —
+# cpp over each .pre file, then its sed — since its configure would want
+# the whole of X11's headers for a directory of text files.
+[package]
+name = "x11-locale"
+version = "1.8.12"
+description = "Compose tables and locale data from libX11"
+license = "MIT"
+homepage = "https://gitlab.freedesktop.org/xorg/lib/libx11"
+
+[[source]]
+url = "https://www.x.org/releases/individual/lib/libX11-1.8.12.tar.xz"
+sha256 = "fa026f9bb0124f4d6c808f9aef4057aad65e7b35d8ff43951cef0abe06bb9a9a"
+
+[depends]
+build = ["buildtools"]
+
+[build]
+# A literal string: the sed expressions carry tabs and backslashes as
+# libX11 writes them.
+script = '''
+dest=/usr/share/X11/locale
+generate() {
+    cpp -undef -traditional -DWCHAR32=1 < "$1" |
+        LC_CTYPE=C sed -e '/^#  *[0-9][0-9]*  *.*$/d' \
+            -e '/^#line  *[0-9][0-9]*  *.*$/d' \
+            -e '/^[	 ]*XCOMM$/s/XCOMM/#/' \
+            -e '/^[	 ]*XCOMM[^a-zA-Z0-9_]/s/XCOMM/#/' \
+            -e '/^[	 ]*XHASH/s/XHASH/#/' \
+            -e "s,X11_LOCALEDATADIR,$dest,g" \
+            -e '/@@$/s/@@$/\\/' \
+            -e '/^$/d'
+}
+cd nls
+# The directories: entries with a colon first, without it, then the rest.
+for f in locale.alias compose.dir locale.dir; do
+    generate "$f.pre" > "$f.l1"
+    LC_CTYPE=C sed -e '/^[^#][^	 ]*:/s/://' -e '/^[^#].*[	 ].*:/d' < "$f.l1" > "$f.l2"
+    cat "$f.l2" "$f.l1" > "$f"
+    install -Dm644 "$f" "$dest/$f"
+done
+for dir in */; do
+    dir=${dir%/}
+    for f in XLC_LOCALE Compose; do
+        if [ -f "$dir/$f.pre" ]; then
+            mkdir -p "$dest/$dir"
+            generate "$dir/$f.pre" > "$dest/$dir/$f"
+        fi
+    done
+    if [ -f "$dir/XI18N_OBJS" ]; then
+        install -Dm644 "$dir/XI18N_OBJS" "$dest/$dir/XI18N_OBJS"
+    fi
+done
+test -s "$dest/en_US.UTF-8/Compose"
+'''

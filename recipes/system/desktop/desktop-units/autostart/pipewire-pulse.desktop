@@ -1,6 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=pipewire-pulse
-Comment=Started for the session by hideOS until oxinit runs per-user services
-Exec=/usr/bin/pipewire-pulse
-NoDisplay=true

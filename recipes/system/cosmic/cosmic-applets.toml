@@ -15,10 +15,34 @@ run = ["glibc", "gcc", "wayland", "mesa", "libxkbcommon", "dbus", "libinput", "e
 
 [build]
 vendor = "cargo"
+patches = ["hideos-update-applet.patch"]
 script = """
 export VERGEN_GIT_SHA="epoch-1.9.0"
 export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
 cargo build --release --frozen
+# Its systemd units, which nothing here runs — only its own: the
+# directory can hold what the recipes before this one installed.
+{ find /usr/lib/systemd -type f 2>/dev/null || true; } | sort > /tmp/systemd-before
 just rootdir=/ prefix=/usr install
-rm -rf /usr/lib/systemd
+{ find /usr/lib/systemd -type f 2>/dev/null || true; } | sort |
+    comm -13 /tmp/systemd-before - | xargs -r rm -f
+# hideOS's update applet: another name for the same binary, and the entry
+# the panel finds it by. In the panel by default through hideOS's COSMIC
+# defaults (desktop-units).
+ln -sf cosmic-applets /usr/bin/hideos-update-applet
+install -Dm644 /dev/stdin /usr/share/applications/os.hide.UpdateApplet.desktop <<'END'
+[Desktop Entry]
+Name=Updates
+Comment=hideOS updates waiting for a restart
+Type=Application
+Exec=hideos-update-applet
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Update;hideOS;
+Icon=software-update-available-symbolic
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=10
+END
 """

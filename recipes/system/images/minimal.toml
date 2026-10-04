@@ -25,6 +25,8 @@ install -Dm644 -t /usr/lib/oxinit/units "$FILES/default.toml" "$FILES/boot-ok.to
 [image]
 exclude = [
     "usr/include/",
+    # The kernel's build tree, for modules built outside it; see linux.toml.
+    "usr/src/",
     "usr/lib/gcc/",
     "usr/libexec/gcc/",
     "usr/share/man/",

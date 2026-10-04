@@ -1,0 +1,8 @@
+# What a person's session runs under their own oxinit: started by the
+# session (start-cosmic), stopped when it ends. See ARCHITECTURE.md,
+# "The desktop".
+[target]
+
+[unit]
+description = "The session's services"
+wants       = ["oxlogd", "pipewire", "wireplumber", "pipewire-pulse"]

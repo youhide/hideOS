@@ -28,6 +28,8 @@ run = [
 [build]
 script = """
 install -Dm644 -t /usr/lib/oxinit/units "$FILES"/units/*.toml
+# The session's own services, under `oxinit --user`; start-cosmic runs it.
+install -Dm644 -t /usr/lib/oxinit/user-units "$FILES"/user-units/*.toml
 install -Dm644 -t /usr/lib/pam.d "$FILES"/pam.d/*
 install -Dm644 -t /usr/lib/greetd "$FILES"/greetd/config.toml
 install -Dm644 -t /usr/share/hideos/xdg/autostart "$FILES"/autostart/*.desktop

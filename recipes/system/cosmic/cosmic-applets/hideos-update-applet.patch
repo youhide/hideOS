@@ -1,0 +1,299 @@
+hideOS: the update applet, `hideos-update-applet` — a mark in the panel
+once an update waits for a restart, from hideupd (os.hide.Update1), with
+"Restart to update". hideOS's own, so not sent upstream. In
+cosmic-applet-power's crate, which brings zbus and tokio: no new crates,
+so the vendored Cargo.lock still builds it.
+
+diff --git a/cosmic-applet-power/src/hideos_updates.rs b/cosmic-applet-power/src/hideos_updates.rs
+new file mode 100644
+index 0000000..1726a49
+--- /dev/null
++++ b/cosmic-applet-power/src/hideos_updates.rs
+@@ -0,0 +1,263 @@
++// SPDX-License-Identifier: GPL-3.0-only
++
++//! hideOS's update applet: a mark in the panel once an update is waiting
++//! for a restart, from hideupd (`os.hide.Update1`) on the system bus.
++//!
++//! Here rather than in a crate of its own so that the vendored Cargo.lock
++//! builds it unchanged: this crate already depends on everything it needs.
++//! It is its own applet all the same — `hideos-update-applet`, linked to
++//! cosmic-applets like the others.
++
++use cosmic::{
++    Element, Task, app,
++    applet::{menu_button, padded_control},
++    cosmic_theme::Spacing,
++    iced::{
++        self, Alignment, Length, Subscription,
++        futures::{self, SinkExt, StreamExt},
++        stream,
++        widget::{column, row},
++        window,
++    },
++    surface, theme,
++    widget::{divider, icon, text},
++};
++use std::time::Duration;
++
++#[zbus::proxy(
++    interface = "os.hide.Update1",
++    default_service = "os.hide.Update1",
++    default_path = "/os/hide/Update1"
++)]
++trait Update1 {
++    fn deployments(&self) -> zbus::Result<Vec<(String, u64, String, String, bool, bool)>>;
++    #[zbus(signal)]
++    fn finished(&self, job: u32, ok: bool, error: String) -> zbus::Result<()>;
++}
++
++/// The deployments, as far as this applet cares.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++struct State {
++    /// The version running now.
++    running: Option<u64>,
++    /// The version the next boot starts, when it is not the running one: an
++    /// update is staged, or a rollback asked for.
++    next: Option<u64>,
++}
++
++impl State {
++    fn from(deployments: &[(String, u64, String, String, bool, bool)]) -> Self {
++        let running = deployments
++            .iter()
++            .find(|(_, _, _, _, running, _)| *running)
++            .map(|(_, version, ..)| *version);
++        let next = deployments
++            .iter()
++            .find(|(_, _, _, _, running, next)| *next && !*running)
++            .map(|(_, version, ..)| *version);
++        Self { running, next }
++    }
++}
++
++pub fn run() -> cosmic::iced::Result {
++    cosmic::applet::run::<Updates>(())
++}
++
++struct Updates {
++    core: cosmic::app::Core,
++    popup: Option<window::Id>,
++    state: State,
++}
++
++#[derive(Debug, Clone)]
++enum Message {
++    TogglePopup,
++    Closed(window::Id),
++    State(State),
++    Restart,
++    OpenSettings,
++    Surface(surface::Action<Message>),
++}
++
++impl cosmic::Application for Updates {
++    type Executor = cosmic::SingleThreadExecutor;
++    type Flags = ();
++    type Message = Message;
++    const APP_ID: &'static str = "os.hide.UpdateApplet";
++
++    fn core(&self) -> &cosmic::app::Core {
++        &self.core
++    }
++
++    fn core_mut(&mut self) -> &mut cosmic::app::Core {
++        &mut self.core
++    }
++
++    fn init(core: cosmic::app::Core, _flags: ()) -> (Self, app::Task<Self::Message>) {
++        (
++            Self {
++                core,
++                popup: None,
++                state: State::default(),
++            },
++            Task::none(),
++        )
++    }
++
++    fn on_close_requested(&self, id: window::Id) -> Option<Message> {
++        Some(Message::Closed(id))
++    }
++
++    fn update(&mut self, message: Self::Message) -> app::Task<Self::Message> {
++        match message {
++            Message::TogglePopup => {
++                if let Some(p) = self.popup.take() {
++                    return cosmic::surface::surface_task(cosmic::surface::action::destroy_popup(
++                        p,
++                    ));
++                }
++                return cosmic::surface::surface_task(cosmic::surface::action::app_popup(
++                    |_| Default::default(),
++                    |app: &mut Updates| {
++                        let new_id = window::Id::unique();
++                        app.popup.replace(new_id);
++                        app.core.applet.get_popup_settings(
++                            app.core.main_window_id().unwrap(),
++                            new_id,
++                            None,
++                            None,
++                            None,
++                        )
++                    },
++                    None,
++                ));
++            }
++            Message::Closed(id) => {
++                if self.popup == Some(id) {
++                    self.popup = None;
++                }
++            }
++            Message::State(state) => self.state = state,
++            // The same confirmation the power applet's restart shows.
++            Message::Restart => {
++                if let Err(err) = std::process::Command::new("cosmic-osd")
++                    .arg("restart")
++                    .spawn()
++                {
++                    tracing::error!("Failed to spawn cosmic-osd. {err:?}");
++                }
++            }
++            Message::OpenSettings => {
++                if let Err(err) = std::process::Command::new("cosmic-settings").spawn() {
++                    tracing::error!("Failed to spawn cosmic-settings. {err:?}");
++                }
++            }
++            Message::Surface(a) => {
++                return cosmic::task::message(cosmic::Action::Surface(a));
++            }
++        }
++        Task::none()
++    }
++
++    fn view(&self) -> Element<'_, Message> {
++        let name = if self.state.next.is_some() {
++            "software-update-available-symbolic"
++        } else {
++            "preferences-updates-and-recovery-symbolic"
++        };
++        self.core
++            .applet
++            .icon_button(name)
++            .on_press_down(Message::TogglePopup)
++            .into()
++    }
++
++    fn view_window(&self, id: window::Id) -> Element<'_, Message> {
++        let Spacing {
++            space_xxs, space_s, ..
++        } = theme::active().cosmic().spacing;
++
++        if self.popup != Some(id) {
++            return text("").into();
++        }
++
++        let running = match self.state.running {
++            Some(version) => format!("hideOS, version {version}"),
++            None => "hideOS".to_owned(),
++        };
++        let mut content = column![padded_control(text::heading(running))];
++        match self.state.next {
++            Some(next) => {
++                content = content.push(padded_control(text::body(format!(
++                    "Version {next} is ready. It starts when the computer restarts."
++                ))));
++                content = content.push(
++                    menu_button(
++                        row![
++                            icon::from_name("system-reboot-symbolic")
++                                .size(16)
++                                .symbolic(true)
++                                .icon(),
++                            text::body("Restart to update"),
++                        ]
++                        .align_y(Alignment::Center)
++                        .spacing(space_xxs),
++                    )
++                    .on_press(Message::Restart),
++                );
++            }
++            None => {
++                content = content.push(padded_control(text::body("Up to date.")));
++            }
++        }
++        content = content
++            .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]))
++            .push(menu_button(text::body("Update settings…")).on_press(Message::OpenSettings));
++
++        self.core
++            .applet
++            .popup_container(content.width(Length::Fill).padding([8, 0]))
++            .into()
++    }
++
++    fn subscription(&self) -> Subscription<Message> {
++        Subscription::run(|| {
++            stream::channel(1, |mut output: futures::channel::mpsc::Sender<Message>| async move {
++                // Read again when hideupd finishes a job, and every minute
++                // besides: an update applied from a terminal or by a timer
++                // sends the same signal, but a hideupd that was not running
++                // yet sends nothing.
++                loop {
++                    let Ok(connection) = zbus::Connection::system().await else {
++                        tokio::time::sleep(Duration::from_secs(60)).await;
++                        continue;
++                    };
++                    let Ok(proxy) = Update1Proxy::new(&connection).await else {
++                        tokio::time::sleep(Duration::from_secs(60)).await;
++                        continue;
++                    };
++                    let mut finished = proxy.receive_finished().await.ok();
++                    loop {
++                        if let Ok(deployments) = proxy.deployments().await {
++                            let _ = output.send(Message::State(State::from(&deployments))).await;
++                        }
++                        let tick = tokio::time::sleep(Duration::from_secs(60));
++                        match finished.as_mut() {
++                            Some(signals) => {
++                                tokio::select! {
++                                    _ = signals.next() => {}
++                                    () = tick => {}
++                                }
++                            }
++                            None => tick.await,
++                        }
++                    }
++                }
++            })
++        })
++    }
++
++    fn style(&self) -> Option<iced::theme::Style> {
++        Some(cosmic::applet::style())
++    }
++}
+diff --git a/cosmic-applet-power/src/lib.rs b/cosmic-applet-power/src/lib.rs
+index c75d3e0..1c712eb 100644
+--- a/cosmic-applet-power/src/lib.rs
++++ b/cosmic-applet-power/src/lib.rs
+@@ -30,6 +30,7 @@ use tokio::process;
+ use zbus::Connection;
+ 
+ pub mod cosmic_session;
++pub mod hideos_updates;
+ mod localize;
+ pub mod session_manager;
+ 
+diff --git a/cosmic-applets/src/main.rs b/cosmic-applets/src/main.rs
+index df339cc..22e7f36 100644
+--- a/cosmic-applets/src/main.rs
++++ b/cosmic-applets/src/main.rs
+@@ -27,6 +27,7 @@ fn main() -> cosmic::iced::Result {
+         "cosmic-applet-notifications" => cosmic_applet_notifications::run(),
+         "cosmic-applet-osk" => cosmic_applet_osk::run(),
+         "cosmic-applet-power" => cosmic_applet_power::run(),
++        "hideos-update-applet" => cosmic_applet_power::hideos_updates::run(),
+         "cosmic-applet-status-area" => cosmic_applet_status_area::run(),
+         "cosmic-applet-tiling" => cosmic_applet_tiling::run(),
+         "cosmic-applet-time" => cosmic_applet_time::run(),

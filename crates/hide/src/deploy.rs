@@ -198,25 +198,12 @@ fn collect(kept: &[Uki]) -> Result<()> {
     Ok(())
 }
 
-/// Marks the deployment that booted as good, and stops the watchdog
-/// hidestage started: the system came up. Run once the edition's target is
-/// reached; until then, the boot manager is counting and the watchdog is
-/// running, and either can send the machine back.
+/// Marks the deployment that booted as good. Run once the edition's target
+/// is reached; until then the boot manager is counting attempts. The
+/// hardware watchdog is oxinit's: this unit coming up is what it waits for
+/// (/usr/lib/oxinit/watchdog.toml).
 pub fn boot_ok() -> Result<()> {
-    let marked = mark_good();
-    disarm_watchdog();
-    marked
-}
-
-/// The magic close: writing `V` before closing tells the watchdog driver
-/// the close is deliberate, and it stops. Opening it when nothing armed it
-/// starts it, and the same close stops it again.
-fn disarm_watchdog() {
-    if let Ok(mut watchdog) = fs::OpenOptions::new().write(true).open("/dev/watchdog")
-        && watchdog.write_all(b"V").is_ok()
-    {
-        say("watchdog stopped: the system is up");
-    }
+    mark_good()
 }
 
 fn mark_good() -> Result<()> {
@@ -244,7 +231,7 @@ fn mark_good() -> Result<()> {
 
 /// `hide status`; `--porcelain`, for hideupd: one line per deployment,
 /// tab-separated — edition, version, digest, state, running, boots next —
-/// then the disk's line.
+/// then the disk's line, and the image `hide update` takes without one.
 pub fn status(args: &[String]) -> Result<()> {
     let porcelain = match args {
         [] => false,
@@ -269,6 +256,9 @@ pub fn status(args: &[String]) -> Result<()> {
             );
         }
         println!("disk\t{}", crate::crypt::describe());
+        if let Some(image) = channel_image() {
+            println!("channel\t{image}");
+        }
         return Ok(());
     }
     println!("{:<10} {:<8} image", "version", "state");
@@ -290,7 +280,17 @@ pub fn status(args: &[String]) -> Result<()> {
     }
     println!();
     println!("disk: {}", crate::crypt::describe());
+    if let Some(image) = channel_image() {
+        println!("updates: {image}");
+    }
     Ok(())
+}
+
+/// The image `hide update` takes when given none, if update.conf and
+/// os-release say: status reports it, and a status that fails because
+/// update.conf does is no use to anyone.
+fn channel_image() -> Option<String> {
+    Some(channel().ok()?.image(&booted_edition().ok()?))
 }
 
 /// Makes the next boot go back: the running deployment is marked out of

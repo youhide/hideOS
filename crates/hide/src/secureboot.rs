@@ -16,7 +16,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use crate::deploy::Esp;
 
-const EFIVARS: &str = "/sys/firmware/efi/efivars";
+use crate::efivars::EFIVARS;
 /// EFI_GLOBAL_VARIABLE: PK, KEK, SecureBoot, SetupMode.
 const GLOBAL: &str = "8be4df61-93ca-11d2-aa0d-00e098032b8c";
 /// EFI_IMAGE_SECURITY_DATABASE_GUID: db, dbx.
@@ -68,18 +68,21 @@ fn enroll() -> Result<()> {
     let kek = read("KEK.auth")?;
     let pk = read("PK.auth")?;
     esp.unmount()?;
-    for (name, guid, data) in [
-        ("db", SECURITY_DATABASE, &db),
-        ("KEK", GLOBAL, &kek),
-        ("PK", GLOBAL, &pk),
-    ] {
-        let mut value = ATTRIBUTES.to_le_bytes().to_vec();
-        value.extend_from_slice(data);
-        // One write: efivarfs takes a variable whole, or not at all.
-        let path = Path::new(EFIVARS).join(format!("{name}-{guid}"));
-        fs::write(&path, &value).with_context(|| format!("writing {name} to the firmware"))?;
-        eprintln!("hide secureboot: {name} enrolled");
-    }
+    crate::efivars::writable(|| {
+        for (name, guid, data) in [
+            ("db", SECURITY_DATABASE, &db),
+            ("KEK", GLOBAL, &kek),
+            ("PK", GLOBAL, &pk),
+        ] {
+            let mut value = ATTRIBUTES.to_le_bytes().to_vec();
+            value.extend_from_slice(data);
+            let path = Path::new(EFIVARS).join(format!("{name}-{guid}"));
+            crate::efivars::write(&path, &value)
+                .with_context(|| format!("writing {name} to the firmware"))?;
+            eprintln!("hide secureboot: {name} enrolled");
+        }
+        Ok(())
+    })?;
     ensure!(
         flag("SetupMode") == Some(false),
         "the firmware took the keys but is still in setup mode"

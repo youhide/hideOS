@@ -27,7 +27,8 @@ run = ["glibc"]
 
 [build]
 script = """
-export GOROOT_BOOTSTRAP=/usr/lib/go-bootstrap GOTOOLCHAIN=local GOPROXY=off
+# TMPDIR: else /var/tmp, which the build root has none of.
+export GOROOT_BOOTSTRAP=/usr/lib/go-bootstrap GOTOOLCHAIN=local GOPROXY=off TMPDIR=/tmp
 unset GOFLAGS GOROOT GOPATH
 # cgo on: Podman is cgo, and the standard library's cgo packages are
 # built with it.

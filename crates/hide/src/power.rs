@@ -14,11 +14,8 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use rustix::fs::{IFlags, Mode, OFlags};
-use rustix::mount::{MountFlags, mount_remount};
 
 const SWAP_FILE: &str = "/swap/swapfile";
-const EFIVARS: &str = "/sys/firmware/efi/efivars";
 /// See `hidestage::RESUME_VARIABLE`.
 const RESUME_VARIABLE: &str =
     "/sys/firmware/efi/efivars/HideosResume-5e1f0c4a-7d2b-4b8e-9a63-1c4d2f8e0b75";
@@ -86,29 +83,10 @@ fn root_device() -> Result<String> {
     ))
 }
 
-/// efivarfs is mounted read-only, and each variable immutable: both are
-/// lifted for this write only.
+/// The resume variable, through efivarfs made writable for the write.
 fn write_variable(value: &[u8]) -> Result<()> {
-    mount_remount(
-        EFIVARS,
-        MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC,
-        "",
-    )
-    .context("remounting efivarfs writable")?;
-    let result = (|| -> Result<()> {
-        if let Ok(fd) = rustix::fs::open(RESUME_VARIABLE, OFlags::RDONLY, Mode::empty()) {
-            let flags = rustix::fs::ioctl_getflags(&fd)?;
-            rustix::fs::ioctl_setflags(&fd, flags - IFlags::IMMUTABLE)?;
-        }
-        // One write: efivarfs takes a variable whole.
-        fs::write(RESUME_VARIABLE, value).context("writing the resume variable")
-    })();
-    let _ = mount_remount(
-        EFIVARS,
-        MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC | MountFlags::RDONLY,
-        "",
-    );
-    result
+    crate::efivars::writable(|| crate::efivars::write(Path::new(RESUME_VARIABLE), value))
+        .context("writing the resume variable")
 }
 
 fn run(command: &mut Command) -> Result<()> {

@@ -43,9 +43,14 @@ pub fn mirrors(url: &str) -> Vec<String> {
 }
 
 /// Unpacks every source into `src` and applies the recipe's patches. Returns
-/// the newest modification time in the unpacked tree, before patching, which
-/// becomes `SOURCE_DATE_EPOCH`: the sources' own idea of when they were made,
-/// and the same on every machine.
+/// the newest modification time of a file in the unpacked tree, before
+/// patching, which becomes `SOURCE_DATE_EPOCH`: the sources' own idea of when
+/// they were made, and the same on every machine.
+///
+/// Files only, and only what came out of an archive: a directory made here
+/// for a source's `dest`, or a source copied in whole (`extract = false`),
+/// has the time of the build, and counting it made the epoch that — a
+/// different one on every build. A copied source is given the epoch itself.
 pub fn prepare(
     layout: &Layout,
     entry: &Entry,
@@ -54,6 +59,7 @@ pub fn prepare(
     workspace: Option<&str>,
 ) -> Result<u64> {
     fs::create_dir_all(src)?;
+    let mut copied = Vec::new();
     if entry.recipe.build.workspace {
         let digest =
             workspace.context("this recipe builds from the workspace, and there is none")?;
@@ -96,10 +102,15 @@ pub fn prepare(
                 .filter(|n| !n.is_empty())
                 .unwrap_or("source");
             fs::copy(&archive, dest.join(name))?;
+            copied.push(dest.join(name));
         }
     }
 
-    let epoch = newest_mtime(src)?;
+    let epoch = newest_mtime(src, &copied)?;
+    for file in &copied {
+        let time = UNIX_EPOCH + std::time::Duration::from_secs(epoch);
+        fs::File::options().write(true).open(file)?.set_modified(time)?;
+    }
 
     // The recipe's own files, where the script finds them as $FILES. After
     // the epoch is taken: they are hideOS's, not the source's, and their
@@ -386,31 +397,65 @@ fn sha256_file(path: &Path) -> Result<String> {
 /// The newest mtime under `dir`, in seconds, not following symlinks. Zero for
 /// an empty tree, which is a recipe with no sources: the epoch then says
 /// nothing, and that is honest.
-fn newest_mtime(dir: &Path) -> io::Result<u64> {
-    let mut newest = 0;
+/// The newest modification time of a file under `dir`, leaving out `skip`.
+/// 1980-01-01 when there is none — a recipe whose sources are all copied
+/// whole — rather than 1970: zip, and so Python's wheels, cannot store
+/// anything older.
+fn newest_mtime(dir: &Path, skip: &[PathBuf]) -> io::Result<u64> {
+    const NO_FILES: u64 = 315_532_800;
+    let mut newest = None;
     let mut pending: Vec<PathBuf> = vec![dir.to_path_buf()];
     while let Some(next) = pending.pop() {
         for item in fs::read_dir(&next)? {
             let item = item?;
-            let meta = fs::symlink_metadata(item.path())?;
+            let path = item.path();
+            let meta = fs::symlink_metadata(&path)?;
+            if meta.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if skip.contains(&path) {
+                continue;
+            }
             if let Ok(modified) = meta.modified() {
                 let secs = modified
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                newest = newest.max(secs);
-            }
-            if meta.is_dir() {
-                pending.push(item.path());
+                newest = Some(newest.unwrap_or(0).max(secs));
             }
         }
     }
-    Ok(newest)
+    Ok(newest.unwrap_or(NO_FILES))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_epoch_is_the_newest_file_not_a_directory_or_a_copy() {
+        let dir = std::env::temp_dir().join(format!("hideforge-epoch-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        let old = UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+        for name in ["a", "sub/b"] {
+            fs::write(dir.join(name), "x").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(dir.join(name))
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+        // Made now: a directory, and a copied source.
+        fs::create_dir_all(dir.join("dest")).unwrap();
+        fs::write(dir.join("dest/copied.run"), "x").unwrap();
+        let copied = [dir.join("dest/copied.run")];
+        assert_eq!(newest_mtime(&dir, &copied).unwrap(), 1_000_000_000);
+        assert_eq!(newest_mtime(&dir.join("dest"), &copied).unwrap(), 315_532_800);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn lockfiles_yield_crates_io_packages_and_skip_workspace_members() {

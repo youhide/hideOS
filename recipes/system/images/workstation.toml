@@ -16,6 +16,10 @@ run = [
     "desktop-units",
     "fonts",
     "hicolor-icon-theme",
+    # Dead keys and the Compose key: libxkbcommon reads these tables.
+    "x11-locale",
+    # The volume-change click and the alerts programs look for.
+    "sound-theme-freedesktop",
     "polkit",
     "mesa",
     "cosmic-comp",
@@ -57,6 +61,8 @@ install -Dm644 -t /usr/lib/oxinit/units "$FILES/default.toml" "$FILES/boot-ok.to
 [image]
 exclude = [
     "usr/include/",
+    # The kernel's build tree, for modules built outside it; see linux.toml.
+    "usr/src/",
     "usr/lib/gcc/",
     "usr/libexec/gcc/",
     "usr/share/man/",

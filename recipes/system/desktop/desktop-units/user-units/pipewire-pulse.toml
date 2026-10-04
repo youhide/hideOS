@@ -1,0 +1,10 @@
+[unit]
+description = "PulseAudio clients, through PipeWire"
+requires    = ["pipewire"]
+after       = ["pipewire", "oxlogd"]
+
+[service]
+exec        = "/usr/bin/pipewire-pulse"
+restart     = "on-failure"
+restart-sec = "1s"
+output      = "log"

@@ -1,0 +1,25 @@
+# The freedesktop sound theme: the volume-change click cosmic-osd plays,
+# and the bells and alerts other programs look for. The files as they
+# are; its configure exists to translate the theme's name, so the
+# index is written here instead.
+[package]
+name = "sound-theme-freedesktop"
+version = "0.8"
+description = "Default sound theme"
+license = "GPL-2.0-or-later AND CC-BY-3.0 AND CC-BY-SA-2.0"
+homepage = "https://freedesktop.org/wiki/Specifications/sound-theme-spec/"
+
+[[source]]
+url = "https://people.freedesktop.org/~mccann/dist/sound-theme-freedesktop-0.8.tar.bz2"
+sha256 = "cb518b20eef05ec2e82dda1fa89a292c1760dc023aba91b8aa69bafac85e8a14"
+
+[depends]
+build = ["toolchain"]
+
+[build]
+script = """
+dest=/usr/share/sounds/freedesktop
+install -Dm644 -t "$dest/stereo" stereo/*.oga
+sed 's/^_Name=/Name=/' index.theme.in > index.theme
+install -Dm644 index.theme "$dest/index.theme"
+"""

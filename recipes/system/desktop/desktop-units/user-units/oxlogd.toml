@@ -1,0 +1,11 @@
+# The session's log writer: the services' output, in
+# ~/.local/state/oxinit/log. Its own goes to the session's log.
+[unit]
+description = "Log writer"
+
+[service]
+type        = "notify"
+exec        = "/usr/bin/oxlogd --user"
+restart     = "on-failure"
+restart-sec = "500ms"
+output      = "console"

@@ -30,4 +30,7 @@ script = """
 make -j"$JOBS"
 make install
 install -Dm644 -t /usr/share/zsh/etc "$FILES/zshenv" "$FILES/zshrc"
+# Not the new-user wizard: it runs for anyone without a ~/.zshrc — every
+# person hideOS makes — and asks about options hideOS's zshrc has set.
+rm /usr/share/zsh/scripts/newuser
 """
