@@ -12,12 +12,18 @@ that cannot be corrupted, and updates that roll themselves back when they fail.
 and boots it sealed — UEFI, hideBoot, a kernel image carrying the
 system's digest, a read-only root checked by fs-verity — under oxinit, in
 QEMU: Minimal to a shell, Workstation to the COSMIC desktop, with Flatpak
-and Flathub. It installs from its own installer, opens an encrypted disk
-with the TPM, updates whole and rolls back by itself. Not yet for daily
-use; see [ROADMAP.md](ROADMAP.md). Site and wiki:
+and Flathub, and `hide shell` for development tools in rootless Podman
+containers. It installs from its own installer, enrolls its own Secure Boot
+keys, opens an encrypted disk with the TPM, updates whole from
+ghcr.io/youhide/hideos and rolls back by itself, with a hardware watchdog
+for a boot that hangs. Not yet for daily use; see [ROADMAP.md](ROADMAP.md). Site and wiki:
 <https://youhide.github.io/hideOS/>.
 
-![hideOS Workstation: the COSMIC desktop in hideOS's Dracula theme, with its panel and dock, after logging in at the greeter](docs/images/workstation-desktop.png)
+![hideOS Workstation: the COSMIC desktop in hideOS's Dracula theme, a terminal showing `hide status` — the running deployment, the disk, and updates from ghcr.io/youhide/hideos:workstation-edge](docs/images/workstation-desktop.png)
+
+![Settings → System → Updates: updates from the edge channel with "Update now", the deployment that runs, and going back to the previous one](docs/images/workstation-updates.png)
+
+![cosmic-greeter in Dracula's colours, asking for the password of hide](docs/images/workstation-greeter.png)
 
 The desktop's default theme, and the terminal's colours, are
 [Dracula](https://draculatheme.com)'s, by Zeno Rocha and contributors (MIT),

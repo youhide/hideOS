@@ -190,17 +190,17 @@
 
   <section class="section" aria-labelledby="desktop">
     <h2 class="section__title" id="desktop"><span class="sig">$</span>cargo xtask screenshot --edition workstation --login</h2>
-    <p class="comment"># hideOS Workstation: COSMIC epoch 1.9, Mesa and LLVM built from source, booted sealed from its own disk, logged in at cosmic-greeter. drawn by llvmpipe on QEMU's virtio-gpu.</p>
+    <p class="comment"># hideOS Workstation: COSMIC epoch 1.9, Mesa and LLVM built from source, booted sealed from its own disk, logged in at cosmic-greeter, in hideOS's Dracula theme. drawn by llvmpipe on QEMU's virtio-gpu.</p>
     <div class="term shot shot--photo">
       <div class="term__bar" aria-hidden="true">
         <span class="dot dot--red"></span><span class="dot dot--yellow"></span><span class="dot dot--green"></span>
         <span class="term__path">qemu-system-x86_64: hideOS workstation</span>
       </div>
       <div class="term__body">
-        <img src="desktop.jpg" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS: the top panel with Workspaces, Applications, the clock and status applets, the Orion nebula wallpaper, and the dock at the bottom.">
+        <img src="desktop.jpg" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS in the Dracula theme: a terminal with purple accents shows hide status — version 38, good, running, boots next; the disk not encrypted; updates from ghcr.io/youhide/hideos:workstation-edge — over the Orion nebula wallpaper, with the panel above and the dock below.">
       </div>
     </div>
-    <p class="shot__caption"># the dock holds what hideOS ships: files, terminal, text editor, settings. sound and polkit run behind the panel.</p>
+    <p class="shot__caption"># hide status, as the person: the deployment that runs, the disk, and where updates come from. the panel's arrow is the update applet: restart to update, once one is staged.</p>
   </section>
 
   <hr class="rule">
@@ -248,11 +248,11 @@
       <li class="is-done"><span class="roadmap__id">H0</span><span class="roadmap__what">Repository, architecture, build environment</span><span class="roadmap__state">done</span></li>
       <li class="is-done"><span class="roadmap__id">H1</span><span class="roadmap__what">hideforge builds hideOS Minimal, which boots to a shell</span><span class="roadmap__state">done on x86_64</span></li>
       <li class="is-done"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">done on x86_64</span></li>
-      <li class="is-now"><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">OCI updates roll back by themselves; registry next</span></li>
-      <li class="is-now"><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">TPM2, Wi-Fi, suspend and hibernation in QEMU; a laptop next</span></li>
-      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">desktop, Flatpak and Flathub, Settings → Updates; containers next</span></li>
+      <li class="is-now"><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">OCI updates from ghcr.io roll back by themselves; public stable channel next</span></li>
+      <li class="is-now"><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">kernel modules, firmware, microcode, TPM2, Wi-Fi, suspend, the watchdog in QEMU; a laptop next</span></li>
+      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">desktop in Dracula, Flatpak, hide shell containers, Settings → Updates and the update applet; first-boot setup next</span></li>
       <li class="is-now"><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">signed system extensions merge; NVIDIA next</span></li>
-      <li class="is-now"><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideBoot</span><span class="roadmap__state">installer, recovery and hideBoot; Secure Boot keys next</span></li>
+      <li class="is-now"><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideBoot</span><span class="roadmap__state">installer, recovery, hideBoot and hideOS's own Secure Boot keys; done in QEMU</span></li>
       <li><span class="roadmap__id">H8</span><span class="roadmap__what">Rust replacements for the device manager and login daemon</span><span class="roadmap__state">planned</span></li>
     </ol>
   </section>

@@ -19,9 +19,13 @@ goes back by itself. The root can be encrypted with LUKS2, opened by
 hidestage with a passphrase or a recovery key; Wi-Fi (NetworkManager with
 iwd), suspend and hibernation work in QEMU. Signed system extensions merge
 over /usr at boot. A recovery system on the ESP chooses what boots next or
-opens a shell, and the installer reinstalls keeping /home. Not yet for daily
-use: updates from a registry, real hardware, Flatpak and Secure Boot key
-enrollment come next.
+opens a shell, and the installer reinstalls keeping /home and enrolls
+hideOS's own Secure Boot keys. Updates come from ghcr.io/youhide/hideos by
+channel (edge while pre-alpha); oxinit feeds a hardware watchdog until the
+deployment is marked good. The Workstation has Flatpak with Flathub, `hide
+shell` (rootless Podman containers sharing the home), Settings → Updates
+and an update applet, all in hideOS's Dracula theme. Not yet for daily use:
+a real laptop, first-boot setup, NVIDIA and aarch64 come next.
 
 Facts that are easy to get wrong:
 
