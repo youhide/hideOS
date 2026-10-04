@@ -26,5 +26,7 @@ export VERGEN_GIT_SHA="epoch-1.9.0"
 export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
 cargo build --release --frozen --no-default-features --bin xdg-desktop-portal-cosmic
 just rootdir=/ prefix=/usr install
-rm -rf /usr/lib/systemd
+# The systemd user unit only: its directory is the dependencies' too. The
+# session bus starts the portal from its D-Bus service file instead.
+rm -f /usr/lib/systemd/user/org.freedesktop.impl.portal.desktop.cosmic.service
 """

@@ -32,6 +32,9 @@ Pre-alpha, and only in QEMU, on x86_64:
 - Signed system extensions merge over `/usr` at boot.
 - A recovery system on the ESP chooses what boots next or opens a shell;
   the installer can reinstall keeping `/home`.
+- The Workstation has Flatpak with Flathub (its signed summary verified),
+  the desktop portals, hideupd on the system bus, and a Settings → Updates
+  page; its default theme is Dracula.
 
 Not yet: real hardware, updates from a registry, aarch64 images, Secure
 Boot with hideOS's own keys. The milestones are H0 to H8 in

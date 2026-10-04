@@ -1,0 +1,23 @@
+# Firmware the kernel's drivers load from /usr/lib/firmware: GPUs, Wi-Fi,
+# Bluetooth, audio DSPs. Compressed with zstd, which the kernel reads
+# (CONFIG_FW_LOADER_COMPRESS_ZSTD). Not deduplicated with rdfind: the
+# composefs store keeps one object for identical files already.
+[package]
+name = "linux-firmware"
+version = "20260916"
+description = "Firmware for the Linux kernel's drivers"
+license = "LicenseRef-linux-firmware"
+homepage = "https://gitlab.com/kernel-firmware/linux-firmware"
+
+[[source]]
+url = "https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-20260916.tar.xz"
+sha256 = "f80dcb757a623deda62200c08e0e1a88c76fb6b54964f31b35fa74da1c90ccc5"
+
+[depends]
+build = ["toolchain", "zstd"]
+
+[build]
+script = """
+make DESTDIR=/ FIRMWAREDIR=/usr/lib/firmware install-zst
+install -Dm644 -t /usr/share/licenses/linux-firmware LICENSE WHENCE LICENSES/*
+"""

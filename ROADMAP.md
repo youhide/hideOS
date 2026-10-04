@@ -142,14 +142,16 @@ DNS, iwd on the bus and every daemon logging to oxlogd; `cargo xtask
 power-test` suspends it and lets the clock wake it, then hibernates it and
 resumes the same session after QEMU starts again. The encrypted root opens
 in hidestage's own Rust: `installer-test` installs it encrypted and boots it
-with the recovery key. The rest needs a laptop.
+with the recovery key, and `crypt-test` opens it with the TPM. The rest
+needs a laptop.
 
 - [ ] eudev ✓, linux-firmware, microcode — with kernel modules, for real
       hardware.
 - [x] LUKS2 in hidestage, with a passphrase or a recovery key; dm-crypt
       mapped by its own ioctls (crates/hidecrypt).
-- [ ] TPM2 unlock: sealing to PCR 7 and unsealing are written (`hide
-      tpm-enroll`, `cargo xtask crypt-test`), not yet run against swtpm.
+- [x] TPM2 unlock, sealed to PCR 7 at the first boot (`hide tpm-enroll`):
+      `cargo xtask crypt-test` opens the disk with swtpm, is refused by it
+      when the boot chain changes, and falls back to the passphrase.
 - [x] NetworkManager + iwd, ntpd-rs; sudo-rs in the Workstation.
 - [x] Suspend and resume, hibernation to the swap file.
 - [ ] Hardware watchdog fed by oxinit (oxinit-side work).
@@ -177,11 +179,17 @@ Minimal.
 - [x] `os.hide.Update1` D-Bus API on hideupd (`hide daemon`); the `hide` CLI
       moved onto it, root or polkit to change anything. Checked by
       `cargo xtask update-test`.
-- [ ] COSMIC Settings pages (Updates, Recovery, Extensions) and the update
-      applet, in libcosmic.
+- [x] Settings → System → Updates, in libcosmic (a cosmic-settings patch):
+      the deployments, going back, the disk's protection and the
+      extensions, from hideupd. [ ] The update applet in the panel; pages
+      for updating from a channel once there are channels.
 - [ ] `hidesetup`: first-boot setup.
 - [x] The `workstation` image: `minimal-base` and the desktop layer.
-- [ ] Flatpak with Flathub and `xdg-desktop-portal-cosmic`.
+- [x] Flatpak with Flathub and `xdg-desktop-portal-cosmic`: Flathub's
+      remote from /usr, its signed summary verified with GnuPG, sandboxes
+      by bubblewrap with user namespaces — `cargo xtask desktop-test`.
+- [x] Dracula, hideOS's default COSMIC theme and terminal colours
+      (`tools/cosmic-dracula`); a person changes it in Settings.
 - [ ] `hide shell`: toolbox-style Podman containers.
 
 Done when: the author uses it as the daily workstation for a week without
@@ -189,9 +197,10 @@ reaching for another machine. CI boots to the greeter and logs in.
 
 ## H6 — NVIDIA and aarch64
 
-- [ ] System extension format, signing and merging; `hide ext`. Written —
-      composefs images signed over their digest, merged by hidestage —
-      and tested by `cargo xtask sysext-test`.
+- [x] System extension format, signing and merging; `hide ext`:
+      composefs images signed over their digest, merged over /usr by
+      hidestage only for the image each was built for, and left out when
+      the signature does not hold — `cargo xtask sysext-test`.
 - [ ] NVIDIA sysext: open kernel modules per deployment kernel, signed;
       proprietary userspace.
 - [ ] aarch64 images published and booting on a physical UEFI ARM machine.

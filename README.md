@@ -11,11 +11,18 @@ that cannot be corrupted, and updates that roll themselves back when they fail.
 **Pre-alpha.** hideOS builds itself from source, installs itself on a disk,
 and boots it sealed — UEFI, hideBoot, a kernel image carrying the
 system's digest, a read-only root checked by fs-verity — under oxinit, in
-QEMU: Minimal to a shell, Workstation to the COSMIC desktop. Not yet for
-daily use; see [ROADMAP.md](ROADMAP.md). Site:
+QEMU: Minimal to a shell, Workstation to the COSMIC desktop, with Flatpak
+and Flathub. It installs from its own installer, opens an encrypted disk
+with the TPM, updates whole and rolls back by itself. Not yet for daily
+use; see [ROADMAP.md](ROADMAP.md). Site and wiki:
 <https://youhide.github.io/hideOS/>.
 
-![hideOS Workstation: the COSMIC desktop, with its panel and dock, after logging in at the greeter](docs/images/workstation-desktop.png)
+![hideOS Workstation: the COSMIC desktop in hideOS's Dracula theme, with its panel and dock, after logging in at the greeter](docs/images/workstation-desktop.png)
+
+The desktop's default theme, and the terminal's colours, are
+[Dracula](https://draculatheme.com)'s, by Zeno Rocha and contributors (MIT),
+computed by COSMIC's own theme builder (`tools/cosmic-dracula`); Settings →
+Appearance changes them.
 
 ![hideOS Minimal booted in QEMU: os-release, uname, oxctl list and the merged /usr layout on the console](docs/images/minimal-console.png)
 
@@ -70,6 +77,8 @@ flowchart LR
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how it is built and why.
 - [ROADMAP.md](ROADMAP.md) — what exists and what comes next.
+- [The wiki](https://youhide.github.io/hideOS/wiki/) — building, testing,
+  and how each part works, kept with the code in `docs/wiki/`.
 
 ## License
 

@@ -290,7 +290,27 @@ fn pull(oci: &Path, repo: &Path, tag: &str, create: bool, boot: bool) -> Result<
                 repository.erofs_version(),
             )?
         }
-        .ok_or_else(|| anyhow!("pulling {} made no composefs image", oci.display()))?;
+        .ok_or_else(|| {
+            let what = match composefs_oci::oci_image::OciImage::open(
+                &repository,
+                &result.manifest_digest,
+                None,
+            ) {
+                Ok(img) => format!(
+                    "container image: {}, config {:?}, EROFS v1 {:?}, v2 {:?}, by tag: {:?}",
+                    img.is_container_image(),
+                    img.manifest().config().media_type(),
+                    img.image_ref_v1().map(|i| i.to_hex()),
+                    img.image_ref_v2().map(|i| i.to_hex()),
+                    composefs_oci::oci_image::OciImage::open_ref(&repository, tag).map(|i| (
+                        i.image_ref_v1().map(|x| x.to_hex()),
+                        i.image_ref_v2().map(|x| x.to_hex())
+                    )),
+                ),
+                Err(e) => format!("the manifest does not open: {e:#}"),
+            };
+            anyhow!("pulling {} made no composefs image ({what})", oci.display())
+        })?;
         repository.sync().context("syncing the repository")?;
         Ok(image.to_hex())
     })

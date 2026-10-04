@@ -15,6 +15,8 @@ homepage = "https://www.freedesktop.org/wiki/Distributions/AppStream/"
 [[source]]
 url = "https://www.freedesktop.org/software/appstream/releases/AppStream-1.2.1.tar.xz"
 sha256 = "7df664fd3ad3b1640c6a0ff77fa84f9fabe264111bf1fe8f5df3444d6d4caaca"
+# The archive's paths start with ./, a component of their own.
+strip = 2
 
 [depends]
 build = ["buildtools", "glib", "curl", "libxml2", "libfyaml", "libxmlb"]

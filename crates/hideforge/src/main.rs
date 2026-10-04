@@ -23,7 +23,8 @@
 //!                         UKI's command line; --boot-manager NAME puts that
 //!                         recipe's boot manager (hideBoot) on the ESP
 //!                         instead of systemd-boot; --installer also writes
-//!                         the installer's UKI
+//!                         the installer's UKI; --microcode NAME puts that
+//!                         recipe's CPU microcode in front of the initrd
 //!   sysext NAME --image DIGEST --output DIR [--sign DIR]
 //!                         build NAME, which installs under /usr only, as a
 //!                         system extension for the system image DIGEST:
@@ -257,6 +258,7 @@ fn run(args: &[String]) -> Result<i32> {
                     cmdline: parsed.value("--cmdline"),
                     installer: flag("--installer"),
                     boot_manager: parsed.value("--boot-manager"),
+                    microcode: parsed.value("--microcode"),
                 }),
                 (true, _, _) => bail!("--payload needs --kernel and --initrd\n{usage}"),
             };
@@ -264,6 +266,7 @@ fn run(args: &[String]) -> Result<i32> {
             wanted.extend(kernel);
             wanted.extend(initrd);
             wanted.extend(parsed.value("--boot-manager"));
+            wanted.extend(parsed.value("--microcode"));
             let targets = set.with_run_closure(&wanted)?;
             let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
             let hashes = set.input_hashes(&targets, &context)?;
@@ -320,6 +323,7 @@ const VALUE_OPTIONS: &[&str] = &[
     "--image-version",
     "--cmdline",
     "--boot-manager",
+    "--microcode",
     "--image",
 ];
 

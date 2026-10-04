@@ -1,7 +1,8 @@
-# The kernel. The architecture's default configuration with hideOS's
-# fragment merged over it. No modules yet: everything H1 boots with is
-# built in, and installing modules needs kmod, which comes with real
-# hardware in H4.
+# The kernel. On x86_64, Arch Linux's configuration for the same release —
+# broad, maintained, and tested on real machines — with hideOS's fragment
+# merged over it; elsewhere the architecture's default. Drivers are modules
+# in /usr/lib/modules, under the seal, loaded by udev; what the boot needs
+# before the root is mounted is built in (see linux/hideos.config).
 [package]
 name = "linux"
 version = "7.2.8"
@@ -14,8 +15,19 @@ homepage = "https://kernel.org"
 url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.8.tar.xz"
 sha256 = "12e8d5a973d1ad7c5a5c69882e4022b131ed715db7003fdcd760ddf8c3e51941"
 
+# Arch's configuration for 7.2.8 (archlinux/packaging/packages/linux, tag
+# 7.2.8.arch1-2). Over TLS from Arch's GitLab; Arch signs packages, not
+# this file.
+[[source]]
+url = "https://gitlab.archlinux.org/archlinux/packaging/packages/linux/-/raw/7.2.8.arch1-2/config.x86_64"
+sha256 = "ff668413582a831e0ec872852b42570278cf3d5b3b394b4de13cf6b9119ad04e"
+extract = false
+dest = "hideos-base-config"
+arch = "x86_64"
+
 [depends]
-build = ["toolchain", "elfutils", "openssl"]
+# kmod for depmod, zstd to compress the modules.
+build = ["toolchain", "elfutils", "openssl", "kmod", "zstd"]
 
 [build]
 script = """
@@ -26,7 +38,12 @@ case "$ARCH" in
 esac
 
 make mrproper
-make defconfig
+if [ -f hideos-base-config/config.x86_64 ]; then
+    cp hideos-base-config/config.x86_64 .config
+    make olddefconfig
+else
+    make defconfig
+fi
 scripts/kconfig/merge_config.sh -m .config "$FILES/hideos.config"
 make olddefconfig
 
@@ -41,8 +58,12 @@ done < "$FILES/hideos.config"
 [ "$missing" = 0 ]
 
 make -j"$JOBS" KBUILD_BUILD_USER=hideforge KBUILD_BUILD_HOST=hideforge \\
-    KBUILD_BUILD_TIMESTAMP="@$SOURCE_DATE_EPOCH" "$(basename "$image")"
+    KBUILD_BUILD_TIMESTAMP="@$SOURCE_DATE_EPOCH" "$(basename "$image")" modules
 release=$(make -s kernelrelease)
+make INSTALL_MOD_PATH=/usr INSTALL_MOD_STRIP=1 DEPMOD=/usr/bin/depmod modules_install
+# modules_install links build/ to this source tree, which is not in the
+# image.
+rm -f "/usr/lib/modules/$release/build" "/usr/lib/modules/$release/source"
 install -Dm644 "$image" "/usr/lib/modules/$release/vmlinuz"
 install -Dm644 .config "/usr/lib/modules/$release/config"
 """

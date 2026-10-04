@@ -49,6 +49,7 @@ fn main() -> ExitCode {
         Some("crypt-test") => crypt_test(args.get(1..).unwrap_or_default()),
         Some("sysext-test") => sysext_test(args.get(1..).unwrap_or_default()),
         Some("desktop-test") => desktop_test(args.get(1..).unwrap_or_default()),
+        Some("hw-test") => hw_test(args.get(1..).unwrap_or_default()),
         Some("installer") => installer(args.get(1..).unwrap_or_default()).map(|_| ()),
         Some("installer-test") => installer_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
@@ -115,12 +116,16 @@ fn usage() -> &'static str {
     crypt-test [--arch ARCH]      install Minimal encrypted, and open it by
                                   passphrase, by TPM, and by passphrase again
                                   when the boot chain changes (needs swtpm)
+    hw-test [--arch ARCH]         install Minimal and check what real hardware
+                                  needs: udev loads drivers as modules, the
+                                  firmware is there, microcode leads the initrd
     desktop-test [--arch ARCH]    install the Workstation and check what it adds:
                                   hideupd on the bus, polkit's actions, Flathub
                                   reached and verified, a sandbox as a user
-    screenshot [--arch ARCH] [--edition E] [--login]
+    screenshot [--arch ARCH] [--edition E] [--login] [--then STEPS]
                                   boot it and save a PNG of the screen;
-                                  --login logs in at the greeter first
+                                  --login logs in at the greeter first;
+                                  --then key:meta_l-t;type:TEXT;wait:5
     hideboot-screenshot [--arch ARCH] [--no-build] [--manager FILE] [--display WxH]
                                   install Minimal, give its ESP an entry in
                                   each state and the recovery system, and
@@ -671,6 +676,12 @@ fn build_image(
         ])
         .args(["--payload", "--initrd", "hidestage", "--sign", DEV_KEYS])
         .args(["--boot-manager", "hideboot"])
+        // Early microcode: x86 only, where the kernel reads it.
+        .args(if arch.name == "x86_64" {
+            &["--microcode", "microcode"][..]
+        } else {
+            &[][..]
+        })
         .args(["--image-version", &version])
         .args(["--cmdline", &cmdline])
         // Minimal, which runs from memory, is also the installer.
@@ -1403,6 +1414,118 @@ impl Drop for Guest {
 /// do; the seal is what makes the next read, or the next boot, notice.
 /// Networking on an installed Minimal: NetworkManager brings the wired
 /// port up by itself, with DHCP and DNS, and the daemons log to oxlogd.
+/// What real hardware needs that QEMU can show: a driver that is a module,
+/// loaded by udev for a device it finds — an Intel e1000e network card,
+/// which the virtio machine has no other driver for — the firmware the
+/// drivers ask for, and CPU microcode at the front of the UKI's initrd.
+fn hw_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
+    let disk = dir.join("hw-test.raw");
+    fresh_firmware_variables(&dir);
+    install_disk(arch, MINIMAL, &disk)?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+
+    let mut command = disk_qemu(arch, MINIMAL, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(["-device", "e1000e,netdev=hw0", "-netdev", "user,id=hw0"]);
+    let mut guest = Guest::spawn(arch, command)?;
+    if !guest.wait_for("reached target default", arch.timeout) {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    let out = guest.run(
+        "for i in {1..30}; do grep -q '^e1000e ' /proc/modules && break; sleep 1; done; \
+         grep '^e1000e ' /proc/modules; for n in /sys/class/net/*; do \
+         print \"${n##*/} $(basename $(readlink $n/device/driver) 2>/dev/null)\"; done",
+        minute,
+    )?;
+    check(
+        "udev loads the e1000e module for the card, and its interface appears",
+        out.contains("e1000e ") && out.lines().any(|l| l.trim().ends_with(" e1000e")),
+        &out,
+    );
+    let out = guest.run(
+        "ls /usr/lib/firmware | wc -l; ls /usr/lib/firmware/iwlwifi-* | head -n 1; \
+         uname -r; ls /usr/lib/modules/$(uname -r)/modules.dep",
+        minute,
+    )?;
+    check(
+        "the firmware and the modules of the running kernel are in the image",
+        out.contains("iwlwifi-") && out.contains("modules.dep") && !out.contains("No such file"),
+        &out,
+    );
+    let out = guest.run("modprobe -n -v btusb && print can-load", minute)?;
+    check(
+        "modprobe resolves a module's dependencies",
+        out.contains("can-load"),
+        &out,
+    );
+    guest.type_line("poweroff")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    // The UKI's initrd, read back in the builder: the microcode's cpio
+    // comes first, where the kernel looks for it.
+    if arch.name == "x86_64" {
+        let uki = fs::read_dir(&dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.extension().is_some_and(|x| x == "efi")
+                    && p.file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with("hideos-minimal-"))
+            })
+            .max_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok())
+            .ok_or("no UKI in the image directory")?;
+        let root = workspace_root()?;
+        let relative = uki
+            .strip_prefix(&root)
+            .map_err(|_| "the UKI is outside the workspace".to_owned())?;
+        let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+        let output = builder_command(&runtime, &root, false)
+            .args(["sh", "-c"])
+            .arg(
+                "objcopy -O binary --only-section=.initrd \"/src/$1\" /tmp/initrd && \
+                 cpio -it < /tmp/initrd 2>/dev/null | head -n 4",
+            )
+            .arg("sh")
+            .arg(relative)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let listing = String::from_utf8_lossy(&output.stdout).into_owned();
+        check(
+            "the UKI's initrd starts with the CPU microcode",
+            listing.contains("kernel/x86/microcode/GenuineIntel.bin")
+                && listing.contains("kernel/x86/microcode/AuthenticAMD.bin"),
+            &listing,
+        );
+    }
+
+    if failures.is_empty() {
+        println!("{}: what real hardware needs is there", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
 /// The Workstation, installed and booted, and checked at its console:
 /// what it adds to Minimal for applications and updates. The desktop
 /// itself is `cargo xtask screenshot --edition workstation --login`.
@@ -2849,7 +2972,8 @@ fn screenshot(args: &[String]) -> Result<(), String> {
     let edition = find_edition(args)?;
     if !edition.ram {
         let login = args.iter().any(|a| a == "--login");
-        return desktop_screenshot(arch, edition, login);
+        let then = flag(args, "--then")?.unwrap_or_default();
+        return desktop_screenshot(arch, edition, login, then);
     }
     let dir = image_dir(edition, arch)?;
     let kernel = dir.join("vmlinuz");
@@ -3133,7 +3257,10 @@ const DESKTOP_WAIT: Duration = Duration::from_secs(90);
 
 /// Boots a desktop edition from its disk, waits for the greeter, and saves
 /// the screen.
-fn desktop_screenshot(arch: Arch, edition: Edition, login: bool) -> Result<(), String> {
+/// `--then`, after logging in: steps separated by `;` — `key:QCODES` presses
+/// keys together (`meta_l-t`), `type:TEXT` types a line and Enter,
+/// `wait:SECONDS` waits.
+fn desktop_screenshot(arch: Arch, edition: Edition, login: bool, then: &str) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::net::UnixStream;
 
@@ -3191,6 +3318,28 @@ fn desktop_screenshot(arch: Arch, edition: Edition, login: bool) -> Result<(), S
                 }
                 monitor.write_all(b"sendkey ret\n")?;
                 thread::sleep(DESKTOP_WAIT);
+            }
+            for step in then.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                match step.split_once(':') {
+                    Some(("key", keys)) => {
+                        monitor.write_all(format!("sendkey {keys}\n").as_bytes())?;
+                        thread::sleep(Duration::from_secs(2));
+                    }
+                    Some(("type", text)) => {
+                        for c in text.chars() {
+                            let key = qcode(c).map_err(std::io::Error::other)?;
+                            monitor.write_all(format!("sendkey {key}\n").as_bytes())?;
+                            thread::sleep(Duration::from_millis(60));
+                        }
+                        monitor.write_all(b"sendkey ret\n")?;
+                        thread::sleep(Duration::from_secs(2));
+                    }
+                    Some(("wait", seconds)) => {
+                        let seconds = seconds.parse().unwrap_or(5);
+                        thread::sleep(Duration::from_secs(seconds));
+                    }
+                    _ => return Err(std::io::Error::other(format!("unknown step `{step}`"))),
+                }
             }
             monitor.write_all(format!("screendump {} -f png\n", shot.display()).as_bytes())
         })

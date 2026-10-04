@@ -36,6 +36,12 @@ run = [
     "hide",
     "btrfs-progs",
     "dosfstools",
+    # Real hardware: the kernel's modules, kmod to load them, and the
+    # firmware they ask for. Not in the RAM image the installer and the
+    # recovery system run (see hideforge's image.rs).
+    "linux",
+    "kmod",
+    "linux-firmware",
 ]
 
 [build]

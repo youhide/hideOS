@@ -1,8 +1,8 @@
 # The libudev that libinput, Mesa and Smithay link, and the daemon that
 # gives /dev its permissions and names. Until hidedev replaces it; see
 # ARCHITECTURE.md, "Component map". With blkid for the by-uuid and
-# by-label links, without kmod: hideOS's kernel has what it needs built
-# in, for now.
+# by-label links, and kmod, through which it loads the module for each
+# device it finds: the kernel's drivers are modules (see linux.toml).
 [package]
 name = "eudev"
 version = "3.2.15"
@@ -15,8 +15,8 @@ url = "https://github.com/eudev-project/eudev/releases/download/v3.2.15/eudev-3.
 sha256 = "eb69809fc0d1187f2463ab2149c53aa9f42a78e59f14ebea68eae6cb6b4fc1c3"
 
 [depends]
-build = ["buildtools", "util-linux"]
-run = ["glibc", "util-linux"]
+build = ["buildtools", "util-linux", "kmod"]
+run = ["glibc", "util-linux", "kmod"]
 
 [build]
 script = """
@@ -33,7 +33,7 @@ script = """
     --with-rootlibdir=/usr/lib \\
     --with-rootlibexecdir=/usr/lib/udev \\
     --enable-blkid \\
-    --disable-kmod \\
+    --enable-kmod \\
     --disable-manpages \\
     --disable-selinux \\
     --enable-hwdb

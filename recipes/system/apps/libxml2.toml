@@ -19,6 +19,11 @@ run = ["glibc", "zlib"]
 
 [build]
 script = """
+# meson.build asks git for a version suffix; meson fails on a program that
+# does not exist, check or not, and the sandbox has no git. `false` answers
+# as git would outside a checkout.
+sed -i "s/run_command('git', 'describe', check: false)/run_command('false', check: false)/" meson.build
+grep -q "run_command('false'" meson.build
 meson setup build . \\
     --prefix=/usr \\
     --libdir=lib \\

@@ -1,0 +1,39 @@
+# CPU microcode, loaded early: the kernel applies it from an uncompressed
+# cpio at the front of the initrd, before anything else runs, so the CPU
+# runs the fixed microcode from the first instruction of userspace.
+# hideforge puts that cpio in every UKI it builds for x86_64 from what this
+# installs: one file per vendor, as the kernel looks for them.
+[package]
+name = "microcode"
+version = "20260925"
+description = "Intel and AMD CPU microcode, for the early initrd"
+license = "LicenseRef-intel-microcode AND LicenseRef-amd-ucode"
+homepage = "https://github.com/intel/Intel-Linux-Processor-Microcode-Data-Files"
+
+[[source]]
+url = "https://github.com/intel/Intel-Linux-Processor-Microcode-Data-Files/archive/refs/tags/microcode-20260925.tar.gz"
+sha256 = "0ec19023dad1e6dd0c5909174b8dff2555b91cf01671e36271a1ef36655c0cfc"
+
+# AMD's, from linux-firmware: the same archive the linux-firmware recipe
+# unpacks.
+[[source]]
+url = "https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-20260916.tar.xz"
+sha256 = "f80dcb757a623deda62200c08e0e1a88c76fb6b54964f31b35fa74da1c90ccc5"
+dest = "linux-firmware"
+
+[depends]
+build = ["toolchain"]
+
+[build]
+# Every file of a vendor in one, which is what the kernel reads; the
+# kernel picks the patch for the CPU it runs on. Intel's
+# intel-ucode-with-caveats are left out, as upstream asks of distributions.
+script = """
+dir=/usr/lib/hideos/microcode
+install -d "$dir"
+cat intel-ucode/* > "$dir/GenuineIntel.bin"
+cat linux-firmware/amd-ucode/microcode_amd*.bin > "$dir/AuthenticAMD.bin"
+test -s "$dir/GenuineIntel.bin" && test -s "$dir/AuthenticAMD.bin"
+install -Dm644 license /usr/share/licenses/microcode/intel-license
+install -Dm644 linux-firmware/LICENSES/LICENSE.amd-ucode /usr/share/licenses/microcode/amd-license
+"""

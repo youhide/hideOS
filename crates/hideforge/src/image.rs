@@ -5,7 +5,8 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -123,13 +124,16 @@ pub fn assemble(
     );
 
     // Sorted names, fixed owner, reproducible mode: the same closure gives
-    // the same archive, byte for byte.
+    // the same archive, byte for byte. Without the kernel's modules and the
+    // firmware: what runs from memory — the installer, the recovery system
+    // — runs on the drivers built into the kernel, and the two would more
+    // than double the memory it needs.
     if outputs.initramfs {
         let archive = output.join("initramfs.cpio");
         let file = fs::File::create(&archive)?;
         run(Command::new("sh")
             .arg("-c")
-            .arg("find . -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
+            .arg("find . \\( -path ./usr/lib/modules -o -path ./usr/lib/firmware \\) -prune -o -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
             .current_dir(&root)
             .stdout(file))
         .context("writing the initramfs")?;
@@ -331,6 +335,11 @@ pub struct PayloadParts<'a> {
     /// Also the installer's UKI: this image's initramfs, booting into
     /// `hide installer`. For Minimal, which installs every edition.
     pub installer: bool,
+    /// The recipe with CPU microcode for the early initrd, x86_64: its
+    /// `usr/lib/hideos/microcode/<vendor>.bin` go in an uncompressed cpio
+    /// at the front of every UKI's initrd, where the kernel looks for them
+    /// before it unpacks anything else.
+    pub microcode: Option<&'a str>,
 }
 
 /// The system as `hide install` takes it, archived as `payload.tar`:
@@ -399,12 +408,22 @@ fn write_payload(
     )
     .context("creating dev/console in the initrd")?;
     let initrd = stage.join("initrd.cpio");
-    run(Command::new("sh")
-        .arg("-c")
-        .arg("find . -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
-        .current_dir(&initrd_root)
-        .stdout(fs::File::create(&initrd)?))
-    .context("writing the initrd")?;
+    let early = match parts.microcode {
+        Some(recipe) => Some(early_microcode(&output_of(recipe)?, &stage)?),
+        None => None,
+    };
+    {
+        let mut file = fs::File::create(&initrd)?;
+        if let Some(early) = &early {
+            io::copy(&mut fs::File::open(early)?, &mut file)?;
+        }
+        run(Command::new("sh")
+            .arg("-c")
+            .arg("find . -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
+            .current_dir(&initrd_root)
+            .stdout(file))
+        .context("writing the initrd")?;
+    }
 
     // The kernel, from the kernel recipe's output.
     let modules = output_of(parts.kernel)?.join("usr/lib/modules");
@@ -770,4 +789,33 @@ pub fn sysext(
         if sign.is_some() { "signed" } else { "unsigned" }
     );
     Ok(())
+}
+
+/// The early initrd: `kernel/x86/microcode/<vendor>.bin`, from the microcode
+/// recipe's output, in an uncompressed cpio. The kernel reads it before it
+/// unpacks the rest of the initrd, which follows it.
+fn early_microcode(microcode: &Path, stage: &Path) -> Result<PathBuf> {
+    let source = microcode.join("usr/lib/hideos/microcode");
+    let root = stage.join("early");
+    let dir = root.join("kernel/x86/microcode");
+    fs::create_dir_all(&dir)?;
+    let mut found = 0;
+    for vendor in ["GenuineIntel.bin", "AuthenticAMD.bin"] {
+        let file = source.join(vendor);
+        if file.is_file() {
+            fs::copy(&file, dir.join(vendor))?;
+            found += 1;
+        }
+    }
+    if found == 0 {
+        bail!("{} has no microcode", source.display());
+    }
+    let archive = stage.join("early.cpio");
+    run(Command::new("sh")
+        .arg("-c")
+        .arg("find . -print0 | LC_ALL=C sort -z | cpio --null --create --format=newc --reproducible --owner=0:0 --quiet")
+        .current_dir(&root)
+        .stdout(fs::File::create(&archive)?))
+    .context("writing the early initrd")?;
+    Ok(archive)
 }

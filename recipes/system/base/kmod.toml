@@ -1,0 +1,45 @@
+# Kernel modules: modprobe, depmod and libkmod. The kernel recipe runs depmod
+# when it installs its modules, and udev loads a module for each device it
+# finds, through libkmod, by the device's modalias.
+[package]
+name = "kmod"
+version = "34.2"
+description = "Linux kernel module handling"
+license = "LGPL-2.1-or-later AND GPL-2.0-or-later"
+homepage = "https://github.com/kmod-project/kmod"
+
+# Checked against kernel.org's published sha256sums.
+[[source]]
+url = "https://cdn.kernel.org/pub/linux/utils/kernel/kmod/kmod-34.2.tar.xz"
+sha256 = "5a5d5073070cc7e0c7a7a3c6ec2a0e1780850c8b47b3e3892226b93ffcb9cb54"
+
+[depends]
+build = ["buildtools", "zstd", "xz", "zlib"]
+run = ["glibc", "zstd", "xz", "zlib"]
+
+[build]
+# Modules are compressed with zstd; xz and zlib read what others ship. No
+# OpenSSL: module signatures are not checked here (see linux/hideos.config).
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sbindir=bin \\
+    --sysconfdir=/etc \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dmoduledir=/usr/lib/modules \\
+    -Dzstd=enabled \\
+    -Dxz=enabled \\
+    -Dzlib=enabled \\
+    -Dopenssl=disabled \\
+    -Dtools=true \\
+    -Dmanpages=false \\
+    -Ddocs=false \\
+    -Dbuild-tests=false \\
+    -Dbashcompletiondir=no \\
+    -Dfishcompletiondir=no \\
+    -Dzshcompletiondir=no
+meson compile -C build -j "$JOBS"
+meson install -C build
+"""

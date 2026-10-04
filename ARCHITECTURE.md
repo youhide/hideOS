@@ -133,12 +133,15 @@ waits for oxinit.
 
 ## Disk layout
 
-GPT, partition types from the Discoverable Partitions Specification, so no
-`fstab` is needed to find anything.
+GPT, with the partition types of the Discoverable Partitions Specification
+and the names `hideos-esp` and `hideos-root`, which are what hidestage and
+`hide` look for: no `fstab` is needed to find anything, and another
+system's root of the same type on the same machine is not mistaken for
+hideOS's.
 
 | Partition | Size     | Contents                                                     |
 |-----------|----------|--------------------------------------------------------------|
-| ESP       | 2 GiB    | `hideboot.efi`, one UKI per deployment, the recovery UKI     |
+| ESP       | 512 MiB  | hideBoot, one UKI per deployment, the recovery system         |
 | Root      | the rest | LUKS2 → btrfs                                                 |
 
 btrfs subvolumes:
@@ -536,8 +539,11 @@ seal. When oxinit feeds the watchdog itself, it takes over from `boot-ok`.
 
 hidestage has its own last resort, because it runs before anything else can
 help: if it cannot assemble the root, it does not panic the kernel. It prints
-what failed and why on the console, offers a shell, and on a timeout reboots —
-which hideboot counts as a failed boot of this deployment.
+what failed and why on the console, waits 30 seconds for a person to read
+it, and reboots — which hideBoot counts as a failed boot of this
+deployment. It offers no shell: a shell there would run before the seal is
+checked. The shell for a machine that does not start is the recovery
+system's, on the ESP.
 
 ## Reliability
 
