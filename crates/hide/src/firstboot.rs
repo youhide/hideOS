@@ -155,22 +155,70 @@ pub fn valid_full_name(name: &str) -> bool {
 }
 
 /// A login suggested from a full name, as a Mac suggests one: the first
-/// name, lowercased, with what a login cannot hold left out. Empty when
+/// name, lowercased, accents folded, with what a login cannot hold left
+/// out. Empty when
 /// nothing is left.
 pub fn suggested_login(full_name: &str) -> String {
     let first = full_name.split_whitespace().next().unwrap_or_default();
     let mut login: String = first
         .chars()
-        .filter_map(|c| match c.to_ascii_lowercase() {
-            c @ ('a'..='z' | '0'..='9' | '-' | '_') => Some(c),
-            _ => None,
-        })
+        .flat_map(char::to_lowercase)
+        .map(fold)
         .collect();
     while login.starts_with(|c: char| !c.is_ascii_lowercase()) {
         login.remove(0);
     }
     login.truncate(32);
     login
+}
+
+/// A letter as a login can hold it: accents folded as a Mac folds them,
+/// José to jose; what has no ASCII letter, nothing.
+fn fold(c: char) -> &'static str {
+    match c {
+        'a' | 'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
+        'c' | 'ç' | 'ć' | 'č' => "c",
+        'd' | 'ď' | 'đ' => "d",
+        'e' | 'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ė' | 'ę' | 'ě' => "e",
+        'g' | 'ğ' => "g",
+        'i' | 'ì' | 'í' | 'î' | 'ï' | 'ī' | 'ı' => "i",
+        'l' | 'ł' | 'ľ' => "l",
+        'n' | 'ñ' | 'ń' | 'ň' => "n",
+        'o' | 'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' => "o",
+        'r' | 'ř' => "r",
+        's' | 'ś' | 'š' | 'ș' | 'ş' => "s",
+        't' | 'ť' | 'ț' | 'ţ' => "t",
+        'u' | 'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' | 'ű' => "u",
+        'y' | 'ý' | 'ÿ' => "y",
+        'z' | 'ź' | 'ż' | 'ž' => "z",
+        'ß' => "ss",
+        'æ' => "ae",
+        'œ' => "oe",
+        'b' => "b",
+        'f' => "f",
+        'h' => "h",
+        'j' => "j",
+        'k' => "k",
+        'm' => "m",
+        'p' => "p",
+        'q' => "q",
+        'v' => "v",
+        'w' => "w",
+        'x' => "x",
+        '0' => "0",
+        '1' => "1",
+        '2' => "2",
+        '3' => "3",
+        '4' => "4",
+        '5' => "5",
+        '6' => "6",
+        '7' => "7",
+        '8' => "8",
+        '9' => "9",
+        '-' => "-",
+        '_' => "_",
+        _ => "",
+    }
 }
 
 #[cfg(test)]
@@ -234,7 +282,8 @@ mod tests {
     #[test]
     fn logins_are_suggested_from_the_first_name() {
         assert_eq!(suggested_login("Youri Mattar"), "youri");
-        assert_eq!(suggested_login("José Silva"), "jos");
+        assert_eq!(suggested_login("José Silva"), "jose");
+        assert_eq!(suggested_login("Øyvind Łukasz"), "oyvind");
         assert_eq!(suggested_login("1st Name"), "st");
         assert_eq!(suggested_login(""), "");
         assert!(valid_full_name("Youri T. K. K. Mattar"));

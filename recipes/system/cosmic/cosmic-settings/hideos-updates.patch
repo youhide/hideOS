@@ -63,7 +63,7 @@ new file mode 100644
 index 0000000..e68a37c
 --- /dev/null
 +++ b/cosmic-settings/src/pages/system/hideos.rs
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,326 @@
 +// SPDX-License-Identifier: GPL-3.0-only
 +
 +//! hideOS: System → Updates. Updating from the channel, the deployments on
@@ -328,15 +328,16 @@ index 0000000..e68a37c
 +                            .align_items(Alignment::Center),
 +                        );
 +                    }
-+                    let can_go_back = !page.working
-+                        && state.deployments.iter().any(|d| !d.running && d.state != "bad");
-+                    column = column.add(
-+                        settings::item(
++                    // Nothing to go back to, nothing offered: as on a Mac.
++                    let previous =
++                        state.deployments.iter().any(|d| !d.running && d.state != "bad");
++                    if previous {
++                        column = column.add(settings::item(
 +                            "Go back to the previous system",
 +                            widget::button::standard("Go back")
-+                                .on_press_maybe(can_go_back.then_some(Message::Rollback)),
-+                        ),
-+                    );
++                                .on_press_maybe((!page.working).then_some(Message::Rollback)),
++                        ));
++                    }
 +                }
 +            }
 +            if let Some(note) = &page.note {

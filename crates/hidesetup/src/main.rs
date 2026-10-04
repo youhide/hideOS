@@ -710,17 +710,68 @@ fn valid_login(name: &str) -> bool {
         && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-' | '_'))
 }
 
-/// The first name, lowercased, with what a login cannot hold left out.
+/// The first name, lowercased, accents folded, with what a login cannot
+/// hold left out — as `hide::firstboot::suggested_login`, which hideupd
+/// would check it against.
 fn suggested_login(full_name: &str) -> String {
     let first = full_name.split_whitespace().next().unwrap_or_default();
     let login: String = first
         .chars()
-        .filter_map(|c| match c.to_ascii_lowercase() {
-            c @ ('a'..='z' | '0'..='9' | '-' | '_') => Some(c),
-            _ => None,
-        })
-        .skip_while(|c| !c.is_ascii_lowercase())
-        .take(32)
+        .flat_map(char::to_lowercase)
+        .map(fold)
         .collect();
     login
+        .trim_start_matches(|c: char| !c.is_ascii_lowercase())
+        .chars()
+        .take(32)
+        .collect()
+}
+
+/// A letter as a login can hold it: accents folded as a Mac folds them,
+/// José to jose; what has no ASCII letter, nothing.
+fn fold(c: char) -> &'static str {
+    match c {
+        'a' | 'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
+        'c' | 'ç' | 'ć' | 'č' => "c",
+        'd' | 'ď' | 'đ' => "d",
+        'e' | 'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ė' | 'ę' | 'ě' => "e",
+        'g' | 'ğ' => "g",
+        'i' | 'ì' | 'í' | 'î' | 'ï' | 'ī' | 'ı' => "i",
+        'l' | 'ł' | 'ľ' => "l",
+        'n' | 'ñ' | 'ń' | 'ň' => "n",
+        'o' | 'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' => "o",
+        'r' | 'ř' => "r",
+        's' | 'ś' | 'š' | 'ș' | 'ş' => "s",
+        't' | 'ť' | 'ț' | 'ţ' => "t",
+        'u' | 'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' | 'ű' => "u",
+        'y' | 'ý' | 'ÿ' => "y",
+        'z' | 'ź' | 'ż' | 'ž' => "z",
+        'ß' => "ss",
+        'æ' => "ae",
+        'œ' => "oe",
+        'b' => "b",
+        'f' => "f",
+        'h' => "h",
+        'j' => "j",
+        'k' => "k",
+        'm' => "m",
+        'p' => "p",
+        'q' => "q",
+        'v' => "v",
+        'w' => "w",
+        'x' => "x",
+        '0' => "0",
+        '1' => "1",
+        '2' => "2",
+        '3' => "3",
+        '4' => "4",
+        '5' => "5",
+        '6' => "6",
+        '7' => "7",
+        '8' => "8",
+        '9' => "9",
+        '-' => "-",
+        '_' => "_",
+        _ => "",
+    }
 }
