@@ -333,7 +333,7 @@
         <h1 class="hero__name">hideOS<span class="cursor" aria-hidden="true">_</span></h1>
         <p class="hero__role">A Linux workstation that can't change under you.</p>
         <p class="hero__lead">Built from source and sealed: the whole system is one signed image, checked on every read. Updates replace it whole, and if one doesn't boot, the machine goes back by itself. Your files, settings and apps live outside it.</p>
-        <p class="hero__note"># pre-alpha: today it builds itself from source and boots to a shell under oxinit, in QEMU. the COSMIC desktop arrives in milestone H5.</p>
+        <p class="hero__note"># pre-alpha: it builds itself from source, installs from its own installer and boots sealed in QEMU, Minimal to a shell and Workstation to the COSMIC desktop. not on real hardware yet.</p>
         <div class="hero__actions">
           <a class="btn btn--primary" href="https://github.com/youhide/hideOS">Follow on GitHub</a>
           <a class="btn" href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">Read the architecture</a>
@@ -394,7 +394,7 @@
     <p class="comment"># from power-on to desktop, nothing runs that the step before it didn't verify.</p>
     <ol class="chain">
       <li><span class="chain__name">UEFI Secure Boot</span><span class="chain__does">Checks the boot manager's signature against hideOS's key.</span></li>
-      <li><span class="chain__name">hideboot<span class="chain__when">H7, systemd-boot until then</span></span><span class="chain__does">Picks the newest image with tries left, and falls back when an update keeps failing.</span></li>
+      <li><span class="chain__name">hideBoot</span><span class="chain__does">Picks the newest image with tries left and falls back when an update keeps failing. When nothing starts, it boots the recovery system.</span></li>
       <li><span class="chain__name">signed kernel image</span><span class="chain__does">Kernel, initrd and command line in one signed file. The command line carries the system image's digest, so the signature covers it.</span></li>
       <li><span class="chain__name">hidestage<span class="chain__when">H2</span></span><span class="chain__does">Unlocks the disk with the TPM, then mounts the system only if its digest matches the one the kernel was signed with.</span></li>
       <li><span class="chain__name">oxinit</span><span class="chain__does">PID 1, in Rust. Starts and supervises everything else, and never panics.</span></li>
@@ -465,10 +465,10 @@
       <li class="is-done"><span class="roadmap__id">H1</span><span class="roadmap__what">hideforge builds hideOS Minimal, which boots to a shell</span><span class="roadmap__state">done on x86_64</span></li>
       <li class="is-done"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">done on x86_64</span></li>
       <li class="is-now"><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">OCI updates roll back by themselves; registry next</span></li>
-      <li><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">planned</span></li>
-      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">logs in to the desktop</span></li>
-      <li><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">planned</span></li>
-      <li><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideboot</span><span class="roadmap__state">planned</span></li>
+      <li class="is-now"><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">Wi-Fi, suspend, hibernation and LUKS2 in QEMU; firmware next</span></li>
+      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">logs in to the desktop; Flatpak next</span></li>
+      <li class="is-now"><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">signed system extensions merge; NVIDIA next</span></li>
+      <li class="is-now"><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideBoot</span><span class="roadmap__state">installer, recovery and hideBoot; Secure Boot keys next</span></li>
       <li><span class="roadmap__id">H8</span><span class="roadmap__what">Rust replacements for the device manager and login daemon</span><span class="roadmap__state">planned</span></li>
     </ol>
   </section>

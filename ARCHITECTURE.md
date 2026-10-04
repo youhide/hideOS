@@ -97,11 +97,13 @@ flowchart TD
 UKIs on the ESP, apply boot counting (a `+tries` suffix in the file name,
 decremented before boot, as in the Boot Loader Specification), pick the newest
 deployment with tries left, fall back to the previous one otherwise, and offer a
-menu on a held key. It lands in H7. Until then the stopgap is `systemd-boot`
-used as a standalone EFI binary — it already implements the same file-name
-convention, so switching later changes nothing on disk. That convention is the
-contract between the two, and the only thing hideOS may assume about its boot
-manager.
+menu on a held key. Recovery images in `\EFI\Recovery` appear in the menu and
+boot by themselves only when nothing in `\EFI\Linux` will. It is the boot
+manager hideOS installs. `systemd-boot`, used as a standalone EFI binary,
+was the stopgap before it, and is what `hideforge image` still puts on the
+ESP without `--boot-manager hideboot`, which `cargo xtask` passes: it implements the same file-name convention, so either boots
+the same ESP. That convention is the contract between them, and the only
+thing hideOS may assume about its boot manager.
 
 **UKI** (Unified Kernel Image). One signed PE binary per deployment containing
 the kernel, the hideOS initrd and the kernel command line. The command line
@@ -255,13 +257,13 @@ of its UKI into place on the ESP, after everything it references has been
 written and synced. Power can be cut at any instant before that and the
 machine boots the previous deployment as if nothing had happened.
 
-**Boot counting is systemd-boot's, until hideBoot.** A new deployment's UKI
-is named `hideos-EDITION-VERSION-DIGEST+3.efi`: systemd-boot's Automatic
-Boot Assessment decrements the count before each attempt, and a UKI at `+0`
+**Boot counting is in the file name.** A new deployment's UKI is named
+`hideos-EDITION-VERSION-DIGEST+3.efi`: hideBoot, like systemd-boot's
+Automatic Boot Assessment, decrements the count before each attempt, and a UKI at `+0`
 sorts after every good one, so the previous deployment boots. `hide boot-ok`
 renames it without the count once the edition's target is reached. The
 version is `IMAGE_VERSION` in `/usr/lib/os-release` — the commit count of the
-tree it was built from — and systemd-boot boots the highest version first.
+tree it was built from — and the boot manager boots the highest version first.
 `os-release` lives in `/usr/lib` and is linked from `/etc`, because `/etc` is
 the machine's and would otherwise go on naming the installed version.
 
@@ -279,9 +281,10 @@ boot-success telemetry — opt-in, local-first — shows no regression.
 
 ### System extensions
 
-The analogue of a Cryptex. A sysext is an EROFS image with dm-verity, signed
-by the hideOS key, merged over `/usr` with overlayfs. **Only hideOS publishes
-them**; the machine refuses any other signature. Three uses:
+The analogue of a Cryptex. A sysext is a composefs image in the same store as
+the system, its digest signed by the hideOS key, merged over `/usr` with
+overlayfs. **Only hideOS publishes them**; the machine refuses any other
+signature. Three uses:
 
 - **Rapid security responses.** A fix to a userspace component ships as a
   sysext, applied without a reboot where the component allows it, and folded
@@ -295,6 +298,25 @@ them**; the machine refuses any other signature. Three uses:
 
 A sysext declares the deployment it was built for and is not merged into any
 other one.
+
+**How, and why composefs rather than dm-verity.** The first sketch was an
+EROFS image with dm-verity, as systemd's sysexts are. hideOS already has a
+verified store: an extension as a composefs image gets fs-verity on every
+file, as the system has, shares its objects with the system, travels as an
+OCI image like an update, and is mounted by the code that mounts the
+system — no loop devices, no second integrity mechanism to get right.
+`hideforge sysext NAME --image DIGEST` builds one from a recipe that
+installs under `/usr` only, adds `extension-release.NAME` naming the image
+it is for, and signs `sha256:<its composefs digest>` with the hideOS key
+(RSA, PKCS #1 v1.5, SHA-256: the key and scheme the UKI is signed with).
+The name and the signature are annotations on the OCI manifest, which the
+digest does not cover. `hide ext add` pulls it, checks the signature, and
+records it in `/hideos/extensions/NAME`; hidestage, at every boot, checks
+the signature again with the public key compiled into it — trusted because
+the firmware checked the UKI it is in — measures the image, mounts it, and
+merges it over `/usr` only if its extension-release names the booted
+image. An extension that fails any check is left out with a line on the
+console; it never stops a boot.
 
 ## Editions
 
@@ -361,6 +383,17 @@ and generated with `zbus`; the `hide` CLI and the Settings pages are both
 clients of it, so there is exactly one implementation of every operation.
 Privileged operations go through polkit.
 
+hideupd is `hide daemon`, and runs each operation as `hide` itself, a child
+process: the code a root shell runs is the code the daemon runs, and an
+operation that fails takes nothing of the daemon with it. The child's
+output comes back as `Progress` signals and its end as `Finished`. Root may
+ask for anything; anyone else as polkit says (`os.hide.update.*`, an
+administrator's password at the machine), and without polkit — Minimal has
+none — no one else. `hide update`, `rollback`, `gc` and `ext add|remove` go
+through hideupd while it runs, and do the work themselves where it does not:
+the installer, the recovery system. Either way one operation runs at a
+time, under a lock in `/run`.
+
 Upstream first: a change COSMIC needs — a bug, a missing hook, an integration
 point — goes upstream to pop-os, not into a hideOS patch, unless upstream
 declines it.
@@ -407,10 +440,10 @@ administrator's changes survive every update.
 | `hideforge`   | Build system: recipes → packages → root tree → OCI image + UKI    | Exists        |
 | `hidestage`   | initrd `/init`: unlock, resume, verify, assemble, `switch_root`  | Exists        |
 | `hidecrypt`   | LUKS2 and TPM2 for hidestage and `hide`, host-tested             | Exists        |
-| `hideupd`     | Update daemon: pull, unpack, deploy, garbage-collect             | In `hide` for now |
-| `hide`        | CLI: `install`, `installer`, `update`, `rollback`, `status`, `gc`, `swap`, `tpm-enroll` | Exists |
+| `hideupd`     | `os.hide.Update1` on the system bus: update, rollback, extensions, gc | `hide daemon` |
+| `hide`        | CLI: `install`, `installer`, `recovery`, `update`, `rollback`, `status`, `ext`, `gc`, `swap`, `tpm-enroll` | Exists |
 | COSMIC pieces | Settings pages, panel applet, first-boot setup (`hidesetup`)     | To write      |
-| `hideboot`    | UEFI boot manager with boot counting (youhide/hideBoot)          | H7            |
+| `hideboot`    | UEFI boot manager with boot counting (youhide/hideBoot)          | Exists        |
 | `hidedev`     | Device manager, libudev-compatible; replaces eudev               | Later         |
 | `hidelogin`   | `org.freedesktop.login1` subset; replaces elogind                | Later         |
 
@@ -528,7 +561,7 @@ What "no BSOD" means concretely, layer by layer:
 | GPU hang                                | Kernel driver reset; compositor recovers the context                 |
 | Disk corruption in user data            | btrfs checksums detect it; scrub on a monthly timer; `/home` snapshots |
 | Lost disk password                      | Recovery key, printed at install                                     |
-| Everything else                         | Recovery UKI on the ESP: rollback, reinstall, or a shell             |
+| Everything else                         | Recovery system on the ESP: rollback or a shell; the installer reinstalls keeping `/home` |
 
 Nothing is published that has not booted. Every image boots in QEMU in CI, x86_64
 and aarch64, and passes a smoke suite — reaches the greeter, logs in, starts a
@@ -542,7 +575,7 @@ panics, one that hangs. Each must end in the previous deployment.
   or uses the Microsoft-signed `shim` when it cannot — **Proposed**, decided
   when the installer is written.
 - **Until then, a development key.** `cargo xtask image` signs the UKI and
-  systemd-boot with Debian's "snakeoil" key, which Debian's OVMF ships
+  the boot manager with Debian's "snakeoil" key, which Debian's OVMF ships
   already enrolled, with the private half published so that anyone can sign
   for it. It proves the mechanism — the firmware refuses a changed or unsigned
   kernel image — not who made the image; no machine outside QEMU trusts it.
@@ -600,6 +633,33 @@ as from a file, and a FAT file could not hold a payload over 4 GiB. The
 installer asks for the disk, a passphrase and the first account, installs
 with the code `hide install` runs, and shows a recovery key: a second LUKS2
 keyslot, 200 random bits in Crockford base32, shown once.
+
+**A reinstall keeps `/home`.** Pointed at a disk that already holds hideOS,
+the installer offers to reinstall rather than erase: it opens the disk with
+its passphrase or recovery key, keeps the partitions, the LUKS2 keyslots and
+`@home`, and makes the ESP and every other subvolume anew — `@etc` and `@var`
+included, so what is replaced is the whole system and its configuration.
+The account is asked for again; a home with its name is the account's
+again. `@swap` is made anew too: a swap file kept could hold a hibernated
+system that is no longer there to resume.
+
+### Recovery
+
+The installer puts a recovery system on the ESP, at
+`\EFI\Recovery\hideos-recovery.efi`: Minimal's kernel and its whole root as
+a zstd initramfs, booting into `hide recovery`. It runs from memory, so
+nothing on the disk has to work for it to. hideBoot lists it in its menu —
+held key at startup — and boots it by itself only when no entry in
+`\EFI\Linux` will start. It never counts its attempts and is never the
+default.
+
+It offers a rollback a person chooses: the deployments on the ESP, and the
+one chosen made the one that starts next, by the same renames the boot
+counter makes. And a shell, with the disk opened and mounted at `/mnt`.
+
+It does not reinstall: it carries no payload, and the store on the disk is
+the thing that might be broken. Reinstalling is the installer's, from the
+medium, which carries the whole system.
 
 **The console is the screen.** Every UKI ends its command line with
 `console=tty0`, so `/dev/console` — where hidestage asks for the passphrase,

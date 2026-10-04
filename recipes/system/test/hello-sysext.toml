@@ -1,0 +1,19 @@
+# A system extension for tests: one command, under /usr. `cargo xtask
+# sysext-test` builds it for a system image and checks it is merged over
+# that image and no other.
+[package]
+name = "hello-sysext"
+version = "1"
+description = "A system extension with one command, for tests"
+license = "MIT"
+
+[depends]
+build = ["toolchain"]
+
+[build]
+script = """
+install -Dm755 /dev/stdin /usr/bin/hello-sysext <<'END'
+#!/bin/sh
+echo "hello from a system extension"
+END
+"""

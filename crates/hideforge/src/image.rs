@@ -583,28 +583,48 @@ fn write_installer(
     if !initramfs.is_file() {
         bail!("an installer needs the initramfs: build it without --no-initramfs");
     }
-    // Everything after `--` is the init's argv, so additions go before it.
-    let mut cmdline = format!("{console} rdinit=/usr/bin/hide panic=10");
-    if let Some(extra) = parts.cmdline {
-        cmdline.push(' ');
-        cmdline.push_str(extra);
+    // Compressed: these images live on ESPs and USB sticks, and the root
+    // in them is a few hundred megabytes. The kernel reads zstd itself.
+    let compressed = output.join("initramfs.cpio.zst");
+    run(Command::new("zstd")
+        .args(["-q", "-f", "-19", "-T0", "-o"])
+        .arg(&compressed)
+        .arg(&initramfs))
+    .context("compressing the initramfs")?;
+    // The installer, and the recovery system: the same image, started as
+    // `hide installer` or `hide recovery`. Everything after `--` is the
+    // init's argv, so additions go before it.
+    let mut written = Vec::new();
+    for role in ["installer", "recovery"] {
+        let mut cmdline = format!("{console} rdinit=/usr/bin/hide panic=10");
+        if let Some(extra) = parts.cmdline {
+            cmdline.push(' ');
+            cmdline.push_str(extra);
+        }
+        cmdline.push_str(&format!(" -- {role}"));
+        let uki = output.join(format!("{role}.efi"));
+        crate::uki::build(
+            &Path::new(BOOT_EFI_DIR).join(stub_name),
+            os_release,
+            &cmdline,
+            &compressed,
+            vmlinuz,
+            &uki,
+        )?;
+        if let Some(keys) = parts.sign {
+            sign_efi(keys, &uki)?;
+        }
+        written.push(uki);
     }
-    cmdline.push_str(" -- installer");
-    let uki = output.join("installer.efi");
-    crate::uki::build(
-        &Path::new(BOOT_EFI_DIR).join(stub_name),
-        os_release,
-        &cmdline,
-        &initramfs,
-        vmlinuz,
-        &uki,
-    )?;
+    fs::remove_file(&compressed)?;
     let manager = output.join("bootmanager.efi");
     fs::copy(boot_manager, &manager)?;
-    if let Some(keys) = parts.sign {
-        sign_efi(keys, &uki)?;
-    }
-    println!("  installer {} (with {})", uki.display(), manager.display());
+    let uki = written.first().cloned().unwrap_or_default();
+    println!(
+        "  installer {} and recovery.efi (with {})",
+        uki.display(),
+        manager.display()
+    );
     Ok(())
 }
 
@@ -658,5 +678,96 @@ fn run(command: &mut Command) -> Result<()> {
     if !status.success() {
         bail!("{command:?} failed: {status}");
     }
+    Ok(())
+}
+
+/// A system extension from recipe `name`'s output, for the system image
+/// `image` (its digest in hex): `NAME.sysext.oci.tar` in `output`, signed
+/// with `sign`/db.key. The recipe must install under /usr and nowhere else
+/// — an extension is merged over /usr, and anything beside it would be
+/// silently dropped. See ARCHITECTURE.md, "System extensions".
+pub struct Sysext<'a> {
+    pub name: &'a str,
+    /// The system image's digest, in hex.
+    pub image: &'a str,
+    pub output: &'a Path,
+    pub arch: hideforge_recipe::Arch,
+    pub sign: Option<&'a Path>,
+}
+
+#[cfg(target_os = "linux")]
+pub fn sysext(
+    set: &RecipeSet,
+    layout: &Layout,
+    hashes: &BTreeMap<String, InputHash>,
+    extension: &Sysext,
+) -> Result<()> {
+    let Sysext {
+        name,
+        image,
+        output,
+        arch,
+        sign,
+    } = *extension;
+    if image.len() != 64 || !image.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("--image takes the system image's sha256 digest, 64 hex digits");
+    }
+    let hash = hashes
+        .get(name)
+        .ok_or_else(|| anyhow!("no hash for {name}"))?;
+    let built = layout.output(hash, &set.get(name)?.recipe);
+    let stage = layout.image_root(&format!("{name}.sysext"));
+    if stage.exists() {
+        fs::remove_dir_all(&stage)?;
+    }
+    let root = stage.join("root");
+    fs::create_dir_all(&root)?;
+    run(Command::new("cp")
+        .arg("-a")
+        .arg(format!("{}/.", built.display()))
+        .arg(&root))
+    .with_context(|| format!("copying {name}"))?;
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?.file_name();
+        if entry != "usr" {
+            bail!(
+                "{name} installs /{}: an extension is /usr only",
+                entry.to_string_lossy()
+            );
+        }
+    }
+    // What the extension says it was built for: hidestage merges it over
+    // that system image and no other.
+    let release = root.join("usr/lib/extension-release.d");
+    fs::create_dir_all(&release)?;
+    fs::write(
+        release.join(format!("extension-release.{name}")),
+        format!("ID=hideos\nHIDEOS_IMAGE=sha256:{image}\n"),
+    )?;
+
+    let oci = stage.join("oci");
+    let digest =
+        crate::payload::write_extension(&root, &oci, &stage.join("repo"), name, arch, sign)?;
+    fs::create_dir_all(output)?;
+    let archive = output.join(format!("{name}.sysext.oci.tar"));
+    run(Command::new("tar")
+        .args([
+            "--create",
+            "--sort=name",
+            "--owner=0",
+            "--group=0",
+            "--numeric-owner",
+            "--mtime=@0",
+            "--directory",
+        ])
+        .arg(&oci)
+        .args(["oci-layout", "index.json", "blobs"])
+        .stdout(fs::File::create(&archive)?))
+    .context("archiving the extension")?;
+    println!(
+        "  sysext  {} (sha256:{digest}, for sha256:{image}, {})",
+        archive.display(),
+        if sign.is_some() { "signed" } else { "unsigned" }
+    );
     Ok(())
 }

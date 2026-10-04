@@ -6,5 +6,5 @@
 [unit]
 description = "hideOS multi-user target"
 requires    = ["console"]
-wants       = ["setup", "banner", "swap", "tpm-enroll", "networkmanager", "ntpd-rs"]
+wants       = ["setup", "banner", "swap", "tpm-enroll", "hideupd", "networkmanager", "ntpd-rs"]
 after       = ["setup", "console", "banner"]

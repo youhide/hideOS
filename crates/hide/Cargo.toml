@@ -28,7 +28,10 @@ composefs = "0.9.3"
 # their boot image; see crates/hideforge/src/payload.rs.
 composefs-oci = { version = "0.9.3", default-features = false, features = ["boot"] }
 composefs-boot = "0.9.3"
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "process", "io-util", "macros", "sync"] }
+# os.hide.Update1, the D-Bus face of updates: see daemon.rs.
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+futures-util = { version = "0.3", default-features = false }
 # composefs links OpenSSL. Vendored, as in hideforge: openssl-sys does not
 # know hideOS's OpenSSL 4, and the builder image has no libssl-dev. A sealed
 # image ships hide and every library together, so a static copy is patched

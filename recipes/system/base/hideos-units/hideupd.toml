@@ -1,0 +1,11 @@
+# hideupd: updates, rollback and extensions on the system bus, as
+# os.hide.Update1. `hide update` and the rest go through it while it runs.
+[unit]
+description = "hideOS updates"
+requires    = ["dbus", "oxlogd"]
+after       = ["setup", "dbus", "oxlogd"]
+
+[service]
+exec    = "/usr/bin/hide daemon"
+restart = "on-failure"
+output  = "log"

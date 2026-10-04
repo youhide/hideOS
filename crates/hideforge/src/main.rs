@@ -24,6 +24,10 @@
 //!                         recipe's boot manager (hideBoot) on the ESP
 //!                         instead of systemd-boot; --installer also writes
 //!                         the installer's UKI
+//!   sysext NAME --image DIGEST --output DIR [--sign DIR]
+//!                         build NAME, which installs under /usr only, as a
+//!                         system extension for the system image DIGEST:
+//!                         an OCI archive, its digest signed with DIR/db.key
 //! ```
 //!
 //! Building needs Linux, root and a writable work directory, which is what the
@@ -201,6 +205,38 @@ fn run(args: &[String]) -> Result<i32> {
                 },
             )?;
         }
+        "sysext" => {
+            let usage = "usage: hideforge sysext NAME --image DIGEST --output DIR [--sign DIR]";
+            let [name] = names.as_slice() else {
+                bail!("{usage}");
+            };
+            let output = parsed.value("--output").ok_or_else(|| anyhow!("{usage}"))?;
+            let image = parsed.value("--image").ok_or_else(|| anyhow!("{usage}"))?;
+            let targets = set.with_run_closure(&[*name])?;
+            let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
+            let hashes = set.input_hashes(&targets, &context)?;
+            let order = set.build_order(&targets)?;
+            build(
+                &set,
+                &layout,
+                &context,
+                &hashes,
+                &order,
+                BuildOptions::default(),
+            )?;
+            image::sysext(
+                &set,
+                &layout,
+                &hashes,
+                &image::Sysext {
+                    name,
+                    image: image.trim_start_matches("sha256:"),
+                    output: output.as_ref(),
+                    arch: options.arch,
+                    sign: parsed.value("--sign").map(std::path::Path::new),
+                },
+            )?;
+        }
         "image" => {
             let usage = "usage: hideforge image NAME --output DIR --kernel NAME \
                          [--payload --initrd NAME [--sign DIR]] [--no-initramfs] \
@@ -284,6 +320,7 @@ const VALUE_OPTIONS: &[&str] = &[
     "--image-version",
     "--cmdline",
     "--boot-manager",
+    "--image",
 ];
 
 fn parse_args(args: &[String]) -> Result<Args> {

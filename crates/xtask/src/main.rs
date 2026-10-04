@@ -45,6 +45,7 @@ fn main() -> ExitCode {
         Some("net-test") => net_test(args.get(1..).unwrap_or_default()),
         Some("power-test") => power_test(args.get(1..).unwrap_or_default()),
         Some("crypt-test") => crypt_test(args.get(1..).unwrap_or_default()),
+        Some("sysext-test") => sysext_test(args.get(1..).unwrap_or_default()),
         Some("installer") => installer(args.get(1..).unwrap_or_default()).map(|_| ()),
         Some("installer-test") => installer_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
@@ -103,6 +104,9 @@ fn usage() -> &'static str {
                                   installer and E's payload, for a USB stick
     installer-test [--arch ARCH]  boot the installer beside an empty disk,
                                   answer it, and boot what it installed
+    sysext-test [--arch ARCH]     system extensions: refused unsigned, left out
+                                  when built for another image, merged over
+                                  /usr when signed for this one
     crypt-test [--arch ARCH]      install Minimal encrypted, and open it by
                                   passphrase, by TPM, and by passphrase again
                                   when the boot chain changes (needs swtpm)
@@ -1300,6 +1304,15 @@ impl Guest {
         false
     }
 
+    /// Keys without Enter: for menus, where Enter chooses.
+    fn type_keys(&mut self, keys: &str) -> Result<(), String> {
+        use std::io::Write;
+        self.stdin
+            .write_all(keys.as_bytes())
+            .and_then(|()| self.stdin.flush())
+            .map_err(|e| format!("typing at the guest: {e}"))
+    }
+
     fn type_line(&mut self, line: &str) -> Result<(), String> {
         use std::io::Write;
         self.stdin
@@ -1520,22 +1533,24 @@ fn power_test(args: &[String]) -> Result<(), String> {
 }
 
 /// Lays out an installer medium in the builder: GPT, an ESP with the boot
-/// manager and the installer's UKI, and the payload, raw, in a partition
+/// manager, the installer's UKI and the recovery system the installer puts
+/// on the disk it installs, and the payload, raw, in a partition
 /// named hideos-payload — a tar archive is read as it is, and a FAT file
 /// could not hold a payload over 4 GiB.
 const INSTALLER_SCRIPT: &str = r#"set -eu
-out=$1; uki=$2; manager=$3; payload=$4; boot=$5
+out=$1; uki=$2; manager=$3; payload=$4; boot=$5; recovery=$6
 mib() { echo $(( ($(stat -c %s "$1") + 1048575) / 1048576 )); }
-esp_mib=$(( $(mib "$uki") + $(mib "$manager") + 64 ))
+esp_mib=$(( $(mib "$uki") + $(mib "$manager") + $(mib "$recovery") + 64 ))
 payload_mib=$(( $(mib "$payload") + 1 ))
 rm -f "$out"
 truncate -s $(( 1 + esp_mib + payload_mib + 1 ))M "$out"
 sgdisk --clear     --new=1:1M:+${esp_mib}M --typecode=1:ef00 --change-name=1:hideos-installer     --new=2:0:+${payload_mib}M --typecode=2:8300 --change-name=2:hideos-payload     "$out" >/dev/null
 esp=$(mktemp -u)
 mkfs.vfat -C -F 32 -n HIDEOS "$esp" $(( esp_mib * 1024 )) >/dev/null
-mmd -i "$esp" ::EFI ::EFI/BOOT ::EFI/Linux ::loader
+mmd -i "$esp" ::EFI ::EFI/BOOT ::EFI/Linux ::EFI/hideos ::loader
 mcopy -i "$esp" "$manager" "::EFI/BOOT/$boot"
 mcopy -i "$esp" "$uki" ::EFI/Linux/hideos-installer.efi
+mcopy -i "$esp" "$recovery" ::EFI/hideos/recovery.efi
 printf 'timeout 0
 ' > "$esp.conf"
 mcopy -i "$esp" "$esp.conf" ::loader/loader.conf
@@ -1578,7 +1593,8 @@ fn installer(args: &[String]) -> Result<PathBuf, String> {
         .arg(in_builder(&minimal.join("installer.efi"))?)
         .arg(in_builder(&minimal.join("bootmanager.efi"))?)
         .arg(in_builder(&payload)?)
-        .arg(boot))?;
+        .arg(boot)
+        .arg(in_builder(&minimal.join("recovery.efi"))?))?;
     println!("  medium  {}", out.display());
     Ok(out)
 }
@@ -1677,18 +1693,326 @@ fn installer_test(args: &[String]) -> Result<(), String> {
     );
     if up {
         guest.shell()?;
-        let out = guest.run(&format!("getent passwd {DEV_USER}; hide status"), minute)?;
+        // A file in the home, for the reinstall below to keep.
+        let out = guest.run(
+            &format!(
+                "getent passwd {DEV_USER}; hide status; \
+                 echo kept > /home/{DEV_USER}/kept; chown {DEV_USER}: /home/{DEV_USER}/kept"
+            ),
+            minute,
+        )?;
         check(
             "with the account it was given",
             out.contains(&format!("{DEV_USER}:x:1000")) && out.contains("encrypted (LUKS2)"),
             &out,
         );
+        guest.type_line("poweroff")?;
+        let started = Instant::now();
+        while !guest.exited() && started.elapsed() < minute {
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+    drop(guest);
+
+    // The recovery system the installer put on the ESP, reached the way a
+    // person reaches it: a key held as hideBoot starts, then its entry.
+    let mut command = disk_qemu(arch, MINIMAL, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()));
+    let mut guest = Guest::spawn(arch, command)?;
+    let started = Instant::now();
+    let mut menu = false;
+    while started.elapsed() < boot_timeout {
+        // Not a digit and not Enter: the menu ignores it.
+        guest.type_keys("j")?;
+        thread::sleep(Duration::from_millis(150));
+        if guest.output().contains("(recovery)") {
+            menu = true;
+            break;
+        }
+    }
+    check(
+        "hideBoot's menu lists the recovery system",
+        menu,
+        &guest.output(),
+    );
+    if menu {
+        thread::sleep(Duration::from_millis(500));
+        guest.type_keys("2")?;
+        let recovery = guest.wait_for("hideOS recovery", boot_timeout);
+        guest.type_line("1")?;
+        let listed = guest.wait_for("Which one should start next?", minute);
+        guest.type_line("1")?;
+        let chosen = guest.wait_for("starts next.", minute);
+        check(
+            "the recovery system starts, and chooses what starts next",
+            recovery && listed && chosen,
+            &guest.output(),
+        );
+        guest.type_line("4")?;
+        let started = Instant::now();
+        while !guest.exited() && started.elapsed() < minute {
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+    drop(guest);
+
+    // The installer again, on the disk it installed: a reinstall that
+    // keeps /home. The medium is booted first by its boot index, since the
+    // disk now boots by itself; it still lists second, so the disk is 1.
+    let mut command = disk_qemu(arch, MINIMAL, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!(
+            "if=none,id=disk,format=raw,file={}",
+            disk.display()
+        ))
+        .args(["-device", "virtio-blk-pci,drive=disk"])
+        .arg("-drive")
+        .arg(format!(
+            "if=none,id=medium,format=raw,readonly=on,file={}",
+            medium.display()
+        ))
+        .args(["-device", "virtio-blk-pci,drive=medium,bootindex=0"]);
+    let mut guest = Guest::spawn(arch, command)?;
+    let mut asked = true;
+    for (prompt, text) in [
+        ("Install on which disk?", "1"),
+        ("Reinstall it, keeping /home?", "y"),
+        ("Disk passphrase or recovery key: ", DEV_DISK_PASSPHRASE),
+        ("Your login name: ", DEV_USER),
+        ("Your password: ", DEV_USER),
+        ("Your password, again: ", DEV_USER),
+    ] {
+        asked &= answer(&mut guest, prompt, text)?;
+    }
+    let reinstalled = asked && guest.wait_for("/home is as it was.", Duration::from_secs(1200));
+    check(
+        "the installer reinstalls over hideOS, opening the disk it finds",
+        reinstalled,
+        &guest.output(),
+    );
+    answer(&mut guest, "Press Enter to turn the machine off.", "")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+
+    let mut guest = Guest::boot_tpm(arch, &dir, &disk, false, None)?;
+    let asked = guest.wait_for("Passphrase for the hideOS disk", boot_timeout);
+    guest.type_line(DEV_DISK_PASSPHRASE)?;
+    let up = asked && guest.wait_for("reached target default", boot_timeout);
+    let out = if up {
+        guest.shell()?;
+        guest.run(
+            &format!("cat /home/{DEV_USER}/kept; stat -c %U /home/{DEV_USER}/kept"),
+            minute,
+        )?
+    } else {
+        guest.output()
+    };
+    check(
+        "the reinstalled disk boots, and the home is still there, the account's",
+        up && out.contains("kept") && out.contains(&format!("\n{DEV_USER}")),
+        &out,
+    );
+    if up {
+        guest.type_line("poweroff")?;
+        let started = Instant::now();
+        while !guest.exited() && started.elapsed() < minute {
+            thread::sleep(Duration::from_millis(200));
+        }
     }
     drop(guest);
     let _ = fs::remove_file(&disk);
 
     if failures.is_empty() {
         println!("{}: the installer installs", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
+/// Builds `name` as a system extension for `image` (hex), signed or not,
+/// into `output` (a directory under the workspace).
+fn build_sysext(
+    arch: Arch,
+    name: &str,
+    image: &str,
+    signed: bool,
+    output: &str,
+) -> Result<(), String> {
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    let root = workspace_root()?;
+    run(builder_command(&runtime, &root, false)
+        .args([
+            "cargo",
+            "run",
+            "--quiet",
+            "--release",
+            "--package",
+            "hideforge",
+            "--",
+        ])
+        .args(["--arch", arch.name, "sysext", name, "--image", image])
+        .args(["--output", output])
+        .args(if signed {
+            &["--sign", DEV_KEYS][..]
+        } else {
+            &[][..]
+        }))
+}
+
+/// System extensions on an installed Minimal: one unsigned, refused when
+/// added; one built for another system image, added but left out at boot;
+/// one signed for this image, merged over /usr; and that one again with
+/// its record's signature damaged, left out.
+fn sysext_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
+    let image = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
+    let image = image.trim().trim_start_matches("sha256:").to_owned();
+    let out = format!("/src/target/images/minimal-{}/sysext", arch.name);
+    let local = dir.join("sysext");
+    let _ = fs::remove_dir_all(&local);
+    for (sub, for_image, signed) in [
+        ("right", image.as_str(), true),
+        ("other", &"0".repeat(64)[..], true),
+        ("unsigned", image.as_str(), false),
+    ] {
+        build_sysext(
+            arch,
+            "hello-sysext",
+            for_image,
+            signed,
+            &format!("{out}/{sub}"),
+        )?;
+    }
+    // The three, in one tar on a second disk; the guest unpacks it in /tmp.
+    let bundle = dir.join("sysext-bundle.tar");
+    run(Command::new("tar")
+        .arg("-cf")
+        .arg(&bundle)
+        .arg("-C")
+        .arg(&local)
+        .args(["right", "other", "unsigned"]))?;
+
+    let disk = dir.join("sysext-test.raw");
+    install_disk(arch, MINIMAL, &disk)?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let archive = |sub: &str| format!("oci-archive:/tmp/x/{sub}/hello-sysext.sysext.oci.tar");
+
+    let boot = |second: Option<&Path>| -> Result<Guest, String> {
+        let mut guest = Guest::boot_with(arch, &dir, &disk, false, second)?;
+        if !guest.wait_for("reached target default", arch.timeout) {
+            return Err(format!("the disk did not boot:\n{}", guest.output()));
+        }
+        guest.shell()?;
+        Ok(guest)
+    };
+
+    println!("boot 1: adding");
+    let mut guest = boot(Some(&bundle))?;
+    guest.run(
+        "mkdir -p /tmp/x && tar -xf /dev/vdb -C /tmp/x && print unpacked",
+        minute,
+    )?;
+    let out = guest.run(
+        &format!("hide ext add {}; print exit=$?", archive("unsigned")),
+        minute,
+    )?;
+    check(
+        "an unsigned extension is refused",
+        out.contains("carries no signature") && !out.contains("exit=0"),
+        &out,
+    );
+    let out = guest.run(
+        &format!("hide ext add {}; print exit=$?", archive("other")),
+        minute,
+    )?;
+    check(
+        "one built for another image is added",
+        out.contains("exit=0"),
+        &out,
+    );
+    reboot(guest)?;
+
+    println!("boot 2: built for another image");
+    let mut guest = boot(Some(&bundle))?;
+    let console = guest.output();
+    let out = guest.run("command -v hello-sysext; hide ext list", minute)?;
+    check(
+        "it is left out at boot",
+        console.contains("left out: built for sha256:0000")
+            && !out.contains("/usr/bin/hello-sysext"),
+        &format!("{out}\n{console}"),
+    );
+    guest.run(
+        "mkdir -p /tmp/x && tar -xf /dev/vdb -C /tmp/x && print unpacked",
+        minute,
+    )?;
+    let out = guest.run(
+        &format!("hide ext add {}; print exit=$?", archive("right")),
+        minute,
+    )?;
+    check(
+        "the one for this image is added",
+        out.contains("exit=0"),
+        &out,
+    );
+    reboot(guest)?;
+
+    println!("boot 3: merged");
+    let mut guest = boot(None)?;
+    let out = guest.run(
+        "hello-sysext; hide ext list; touch /usr/bin/x; print touch=$?",
+        minute,
+    )?;
+    check(
+        "it is merged over /usr, read-only",
+        out.contains("hello from a system extension")
+            && out.contains("merged")
+            && out.contains("touch=1"),
+        &out,
+    );
+    // The record's signature, one hex digit changed: what an attacker with
+    // root could do to the store.
+    let out = guest.run(
+        "rec=/hideos/extensions/hello-sysext; sig=$(sed -n 's/^signature=//p' $rec); \
+         [[ ${sig[1]} == 0 ]] && new=1 || new=0; \
+         sed -i \"s/^signature=./signature=$new/\" $rec && print damaged",
+        minute,
+    )?;
+    check("the record can be damaged", out.contains("damaged"), &out);
+    reboot(guest)?;
+
+    println!("boot 4: a damaged signature");
+    let mut guest = boot(None)?;
+    let console = guest.output();
+    let out = guest.run("command -v hello-sysext; print checked", minute)?;
+    check(
+        "it is left out when the signature does not hold",
+        console.contains("left out: hideOS did not sign it")
+            && !out.contains("/usr/bin/hello-sysext"),
+        &format!("{out}\n{console}"),
+    );
+    drop(guest);
+    let _ = fs::remove_file(&disk);
+
+    if failures.is_empty() {
+        println!("{}: extensions merge only when they should", arch.name);
         Ok(())
     } else {
         Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
@@ -2080,6 +2404,21 @@ fn update_test(args: &[String]) -> Result<(), String> {
             Duration::from_secs(300),
         )?;
         check("hide update stages N+1", out.contains("committed"), &out);
+        // It went through hideupd, which ran it; and hideupd refuses
+        // someone who is not root, with no polkit to ask. zsh's USERNAME,
+        // set by root, becomes that user, as su would: Minimal has no su.
+        let daemon = guest.run(
+            &format!(
+                "grep 'hide update' /var/log/oxinit/hideupd.log; \
+                 ( USERNAME={DEV_USER}; hide rollback )"
+            ),
+            minute,
+        )?;
+        check(
+            "the update ran in hideupd, which refuses anyone but root",
+            daemon.contains("hide update --image") && daemon.contains("not authorized"),
+            &daemon,
+        );
         let gone = guest.run(&format!("[[ -e {orphan} ]] || print gone"), minute)?;
         check(
             "the update collects what no deployment uses",

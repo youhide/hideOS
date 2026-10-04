@@ -9,7 +9,7 @@ takes that from the desktop down to the boot: Rust underneath, a sealed system
 that cannot be corrupted, and updates that roll themselves back when they fail.
 
 **Pre-alpha.** hideOS builds itself from source, installs itself on a disk,
-and boots it sealed — UEFI, systemd-boot, a kernel image carrying the
+and boots it sealed — UEFI, hideBoot, a kernel image carrying the
 system's digest, a read-only root checked by fs-verity — under oxinit, in
 QEMU: Minimal to a shell, Workstation to the COSMIC desktop. Not yet for
 daily use; see [ROADMAP.md](ROADMAP.md). Site:

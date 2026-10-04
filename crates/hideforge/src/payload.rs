@@ -58,30 +58,7 @@ pub fn write_root(
     tag: &str,
     arch: hideforge_recipe::Arch,
 ) -> Result<(Image, String)> {
-    fs::create_dir_all(oci)?;
-    let dir = Dir::open_ambient_dir(oci, ambient_authority())
-        .with_context(|| format!("opening {}", oci.display()))?;
-    let oci_dir = OciDir::ensure(dir).context("creating the OCI layout")?;
-    let platform = PlatformBuilder::default()
-        .architecture(match arch {
-            hideforge_recipe::Arch::X86_64 => Arch::Amd64,
-            hideforge_recipe::Arch::Aarch64 => Arch::ARM64,
-        })
-        .os(Os::Linux)
-        .build()?;
-    let config = ImageConfigurationBuilder::default()
-        .architecture(platform.architecture().clone())
-        .os(Os::Linux)
-        .config(ConfigBuilder::default().build()?)
-        .build()?;
-    let manifest = oci_dir.new_empty_manifest()?.build()?;
-    let mut image = Image {
-        oci: oci_dir,
-        manifest,
-        config,
-        platform,
-        tag: tag.to_owned(),
-    };
+    let mut image = Image::create(oci, tag, arch)?;
 
     // Every top-level entry by name, rather than ".": a layer's paths have
     // no "./", and / itself is not in it — composefs gives / the metadata
@@ -91,8 +68,85 @@ pub fn write_root(
         .collect::<Result<_>>()?;
     entries.sort();
     image.push_layer(root, &entries, "the hideOS root")?;
-    let digest = pull(oci, repo, tag, true)?;
+    let digest = pull(oci, repo, tag, true, true)?;
     Ok((image, digest))
+}
+
+/// A system extension: `root` — a tree of /usr only — as a one-layer OCI
+/// image at `oci`, its composefs digest computed as `hide ext add` will,
+/// and that digest signed with `sign`/db.key. The name and the signature
+/// go on the manifest as annotations, which the digest does not cover.
+/// Returns the digest in hex.
+pub fn write_extension(
+    root: &Path,
+    oci: &Path,
+    repo: &Path,
+    name: &str,
+    arch: hideforge_recipe::Arch,
+    sign: Option<&Path>,
+) -> Result<String> {
+    let mut image = Image::create(oci, name, arch)?;
+    image.push_layer(root, &["usr".to_owned()], "the extension")?;
+    let digest = pull(oci, repo, name, true, false)?;
+    let mut annotations = std::collections::HashMap::new();
+    annotations.insert("os.hide.extension.name".to_owned(), name.to_owned());
+    if let Some(keys) = sign {
+        let output = Command::new("openssl")
+            .args(["dgst", "-sha256", "-sign"])
+            .arg(keys.join("db.key"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(mut stdin) = child.stdin.take() {
+                    stdin.write_all(format!("sha256:{digest}").as_bytes())?;
+                }
+                child.wait_with_output()
+            })
+            .context("running openssl")?;
+        if !output.status.success() {
+            bail!("openssl could not sign the extension");
+        }
+        let signature: String = output.stdout.iter().map(|b| format!("{b:02x}")).collect();
+        annotations.insert("os.hide.extension.signature".to_owned(), signature);
+    }
+    image.manifest.set_annotations(Some(annotations));
+    image.oci.insert_manifest(
+        image.manifest.clone(),
+        Some(&image.tag),
+        image.platform.clone(),
+    )?;
+    Ok(digest)
+}
+
+impl Image {
+    fn create(oci: &Path, tag: &str, arch: hideforge_recipe::Arch) -> Result<Image> {
+        fs::create_dir_all(oci)?;
+        let dir = Dir::open_ambient_dir(oci, ambient_authority())
+            .with_context(|| format!("opening {}", oci.display()))?;
+        let oci_dir = OciDir::ensure(dir).context("creating the OCI layout")?;
+        let platform = PlatformBuilder::default()
+            .architecture(match arch {
+                hideforge_recipe::Arch::X86_64 => Arch::Amd64,
+                hideforge_recipe::Arch::Aarch64 => Arch::ARM64,
+            })
+            .os(Os::Linux)
+            .build()?;
+        let config = ImageConfigurationBuilder::default()
+            .architecture(platform.architecture().clone())
+            .os(Os::Linux)
+            .config(ConfigBuilder::default().build()?)
+            .build()?;
+        let manifest = oci_dir.new_empty_manifest()?.build()?;
+        Ok(Image {
+            oci: oci_dir,
+            manifest,
+            config,
+            platform,
+            tag: tag.to_owned(),
+        })
+    }
 }
 
 impl Image {
@@ -129,7 +183,7 @@ impl Image {
         self.push_layer(&staging, &["boot".to_owned()], "the signed UKI")?;
         fs::remove_dir_all(&staging)?;
 
-        let again = pull(oci, repo, &self.tag, false)?;
+        let again = pull(oci, repo, &self.tag, false, true)?;
         ensure!(
             again == digest,
             "the finished image's boot digest is sha256:{again}, but its UKI carries \
@@ -196,8 +250,9 @@ impl Image {
 }
 
 /// Pulls the image `oci:DIR:TAG` into the repository at `repo` — creating it
-/// with `create` — as a client would, and returns its boot digest in hex.
-fn pull(oci: &Path, repo: &Path, tag: &str, create: bool) -> Result<String> {
+/// with `create` — as a client would, and returns the digest in hex of its
+/// boot image, with /boot emptied, or with `boot` false its plain one.
+fn pull(oci: &Path, repo: &Path, tag: &str, create: bool, boot: bool) -> Result<String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -218,14 +273,23 @@ fn pull(oci: &Path, repo: &Path, tag: &str, create: bool) -> Result<String> {
             Some(tag),
             None,
             Arc::new(NullReporter),
-            Some(&OciTransformOptions::default()),
+            boot.then(OciTransformOptions::default).as_ref(),
         )
         .await
         .with_context(|| format!("pulling {}", oci.display()))?;
-        let boot = composefs_oci::boot_image(&repository, &result.manifest_digest)?
-            .ok_or_else(|| anyhow!("pulling {} made no boot image", oci.display()))?;
+        let image = if boot {
+            composefs_oci::boot_image(&repository, &result.manifest_digest)?
+        } else {
+            composefs_oci::composefs_erofs_for_manifest(
+                &repository,
+                &result.manifest_digest,
+                Some(&result.manifest_verity),
+                repository.erofs_version(),
+            )?
+        }
+        .ok_or_else(|| anyhow!("pulling {} made no composefs image", oci.display()))?;
         repository.sync().context("syncing the repository")?;
-        Ok(boot.to_hex())
+        Ok(image.to_hex())
     })
 }
 

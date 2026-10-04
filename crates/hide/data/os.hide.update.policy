@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- What hideupd asks polkit about. An administrator's password, kept for a
+     few minutes, at the machine; nothing for anyone else. -->
+<policyconfig>
+  <vendor>hideOS</vendor>
+  <vendor_url>https://github.com/youhide/hideOS</vendor_url>
+
+  <action id="os.hide.update.update">
+    <description>Update the system</description>
+    <message>Authentication is required to update the system</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="os.hide.update.rollback">
+    <description>Go back to the previous system</description>
+    <message>Authentication is required to go back to the previous system</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="os.hide.update.extensions">
+    <description>Add or remove system extensions</description>
+    <message>Authentication is required to change the system extensions</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

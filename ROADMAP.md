@@ -174,7 +174,9 @@ Minimal.
 - [ ] Per-user services in oxinit (oxinit-side work). Until then the
       session's output goes to `~/.local/state/cosmic-session.log`.
 - [x] greetd + cosmic-greeter, the COSMIC session and applications.
-- [ ] `os.hide.Update1` D-Bus API on hideupd; the `hide` CLI moved onto it.
+- [x] `os.hide.Update1` D-Bus API on hideupd (`hide daemon`); the `hide` CLI
+      moved onto it, root or polkit to change anything. Checked by
+      `cargo xtask update-test`.
 - [ ] COSMIC Settings pages (Updates, Recovery, Extensions) and the update
       applet, in libcosmic.
 - [ ] `hidesetup`: first-boot setup.
@@ -187,7 +189,9 @@ reaching for another machine. CI boots to the greeter and logs in.
 
 ## H6 — NVIDIA and aarch64
 
-- [ ] System extension format, signing and merging; `hide ext`.
+- [ ] System extension format, signing and merging; `hide ext`. Written —
+      composefs images signed over their digest, merged by hidestage —
+      and tested by `cargo xtask sysext-test`.
 - [ ] NVIDIA sysext: open kernel modules per deployment kernel, signed;
       proprietary userspace.
 - [ ] aarch64 images published and booting on a physical UEFI ARM machine.
@@ -198,10 +202,14 @@ reaching for another machine. CI boots to the greeter and logs in.
       partitioning, LUKS2 with a recovery key, the first user —
       `cargo xtask installer`, tested by `cargo xtask installer-test`.
 - [ ] Secure Boot key enrollment, or shim — whichever H0 decided.
-- [ ] Recovery UKI: rollback, reinstall keeping `/home`, shell.
+- [x] Recovery system on the ESP, from hideBoot's menu or when nothing else
+      starts: choose what boots next, or a shell. Reinstall keeping `/home`
+      is the installer's, which carries a payload — see ARCHITECTURE,
+      "Recovery". Tested by `cargo xtask installer-test`.
 - [ ] Release channels `edge`, `beta`, `stable` on a public registry.
-- [ ] `hideboot` (in youhide/hideBoot) replaces `systemd-boot`; nothing on the
-      ESP changes.
+- [x] `hideboot` (in youhide/hideBoot) replaces `systemd-boot`; nothing on the
+      ESP changes. `update-test` and `seal-test` pass with it, Secure Boot
+      included.
 
 ## H8 — Replacing the bridges
 

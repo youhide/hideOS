@@ -63,6 +63,11 @@ pub(crate) struct Options {
     /// what hibernation needs. 0 for none. Read at install time: as PID 1,
     /// /proc is not mounted while the arguments are parsed.
     pub(crate) swap_mib: Option<u64>,
+    /// A reinstall: the partitions, the encryption and @home are kept;
+    /// the ESP and every other subvolume are made anew. What a person
+    /// whose system no longer starts, or who wants a clean one, does
+    /// without losing their files.
+    pub(crate) keep_home: bool,
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -92,12 +97,14 @@ fn parse(args: &[String]) -> Result<Options> {
     let mut password = None;
     let mut swap_mib = None;
     let mut encrypt = None;
+    let mut keep_home = false;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--payload" => payload = iter.next().map(PathBuf::from),
             "--disk" => disk = iter.next().map(PathBuf::from),
             "--poweroff" => poweroff = true,
+            "--keep-home" => keep_home = true,
             "--user" => user = iter.next().cloned(),
             // On the command line, so only for disks made for development:
             // the installer proper asks for it.
@@ -124,25 +131,43 @@ fn parse(args: &[String]) -> Result<Options> {
         encrypt,
         recovery_key: None,
         swap_mib,
+        keep_home,
     })
 }
 
 pub(crate) fn install(options: &Options) -> Result<()> {
     let disk = &options.disk;
-    say(&format!("partitioning {}", disk.display()));
-    partition(disk)?;
-    let esp = wait_for_partition(disk, 1)?;
-    let partition_2 = wait_for_partition(disk, 2)?;
+    let (esp, partition_2) = if options.keep_home {
+        say(&format!(
+            "reinstalling on {}, keeping /home",
+            disk.display()
+        ));
+        let esp = partition_on(disk, ESP_NAME)
+            .with_context(|| format!("{} has no {ESP_NAME} partition", disk.display()))?;
+        let root = partition_on(disk, ROOT_NAME)
+            .with_context(|| format!("{} has no {ROOT_NAME} partition", disk.display()))?;
+        ensure!(
+            options.encrypt.is_some() || !is_luks(&root),
+            "the root is encrypted: its passphrase is needed to keep /home"
+        );
+        (esp, root)
+    } else {
+        say(&format!("partitioning {}", disk.display()));
+        partition(disk)?;
+        (wait_for_partition(disk, 1)?, wait_for_partition(disk, 2)?)
+    };
     let root = match &options.encrypt {
         Some(passphrase) => {
-            say("encrypting the root, LUKS2");
-            with_stdin(
-                tool("cryptsetup")
-                    .args(["luksFormat", "--type", "luks2", "--batch-mode"])
-                    .args(["--label", "hideos", "--key-file=-"])
-                    .arg(&partition_2),
-                passphrase,
-            )?;
+            if !options.keep_home {
+                say("encrypting the root, LUKS2");
+                with_stdin(
+                    tool("cryptsetup")
+                        .args(["luksFormat", "--type", "luks2", "--batch-mode"])
+                        .args(["--label", "hideos", "--key-file=-"])
+                        .arg(&partition_2),
+                    passphrase,
+                )?;
+            }
             with_stdin(
                 tool("cryptsetup")
                     .args(["open", "--key-file=-"])
@@ -150,7 +175,9 @@ pub(crate) fn install(options: &Options) -> Result<()> {
                     .arg(MAPPED_NAME),
                 passphrase,
             )?;
-            if let Some(recovery) = &options.recovery_key {
+            // A reinstall keeps the keyslots: the recovery key a person
+            // wrote down still opens the disk.
+            if let Some(recovery) = options.recovery_key.as_ref().filter(|_| !options.keep_home) {
                 add_key(&partition_2, passphrase, recovery)?;
                 say("recovery key added");
             }
@@ -165,18 +192,27 @@ pub(crate) fn install(options: &Options) -> Result<()> {
             .args(["-F", "32", "-n", "HIDEOS-ESP"])
             .arg(&esp),
     )?;
-    exec(
-        tool("mkfs.btrfs")
-            .args(["-f", "-q", "-L", "hideos"])
-            .arg(&root),
-    )?;
+    if !options.keep_home {
+        exec(
+            tool("mkfs.btrfs")
+                .args(["-f", "-q", "-L", "hideos"])
+                .arg(&root),
+        )?;
+    }
 
     let root_mount = Path::new(WORK).join("root");
     let esp_mount = Path::new(WORK).join("esp");
     fs::create_dir_all(&root_mount)?;
     fs::create_dir_all(&esp_mount)?;
-    mount(&root, &root_mount, "btrfs", MountFlags::NOATIME, None)
-        .with_context(|| format!("mounting {}", root.display()))?;
+    // The top level, where the subvolumes are, whatever the default is.
+    mount(
+        &root,
+        &root_mount,
+        "btrfs",
+        MountFlags::NOATIME,
+        Some(c"subvolid=5"),
+    )
+    .with_context(|| format!("mounting {}", root.display()))?;
     // quiet: FAT has no permissions, and without it the chmods unpacking
     // makes are errors rather than no-ops.
     mount(
@@ -187,7 +223,27 @@ pub(crate) fn install(options: &Options) -> Result<()> {
         Some(c"quiet"),
     )
     .with_context(|| format!("mounting {}", esp.display()))?;
+    if options.keep_home {
+        // Everything but @home goes, @swap too: a swap file kept could hold
+        // a hibernated system that is no longer there to resume.
+        // --recursive: @var can hold subvolumes of its own, made by
+        // container storage.
+        for subvolume in ["@store", "@etc", "@var", "@swap"] {
+            let path = root_mount.join(subvolume);
+            if path.exists() {
+                exec(
+                    tool("btrfs")
+                        .args(["-q", "subvolume", "delete", "--recursive"])
+                        .arg(&path),
+                )?;
+            }
+        }
+        say("the old system removed; @home kept");
+    }
     for subvolume in SUBVOLUMES {
+        if root_mount.join(subvolume).exists() {
+            continue;
+        }
         exec(
             tool("btrfs")
                 .args(["-q", "subvolume", "create"])
@@ -282,6 +338,44 @@ fn partition(disk: &Path) -> Result<()> {
         disk.display()
     );
     Ok(())
+}
+
+/// The partition of `disk` named `label`, from sysfs, which lists a disk's
+/// partitions under it.
+pub(crate) fn partition_on(disk: &Path, label: &str) -> Option<PathBuf> {
+    let name = disk.file_name()?.to_string_lossy().into_owned();
+    for entry in fs::read_dir(Path::new("/sys/block").join(&name))
+        .ok()?
+        .flatten()
+    {
+        let uevent = fs::read_to_string(entry.path().join("uevent")).unwrap_or_default();
+        let field = |key: &str| uevent.lines().find_map(|l| l.strip_prefix(key));
+        if field("PARTNAME=") == Some(label)
+            && let Some(dev) = field("DEVNAME=")
+        {
+            return Some(Path::new("/dev").join(dev));
+        }
+    }
+    None
+}
+
+pub(crate) fn is_luks(device: &Path) -> bool {
+    tool("cryptsetup")
+        .arg("isLuks")
+        .arg(device)
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Whether `passphrase` opens the LUKS2 `device`, without opening it.
+pub(crate) fn opens(device: &Path, passphrase: &str) -> bool {
+    with_stdin(
+        tool("cryptsetup")
+            .args(["open", "--test-passphrase", "--key-file=-"])
+            .arg(device),
+        passphrase,
+    )
+    .is_ok()
 }
 
 /// The device node of partition `number` of `disk`, once the kernel has
@@ -470,9 +564,13 @@ fn add_user(root: &Path, name: &str, password: &str) -> Result<()> {
     fs::write(&shadow, files.shadow)?;
     fs::set_permissions(&shadow, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
 
+    // A reinstall finds the home already there: it is the account's again,
+    // under the first user's id, which is the id it had.
     let home = root.join("@home").join(name);
-    fs::create_dir(&home)?;
-    fs::set_permissions(&home, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    if !home.exists() {
+        fs::create_dir(&home)?;
+        fs::set_permissions(&home, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    }
     let id = hide::account::FIRST_UID;
     rustix::fs::chown(
         &home,
