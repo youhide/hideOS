@@ -220,6 +220,19 @@ configured with no file in <code>/etc</code> and its signed summary verifies (ne
 the host online); bubblewrap makes an unprivileged sandbox for a user; the
 portals, Flatpak’s system helper and Settings’ Updates page are in the
 image. The first Workstation build is most of a day; see <a href="Building.html">Building</a>.</p>
+<h3 id="setup-test"><a class="h" href="#setup-test" aria-hidden="true" tabindex="-1">###</a> <code>setup-test</code></h3>
+<p>Installs the Workstation as the installer does — encrypted, with a setup
+key and no account — and checks first-boot setup: the setup key opens the
+disk with nothing asked; hidesetup is on the screen as the greeter’s user;
+it offers languages, layouts and zones; anyone but the greeter is refused,
+and a zone outside <code>/usr/share/zoneinfo</code> too. Then, as the greeter, each
+page’s call: the language, keyboard, time zone and account are taken; the
+account is an administrator with its home, keyboard, clock and subordinate
+IDs; the disk takes the passphrase and gives a recovery key, both open it
+and the setup key no longer does; setup finishes and answers no one after.
+The login screen lets the new account in, in its language, and the next
+boot asks for the passphrase and opens with it. Saves <code>setup-test.png</code>,
+<code>setup-test-greeter.png</code> and <code>setup-test-desktop.png</code>.</p>
 <h2 id="pictures"><a class="h" href="#pictures" aria-hidden="true" tabindex="-1">##</a> Pictures</h2>
 <p>Not tests, but real boots, and how the site’s and the READMEs’ pictures
 are made:</p>
@@ -242,7 +255,7 @@ menu. <code>--display</code> sets the screen QEMU announces through EDID.</li>
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>05ccac9</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Testing.md">docs/wiki/Testing.md</a>.</p>
+        <p># built from commit <code>307ed82</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Testing.md">docs/wiki/Testing.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>

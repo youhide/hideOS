@@ -24,8 +24,10 @@ hideOS's own Secure Boot keys. Updates come from ghcr.io/youhide/hideos by
 channel (edge while pre-alpha); oxinit feeds a hardware watchdog until the
 deployment is marked good. The Workstation has Flatpak with Flathub, `hide
 shell` (rootless Podman containers sharing the home), Settings → Updates
-and an update applet, all in hideOS's Dracula theme. Not yet for daily use:
-a real laptop, first-boot setup, NVIDIA and aarch64 come next.
+and an update applet, all in hideOS's Dracula theme, and sets itself up at
+the first start as a Mac does: language, keyboard, Wi-Fi, time zone, the
+account, the disk's passphrase and a recovery key. Not yet for daily use: a
+real laptop, NVIDIA and aarch64 come next.
 
 Facts that are easy to get wrong:
 

@@ -53,6 +53,7 @@
 <ol class="toc__sections">
 <li><a href="#the-installer-medium">The installer medium</a></li>
 <li><a href="#the-installer">The installer</a></li>
+<li><a href="#first-boot-setup">First-boot setup</a></li>
 <li><a href="#reinstalling-keeping-home">Reinstalling, keeping /home</a></li>
 <li><a href="#the-recovery-system">The recovery system</a></li>
 <li><a href="#hideboots-menu">hideBoot’s menu</a></li>
@@ -79,6 +80,7 @@
 <ol class="toc__sections">
 <li><a href="#the-installer-medium">The installer medium</a></li>
 <li><a href="#the-installer">The installer</a></li>
+<li><a href="#first-boot-setup">First-boot setup</a></li>
 <li><a href="#reinstalling-keeping-home">Reinstalling, keeping /home</a></li>
 <li><a href="#the-recovery-system">The recovery system</a></li>
 <li><a href="#hideboots-menu">hideBoot’s menu</a></li>
@@ -123,12 +125,37 @@ installer is always Minimal’s, whichever edition it installs.</p>
 console it asks:</p>
 <ol>
 <li>which disk, from a numbered list, and <code>erase</code> typed out to confirm;</li>
-<li>whether to encrypt it, and a passphrase, twice;</li>
-<li>the first account’s login name and password: an administrator.</li>
+<li>whether to encrypt it.</li>
 </ol>
-<p>It installs with the same code as <code>hide install</code> (the code <code>cargo xtask install</code> runs to make development disks), and when the disk is encrypted
-shows a recovery key once, to be written down. See
-<a href="Disk-and-encryption.html">Disk and encryption</a>.</p>
+<p>That is all for the Workstation, as for a Mac: the rest is the first
+start’s. The installer writes the disk, and an encrypted one gets a random
+setup key, kept on the ESP until setup replaces it — hidestage opens the
+disk with it, asking nothing. Minimal, which has no screen to set itself up
+on, asks for a passphrase, twice, and the first account’s login name and
+password, and shows the recovery key once.</p>
+<p>It installs with the same code as <code>hide install</code> (the code <code>cargo xtask install</code> runs to make development disks). See <a href="Disk-and-encryption.html">Disk and encryption</a>.</p>
+<h2 id="first-boot-setup"><a class="h" href="#first-boot-setup" aria-hidden="true" tabindex="-1">##</a> First-boot setup</h2>
+<p>On a Workstation no one has set up, greetd shows <code>hidesetup</code> instead of the
+login screen: full screen, in the greeter’s compositor, as the greeter’s
+user. A page at a time, as a Mac’s Setup Assistant:</p>
+<ol>
+<li>the language — the one the session speaks, and the clock it reads: 24
+hours but where the region uses AM and PM;</li>
+<li>the keyboard layout, from xkeyboard-config’s list;</li>
+<li>a Wi-Fi network, skipped when a cable is connected;</li>
+<li>the time zone, from tzdata’s <code>zone1970.tab</code>;</li>
+<li>the account: the full name, a login suggested from it, the password —
+an administrator;</li>
+<li>on an encrypted disk: the password becomes the disk’s passphrase, a
+recovery key is made and shown once, and the setup key is taken out of
+the disk and off the ESP.</li>
+</ol>
+<p>hidesetup changes nothing itself. Each page is a call to hideupd’s
+<code>os.hide.Setup1</code>, which answers only the greeter’s user and root, and only
+until <code>/var/lib/hide/setup-done</code> exists; the last page writes it, and the
+login screen comes up. A machine restarted halfway through starts setup
+again, and an account the unfinished setup made is taken back so it can be
+made again. Development disks, made with an account, have the mark.</p>
 <h2 id="reinstalling-keeping-home"><a class="h" href="#reinstalling-keeping-home" aria-hidden="true" tabindex="-1">##</a> Reinstalling, keeping <code>/home</code></h2>
 <p>Pointed at a disk that already holds hideOS, the installer offers to
 reinstall rather than erase. It opens the disk with its passphrase or
@@ -180,7 +207,7 @@ will start. It never counts its attempts and is never the default. See
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>05ccac9</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Install-and-recover.md">docs/wiki/Install-and-recover.md</a>.</p>
+        <p># built from commit <code>307ed82</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Install-and-recover.md">docs/wiki/Install-and-recover.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>

@@ -116,7 +116,7 @@
         <h1 class="hero__name">hideOS<span class="cursor" aria-hidden="true">_</span></h1>
         <p class="hero__role">A Linux workstation that can't change under you.</p>
         <p class="hero__lead">Built from source and sealed: the whole system is one signed image, checked on every read. Updates replace it whole, and if one doesn't boot, the machine goes back by itself. Your files, settings and apps live outside it.</p>
-        <p class="hero__note"># pre-alpha: it builds itself from source, installs from its own installer and boots sealed in QEMU, Minimal to a shell and Workstation to the COSMIC desktop. not on real hardware yet.</p>
+        <p class="hero__note"># pre-alpha: it builds itself from source, installs from its own installer, sets itself up at the first start and boots sealed in QEMU, Minimal to a shell and Workstation to the COSMIC desktop. not on real hardware yet.</p>
         <div class="hero__actions">
           <a class="btn btn--primary" href="https://github.com/youhide/hideOS">Follow on GitHub</a>
           <a class="btn" href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">Read the architecture</a>
@@ -197,10 +197,27 @@
         <span class="term__path">qemu-system-x86_64: hideOS workstation</span>
       </div>
       <div class="term__body">
-        <img src="desktop.jpg" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS in the Dracula theme: a thin menu bar with the system menu and Applications on the left, status icons and Sun, Oct 4 with the time on the right; a terminal with purple accents shows hide status — good, running, boots next; the disk not encrypted; updates from ghcr.io/youhide/hideos:workstation-edge — over the Orion nebula wallpaper, with the dock below.">
+        <img src="desktop.jpg" width="1280" height="800" loading="lazy" alt="The COSMIC desktop on hideOS in the Dracula theme: a thin menu bar with the hideOS logo in the corner, status icons, the power menu and Sun, Oct 4 with the time on the right; a terminal, framed by its shadow alone, shows hide status — good, running, boots next; the disk not encrypted; updates from ghcr.io/youhide/hideos:workstation-edge — over the Orion nebula wallpaper, with the dock below.">
       </div>
     </div>
-    <p class="shot__caption"># a menu bar laid out like a Mac's: the system menu on the left, the clock in the corner, the update applet beside it. hide status, as the person: the deployment that runs, the disk, and where updates come from.</p>
+    <p class="shot__caption"># a menu bar laid out like a Mac's: the logo in the corner, opening Applications; the power menu and the clock on the right, the update applet beside them. the focused window has no coloured frame, only its shadow. hide status, as the person: the deployment that runs, the disk, and where updates come from.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="section" aria-labelledby="setup">
+    <h2 class="section__title" id="setup"><span class="sig">$</span>cargo xtask setup-test</h2>
+    <p class="comment"># the installer only writes the disk. the first start sets the machine up, as a Mac's does: language, keyboard, Wi-Fi, time zone, the account, and on an encrypted disk its passphrase and a recovery key shown once.</p>
+    <div class="term shot shot--photo">
+      <div class="term__bar" aria-hidden="true">
+        <span class="dot dot--red"></span><span class="dot dot--yellow"></span><span class="dot dot--green"></span>
+        <span class="term__path">qemu-system-x86_64: hideOS workstation, first start</span>
+      </div>
+      <div class="term__body">
+        <img src="setup.jpg" width="1280" height="800" loading="lazy" alt="hidesetup, full screen in Dracula's colours: Welcome to hideOS, choose your language, a list from Dansk and Deutsch to English, and Continue.">
+      </div>
+    </div>
+    <p class="shot__caption"># hidesetup, in libcosmic, as the login screen's user. each page is a call to hideupd, which answers no one else, and no one once setup is done.</p>
   </section>
 
   <hr class="rule">
@@ -250,7 +267,7 @@
       <li class="is-done"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">done on x86_64</span></li>
       <li class="is-now"><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">OCI updates from ghcr.io roll back by themselves; public stable channel next</span></li>
       <li class="is-now"><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">kernel modules, firmware, microcode, TPM2, Wi-Fi, suspend, the watchdog in QEMU; a laptop next</span></li>
-      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">desktop in Dracula, Flatpak, hide shell containers, Settings → Updates and the update applet; first-boot setup next</span></li>
+      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">desktop in Dracula, Flatpak, hide shell containers, Settings → Updates and the update applet; first-boot setup as a Mac's; NVIDIA next</span></li>
       <li class="is-now"><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">signed system extensions merge; NVIDIA next</span></li>
       <li class="is-now"><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideBoot</span><span class="roadmap__state">installer, recovery, hideBoot and hideOS's own Secure Boot keys; done in QEMU</span></li>
       <li><span class="roadmap__id">H8</span><span class="roadmap__what">Rust replacements for the device manager and login daemon</span><span class="roadmap__state">planned</span></li>
