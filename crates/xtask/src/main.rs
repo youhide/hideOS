@@ -4154,6 +4154,13 @@ fn qcode(c: char) -> Result<String, String> {
         '?' => shifted("slash"),
         '*' => shifted("8"),
         '$' => shifted("4"),
+        '&' => shifted("7"),
+        '!' => shifted("1"),
+        '@' => shifted("2"),
+        '#' => shifted("3"),
+        '%' => shifted("5"),
+        '(' => shifted("9"),
+        ')' => shifted("0"),
         other => Err(format!("no key for {other:?}")),
     }
 }
