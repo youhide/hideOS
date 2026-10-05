@@ -15,6 +15,11 @@ run = ["glibc"]
 
 [build]
 script = """
+# gzip.h names a macro `head`, and gzip.c includes <signal.h> after it: on
+# aarch64 that brings asm/sigcontext.h, whose every context has a member
+# named head. <signal.h> first, and its second inclusion is nothing.
+sed -i 's|^#include "gzip.h"$|#include <signal.h>\n#include "gzip.h"|' gzip.c
+grep -B1 '^#include "gzip.h"$' gzip.c | head -n 1 | grep -qx '#include <signal.h>'
 ./configure \\
     --prefix=/usr \\
     --build="$TARGET" \\

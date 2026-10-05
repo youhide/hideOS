@@ -22,7 +22,9 @@ case "$ARCH" in
     aarch64) karch=arm64 ;;
     *) karch="$ARCH" ;;
 esac
-make mrproper
+# The kernel reads ARCH from the environment too, where hideforge's is
+# aarch64: every make is told the kernel's name for it.
+make ARCH="$karch" mrproper
 make ARCH="$karch" headers
 find usr/include -type f ! -name '*.h' -delete
 cp -r usr/include/. "$SYSROOT/usr/include/"
