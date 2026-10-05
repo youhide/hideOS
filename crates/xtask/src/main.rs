@@ -4618,9 +4618,7 @@ print panic-ready",
             .count();
         check(
             "N+1 panics three times, then N boots",
-            running_digest(&mut guest)? == n
-                && resets == 3
-                && panics.contains("Kernel panic"),
+            running_digest(&mut guest)? == n && resets == 3 && panics.contains("Kernel panic"),
             &format!("{resets} failed boots:\n{panics}"),
         );
         let status = guest.run("hide status", minute)?;
