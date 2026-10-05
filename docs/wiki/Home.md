@@ -36,8 +36,10 @@ Pre-alpha, and only in QEMU, on x86_64:
   the desktop portals, hideupd on the system bus, and a Settings → Updates
   page; its default theme is Dracula.
 - Updates come from a registry, on the edge, beta and stable channels.
+- Secure Boot with hideOS's own keys, enrolled by the installer;
+  hidelogin, in place of elogind, for sessions, seats and power.
 
-Not yet: aarch64 images, Secure Boot with hideOS's own keys. The milestones are H0 to H8 in
+Not yet: aarch64 images. The milestones are H0 to H8 in
 [ROADMAP.md](../../ROADMAP.md).
 
 ## Pages
