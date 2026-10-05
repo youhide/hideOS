@@ -116,7 +116,7 @@
         <h1 class="hero__name">hideOS<span class="cursor" aria-hidden="true">_</span></h1>
         <p class="hero__role">A Linux workstation that can't change under you.</p>
         <p class="hero__lead">Built from source and sealed: the whole system is one signed image, checked on every read. Updates replace it whole, and if one doesn't boot, the machine goes back by itself. Your files, settings and apps live outside it.</p>
-        <p class="hero__note"># pre-alpha: it builds itself from source, installs from its own installer, sets itself up at the first start and boots sealed in QEMU, Minimal to a shell and Workstation to the COSMIC desktop. not on real hardware yet.</p>
+        <p class="hero__note"># pre-alpha: it builds itself from source, installs from its own installer, sets itself up at the first start, installs beside Windows and boots sealed in QEMU, Minimal to a shell and Workstation to the COSMIC desktop. not on real hardware yet.</p>
         <div class="hero__actions">
           <a class="btn btn--primary" href="https://github.com/youhide/hideOS">Follow on GitHub</a>
           <a class="btn" href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">Read the architecture</a>
@@ -267,9 +267,9 @@
       <li class="is-done"><span class="roadmap__id">H2</span><span class="roadmap__what">The seal: composefs, fs-verity, signed kernel images</span><span class="roadmap__state">done on x86_64</span></li>
       <li class="is-now"><span class="roadmap__id">H3</span><span class="roadmap__what">Whole-image updates and automatic rollback</span><span class="roadmap__state">OCI updates from ghcr.io roll back by themselves; public stable channel next</span></li>
       <li class="is-now"><span class="roadmap__id">H4</span><span class="roadmap__what">Real hardware: TPM disk encryption, Wi-Fi, suspend</span><span class="roadmap__state">kernel modules, firmware, microcode, TPM2, Wi-Fi, suspend, the watchdog in QEMU; a laptop next</span></li>
-      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">desktop in Dracula, Flatpak, hide shell containers, Settings → Updates and the update applet; first-boot setup as a Mac's; NVIDIA next</span></li>
-      <li class="is-now"><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">signed system extensions merge; NVIDIA next</span></li>
-      <li class="is-now"><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideBoot</span><span class="roadmap__state">installer, recovery, hideBoot and hideOS's own Secure Boot keys; done in QEMU</span></li>
+      <li class="is-now"><span class="roadmap__id">H5</span><span class="roadmap__what">hideOS Workstation: COSMIC, Flatpak, containers for development</span><span class="roadmap__state">desktop in Dracula, Flatpak, hide shell containers, Settings → Updates and the update applet; first-boot setup as a Mac's</span></li>
+      <li class="is-now"><span class="roadmap__id">H6</span><span class="roadmap__what">NVIDIA as a signed extension; ARM64</span><span class="roadmap__state">NVIDIA's driver as a signed extension each update brings along, loading in QEMU; a real GPU next, then ARM64</span></li>
+      <li class="is-now"><span class="roadmap__id">H7</span><span class="roadmap__what">Installer, recovery, hideBoot</span><span class="roadmap__state">installer, recovery, hideBoot, Secure Boot keys; beside Windows with a Startup Disk; done in QEMU</span></li>
       <li><span class="roadmap__id">H8</span><span class="roadmap__what">Rust replacements for the device manager and login daemon</span><span class="roadmap__state">planned</span></li>
     </ol>
   </section>

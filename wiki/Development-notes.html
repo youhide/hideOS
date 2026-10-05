@@ -55,7 +55,7 @@
 <li><a href="hideforge.html">hideforge</a></li>
 <li><a href="Development-notes.html" aria-current="page">Development notes</a>
 <ol class="toc__sections">
-<li><a href="#one-image-build-at-a-time">One image build at a time</a></li>
+<li><a href="#one-image-build-at-a-time-per-checkout">One image build at a time, per checkout</a></li>
 <li><a href="#firmware-variables-persist-per-disk">Firmware variables persist per disk</a></li>
 <li><a href="#qemus-bootindex-rewrites-bootorder">QEMU’s bootindex rewrites BootOrder</a></li>
 <li><a href="#firmware-lists-display-modes-the-display-does-not-have">Firmware lists display modes the display does not have</a></li>
@@ -90,7 +90,7 @@
 <li><a href="hideforge.html">hideforge</a></li>
 <li><a href="Development-notes.html" aria-current="page">Development notes</a>
 <ol class="toc__sections">
-<li><a href="#one-image-build-at-a-time">One image build at a time</a></li>
+<li><a href="#one-image-build-at-a-time-per-checkout">One image build at a time, per checkout</a></li>
 <li><a href="#firmware-variables-persist-per-disk">Firmware variables persist per disk</a></li>
 <li><a href="#qemus-bootindex-rewrites-bootorder">QEMU’s bootindex rewrites BootOrder</a></li>
 <li><a href="#firmware-lists-display-modes-the-display-does-not-have">Firmware lists display modes the display does not have</a></li>
@@ -116,12 +116,22 @@
 <p>Things this tree learned the hard way, one entry each, with the reason.
 Add an entry in the commit that learned it; remove one when the code it
 describes goes away. Newest last.</p>
-<h2 id="one-image-build-at-a-time"><a class="h" href="#one-image-build-at-a-time" aria-hidden="true" tabindex="-1">##</a> One image build at a time</h2>
-<p>Never run two <code>cargo xtask image</code> builds — or two tests, which each build
-first — at once. Both run hideforge in the builder against the same <code>/work</code>
-volume, and hideforge takes no lock: two runs that build the same recipe
-share its scratch directory <code>/work/build/&lt;hash&gt;</code> and its log, and the
-image staging directory, and collide.</p>
+<h2 id="one-image-build-at-a-time-per-checkout"><a class="h" href="#one-image-build-at-a-time-per-checkout" aria-hidden="true" tabindex="-1">##</a> One image build at a time, per checkout</h2>
+<p>Two tests in one checkout at once collide: each owns the image directory
+in <code>target/images</code> — its disks, the firmware’s variables, the image it
+assembles there. Side by side, tests run through <code>cargo xtask round</code>
+(see <a href="Testing.html#a-round-of-tests">Testing</a>), each lane in a copy of the checkout.</p>
+<p>Lanes share the builder’s <code>/work</code>, and hideforge is made for it: a lock
+per recipe and per image (<code>Layout::lock</code>), so the second run to want a
+recipe finds it in the store, and scratch names carrying the container’s
+host name as well as the PID (<code>run_id</code>) — in the builder every run is
+PID 7, and two of them once shared <code>/work/build/.hideforge-7</code> (“Text file
+busy”).</p>
+<p>One thing the lanes must not share is a changed hideforge: cargo in the
+builder builds it into <code>/work/target</code>, from whichever lane’s <code>/src</code> asks,
+so lanes with different hideforge sources rebuild it over each other.
+<code>round</code> copies the checkout to every lane at its start; change hideforge
+between rounds, not during one.</p>
 <h2 id="firmware-variables-persist-per-disk"><a class="h" href="#firmware-variables-persist-per-disk" aria-hidden="true" tabindex="-1">##</a> Firmware variables persist per disk</h2>
 <p>QEMU’s UEFI variables are kept in the image directory, <code>efivars.fd</code> (and
 <code>efivars-secure.fd</code> under Secure Boot), from one boot to the next, as a
@@ -187,8 +197,9 @@ its directory and the filesystem (<code>rename_durably</code> in
 <h2 id="stopping-cargo-xtask-leaves-the-builder-running"><a class="h" href="#stopping-cargo-xtask-leaves-the-builder-running" aria-hidden="true" tabindex="-1">##</a> Stopping <code>cargo xtask</code> leaves the builder running</h2>
 <p><code>cargo xtask</code> runs hideforge in a docker container, and killing xtask does
 not stop it: the build goes on in the background, holding <code>/work</code>. A new
-build started then collides with it (see “One image build at a time”) —
-“Text file busy” on hideforge’s own binary is the sign. Stop it with
+build started then waits on its locks, or, before they existed,
+collided with it — “Text file busy” on hideforge’s own binary was the
+sign. Stop it with
 <code>docker ps -q | xargs docker kill</code> before starting another.</p>
 <h2 id="source_date_epoch-counts-unpacked-files-only"><a class="h" href="#source_date_epoch-counts-unpacked-files-only" aria-hidden="true" tabindex="-1">##</a> <code>SOURCE_DATE_EPOCH</code> counts unpacked files only</h2>
 <p>hideforge sets <code>SOURCE_DATE_EPOCH</code> to the newest file the sources unpack
@@ -217,7 +228,7 @@ forked when it is outside its cgroup, and wakes for its shutdown deadline
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>5cba8d6</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Development-notes.md">docs/wiki/Development-notes.md</a>.</p>
+        <p># built from commit <code>b2024ec</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Development-notes.md">docs/wiki/Development-notes.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>

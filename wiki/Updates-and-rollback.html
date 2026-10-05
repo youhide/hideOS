@@ -50,6 +50,7 @@
 <li><a href="Updates-and-rollback.html" aria-current="page">Updates and rollback</a>
 <ol class="toc__sections">
 <li><a href="#the-image">The image</a></li>
+<li><a href="#channels">Channels</a></li>
 <li><a href="#hide-update">hide update</a></li>
 <li><a href="#boot-counting-and-automatic-rollback">Boot counting and automatic rollback</a></li>
 <li><a href="#the-other-commands">The other commands</a></li>
@@ -77,6 +78,7 @@
 <li><a href="Updates-and-rollback.html" aria-current="page">Updates and rollback</a>
 <ol class="toc__sections">
 <li><a href="#the-image">The image</a></li>
+<li><a href="#channels">Channels</a></li>
 <li><a href="#hide-update">hide update</a></li>
 <li><a href="#boot-counting-and-automatic-rollback">Boot counting and automatic rollback</a></li>
 <li><a href="#the-other-commands">The other commands</a></li>
@@ -111,9 +113,25 @@ travel inside the image it seals. hideforge computes that digest by pulling
 its own image with composefs-oci, the code <code>hide update</code> runs, and fails the
 build if adding the UKI layer changed it. <code>cargo xtask image</code> writes it as
 <code>image.oci.tar</code>.</p>
-<p>Today the image travels as a file: <code>hide update</code> takes <code>oci-archive:PATH</code>
-or <code>oci:DIR[:TAG]</code>. Pulling from a registry is not written yet (ROADMAP
-H3).</p>
+<p>It is published to <a href="https://ghcr.io/youhide/hideos">https://ghcr.io/youhide/hideos</a>, a public registry,
+one tag per edition and channel: <code>minimal-edge</code>, <code>workstation-beta</code>, …
+Plain <code>hide update</code> pulls this machine’s edition on the channel
+<code>/usr/lib/hide/update.conf</code> names — <code>edge</code> while hideOS is pre-alpha —
+which <code>/etc/hide/update.conf</code> overrides. <code>hide update --image</code> also takes
+<code>oci-archive:PATH</code> and <code>oci:DIR[:TAG]</code>, which is how the tests feed it.</p>
+<h2 id="channels"><a class="h" href="#channels" aria-hidden="true" tabindex="-1">##</a> Channels</h2>
+<p><code>edge</code> is every build that passes the round of tests; <code>beta</code> and
+<code>stable</code> take an image the channel before them already has, never a
+rebuild, so what a beta machine runs is what edge machines ran:</p>
+<pre><code class="language-sh">cargo xtask publish --edition workstation --channel edge
+cargo xtask promote --edition workstation --to beta     # edge's image
+cargo xtask promote --edition workstation --to stable   # beta's image
+</code></pre>
+<p>An image’s <a href="System-extensions.html">System extensions</a> are published under its digest before its
+channel tag moves, and <code>promote</code> refuses an image whose extensions are not
+there: an update brings the extensions with it, and would wait for one
+that is missing. ARCHITECTURE has stable wait for beta’s boot-success
+telemetry; until that exists, promoting is the maintainer’s call.</p>
 <h2 id="hide-update"><a class="h" href="#hide-update" aria-hidden="true" tabindex="-1">##</a> <code>hide update</code></h2>
 <pre><code class="language-sh">hide update --image oci-archive:/path/to/image.oci.tar
 </code></pre>
@@ -221,7 +239,7 @@ shows the disk’s protection and the system extensions.</p>
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>5cba8d6</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Updates-and-rollback.md">docs/wiki/Updates-and-rollback.md</a>.</p>
+        <p># built from commit <code>b2024ec</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Updates-and-rollback.md">docs/wiki/Updates-and-rollback.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>

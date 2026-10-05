@@ -53,6 +53,7 @@
 <ol class="toc__sections">
 <li><a href="#the-installer-medium">The installer medium</a></li>
 <li><a href="#the-installer">The installer</a></li>
+<li><a href="#beside-windows">Beside Windows</a></li>
 <li><a href="#first-boot-setup">First-boot setup</a></li>
 <li><a href="#reinstalling-keeping-home">Reinstalling, keeping /home</a></li>
 <li><a href="#the-recovery-system">The recovery system</a></li>
@@ -80,6 +81,7 @@
 <ol class="toc__sections">
 <li><a href="#the-installer-medium">The installer medium</a></li>
 <li><a href="#the-installer">The installer</a></li>
+<li><a href="#beside-windows">Beside Windows</a></li>
 <li><a href="#first-boot-setup">First-boot setup</a></li>
 <li><a href="#reinstalling-keeping-home">Reinstalling, keeping /home</a></li>
 <li><a href="#the-recovery-system">The recovery system</a></li>
@@ -134,6 +136,55 @@ disk with it, asking nothing. Minimal, which has no screen to set itself up
 on, asks for a passphrase, twice, and the first account’s login name and
 password, and shows the recovery key once.</p>
 <p>It installs with the same code as <code>hide install</code> (the code <code>cargo xtask install</code> runs to make development disks). See <a href="Disk-and-encryption.html">Disk and encryption</a>.</p>
+<h2 id="beside-windows"><a class="h" href="#beside-windows" aria-hidden="true" tabindex="-1">##</a> Beside Windows</h2>
+<p>As Boot Camp Assistant does (ARCHITECTURE.md, “Beside Windows”). The
+installer lists each disk with what it holds — <code>Windows</code>, <code>Windows, BitLocker on</code>, <code>Windows data</code>, <code>hideOS</code>, <code>empty</code> — read from the partition
+types and the NTFS boot sectors
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/disks.rs">crates/hide/src/disks.rs</a>).</p>
+<ul>
+<li><strong>A disk of its own</strong> is erased and installed on, as above. Windows on
+another disk is left alone.</li>
+<li><strong>A disk with Windows</strong> offers its largest free space when it is large
+enough — the system twice over, a swap file as large as memory, and
+16 GiB — and installs there with an ESP of its own, adding partitions to
+the table and changing none (<code>hide install --beside</code>). When there is
+not enough, the installer says how to make room — Disk Management,
+Shrink Volume, in Windows — and stops; erasing the disk, Windows
+included, takes typing <code>windows</code>. A hideOS installed beside Windows
+before is replaced in place, its partitions only.</li>
+<li><strong>The firmware’s boot order</strong>: every install writes a <code>Boot####</code> entry,
+“hideOS”, for hideBoot on its ESP, and puts it first, reusing the one an
+earlier install made (<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/bootentry.rs">crates/hide/src/bootentry.rs</a>).
+Without it a PC keeps starting Windows Boot Manager.</li>
+<li><strong>BitLocker</strong>: with a BitLocker volume on any disk, before Secure Boot’s
+keys change, the installer says that Windows will ask once for its
+recovery key, and offers to leave Secure Boot for later
+(<code>hide secureboot enroll</code>).</li>
+<li><strong>The clock</strong>: with Windows anywhere on the machine, the installer writes
+<code>/etc/hide/clock.conf</code> with <code>hardware-clock = local</code>; <code>hide setup</code> then
+reads the hardware clock as local time at every boot, before NTP starts,
+and the kernel writes it back the same way
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/clock.rs">crates/hide/src/clock.rs</a>).</li>
+<li><strong>NVIDIA</strong>: the Workstation’s medium carries the extensions published
+for its image (a <code>hideos-extensions</code> partition); on a machine with an
+NVIDIA GPU that NVIDIA’s open modules drive — Turing, RTX 20 and GTX 16,
+and newer — the installer adds <code>nvidia</code> to the new system, so its first
+start is drawn by it. An older NVIDIA GPU is said so.</li>
+</ul>
+<h3 id="startup-disk"><a class="h" href="#startup-disk" aria-hidden="true" tabindex="-1">###</a> Startup Disk</h3>
+<p>Which system starts when no key is held, as on a Mac:</p>
+<pre><code class="language-sh">hide startup-disk                  # which starts, and whether hideBoot found Windows
+hide startup-disk windows          # Windows from now on
+hide startup-disk hideos           # hideOS again
+hide startup-disk windows --once   # Windows at the next start only
+</code></pre>
+<p>hideBoot finds Windows Boot Manager on any ESP and lists it as “Windows”;
+the choice is systemd-boot’s variables, <code>LoaderEntryDefault</code> and
+<code>LoaderEntryOneShot</code>, which hideBoot reads
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/startup.rs">crates/hide/src/startup.rs</a>). Settings
+→ System → Updates shows a Startup disk section beside Windows, with
+“Restart in Windows”; hideupd sets it (<code>SetStartupDisk</code>, polkit action
+<code>os.hide.update.startup-disk</code>).</p>
 <h2 id="first-boot-setup"><a class="h" href="#first-boot-setup" aria-hidden="true" tabindex="-1">##</a> First-boot setup</h2>
 <p>On a Workstation no one has set up, greetd shows <code>hidesetup</code> instead of the
 login screen: full screen, in the greeter’s compositor, as the greeter’s
@@ -207,7 +258,7 @@ will start. It never counts its attempts and is never the default. See
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>5cba8d6</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Install-and-recover.md">docs/wiki/Install-and-recover.md</a>.</p>
+        <p># built from commit <code>b2024ec</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Install-and-recover.md">docs/wiki/Install-and-recover.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>

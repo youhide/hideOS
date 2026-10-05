@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>System extensions · hideOS wiki</title>
-<meta name="description" content="A system extension adds files to /usr without changing the sealed image: a driver the base image should not carry (NVIDIA is the first planned), a security fix…">
+<meta name="description" content="A system extension adds files to /usr without changing the sealed image: a driver the base image should not carry (NVIDIA’s is the first), a security fix ahead…">
 <meta name="author" content="Youri Mattar">
 <meta name="theme-color" content="#282a36">
 <link rel="canonical" href="https://youhide.github.io/hideOS/wiki/System-extensions.html">
@@ -57,6 +57,8 @@
 <li><a href="#building-one">Building one</a></li>
 <li><a href="#hide-ext">hide ext</a></li>
 <li><a href="#at-boot">At boot</a></li>
+<li><a href="#updates-bring-them">Updates bring them</a></li>
+<li><a href="#nvidia">NVIDIA</a></li>
 </ol>
 </li>
 <li><a href="Applications.html">Applications</a></li>
@@ -83,6 +85,8 @@
 <li><a href="#building-one">Building one</a></li>
 <li><a href="#hide-ext">hide ext</a></li>
 <li><a href="#at-boot">At boot</a></li>
+<li><a href="#updates-bring-them">Updates bring them</a></li>
+<li><a href="#nvidia">NVIDIA</a></li>
 </ol>
 </li>
 <li><a href="Applications.html">Applications</a></li>
@@ -96,7 +100,7 @@
     <article class="prose">
 <h1 id="system-extensions">System extensions</h1>
 <p>A system extension adds files to <code>/usr</code> without changing the sealed image:
-a driver the base image should not carry (NVIDIA is the first planned), a
+a driver the base image should not carry (NVIDIA’s is the first), a
 security fix ahead of the next image, an optional feature. It is the
 analogue of a macOS Cryptex, and <strong>only hideOS publishes them</strong>: a machine
 merges an extension only when hideOS signed it, and only over the system
@@ -112,8 +116,11 @@ where it is the same file. It travels as an OCI image, like an update:</p>
 <code>/usr/lib/extension-release.d/extension-release.NAME</code>, which says
 <code>ID=hideos</code> and <code>HIDEOS_IMAGE=sha256:&lt;digest&gt;</code>: the system image it is
 for;</li>
-<li><strong>two annotations on the manifest</strong>, which the image digest does not
-cover: <code>os.hide.extension.name</code>, and <code>os.hide.extension.signature</code>, hex.</li>
+<li><strong>three annotations on the manifest</strong>, which the image digest does not
+cover: <code>os.hide.extension.name</code>; <code>os.hide.extension.signature</code>, hex; and
+<code>os.hide.extension.for</code>, the system image it was built for, which <code>hide</code>
+records without mounting it (hidestage still checks the signed
+extension-release).</li>
 </ul>
 <p>Why composefs rather than an EROFS image under dm-verity, as systemd’s
 extensions are: hideOS already has a verified store, and an extension in it
@@ -144,16 +151,24 @@ hide ext remove NAME
 <li>
 <p><code>add</code> pulls the image into the store, checks the signature now rather
 than at the next boot, refusing an unsigned or wrongly signed one, tags
-the image in the store as <code>extension-NAME</code> so that garbage collection
-keeps it, and writes the record hidestage reads,
-<code>/hideos/extensions/NAME</code>:</p>
-<pre><code class="language-text">image=sha256:&lt;hex&gt;
+the image in the store as <code>extension-NAME-&lt;system&gt;</code> so that garbage
+collection keeps it, and adds it to the record hidestage reads,
+<code>/hideos/extensions/NAME</code> — one entry for each system image the machine
+has a build for, so that going back to the previous system merges the
+previous build:</p>
+<pre><code class="language-text">image=sha256:&lt;the extension's image&gt;
 signature=&lt;hex&gt;
+for=sha256:&lt;the system image&gt;
+
+image=…
 </code></pre>
+<p>The format is <code>hidestage::extension</code>’s
+(<a href="https://github.com/youhide/hideOS/blob/main/crates/hidestage/src/extension.rs">crates/hidestage/src/extension.rs</a>),
+shared by <code>hide</code> and hidestage.</p>
 </li>
 <li>
-<p><code>list</code> names each recorded extension and whether it is merged in the
-running system.</p>
+<p><code>list</code> names each recorded extension, whether it is merged in the
+running system, and how many builds the machine has.</p>
 </li>
 <li>
 <p><code>remove</code> deletes the record and the tag; the extension is gone from the
@@ -180,9 +195,45 @@ stacked over <code>/usr</code> with overlayfs, with no upper directory, so <code
 stays read-only. One that fails any check is left out with a line on the
 console (<code>hidestage: extension NAME left out: …</code>); an extension never stops
 a boot.</p>
-<p>An extension built for one image is not merged into the next one after an
-update: it has to be rebuilt for the new image and added again.</p>
+<p>The record’s entry for the booting system is the one tried; a record from
+before entries named their system has one, tried on any system as before.</p>
 <p><code>cargo xtask sysext-test</code> checks the four cases; see <a href="Testing.html">Testing</a>.</p>
+<h2 id="updates-bring-them"><a class="h" href="#updates-bring-them" aria-hidden="true" tabindex="-1">##</a> Updates bring them</h2>
+<p>An extension is built for one system image, so an update needs the
+extension’s build for the image it brings. hideOS publishes each image’s
+extensions beside it, in the same repository, as <code>ext-&lt;name&gt;-&lt;image digest&gt;</code>, before the channel’s tag moves to the image (<code>cargo xtask publish</code>). <code>hide update</code> pulls the new image, then fetches the build of
+every extension the machine has for it, and commits only when it has them
+all; when one is not there it stops — <code>the update waits: there is no build of the nvidia extension for this system yet</code> — and the machine stays as it
+was. Garbage collection drops the builds for systems no longer on the disk.</p>
+<p><code>cargo xtask registry-test</code> updates a machine with the test extension:
+the update waits while the registry has no build for the new image, brings
+it once there is one, and after a rollback the old build is merged again.</p>
+<h2 id="nvidia"><a class="h" href="#nvidia" aria-hidden="true" tabindex="-1">##</a> NVIDIA</h2>
+<p><a href="https://github.com/youhide/hideOS/blob/main/recipes/system/nvidia/nvidia.toml">recipes/system/nvidia/nvidia.toml</a>,
+for the Workstation, published with each of its images:</p>
+<ul>
+<li>the open GPU kernel modules (Turing — RTX 20, GTX 16 — and newer), built
+against the build tree of the image’s kernel, with the module indexes
+made over the image’s modules and these — which is why the kernel’s
+indexes are a package of their own, <code>linux-module-index</code>, which the
+extension’s shadow;</li>
+<li>NVIDIA’s userspace from the <code>.run</code>, extracted and never run, installed
+byte for byte as its licence requires: EGL and GLES behind libglvnd (Mesa
+is built behind libglvnd too, so both vendors live in one process), the
+GBM backend, CUDA, NVML and <code>nvidia-smi</code>, the GSP firmware;</li>
+<li>the EGL platform libraries for Wayland and GBM, and <code>nvidia-modprobe</code>,
+built from NVIDIA’s sources;</li>
+<li>modprobe.d — nouveau kept from binding, nvidia-drm loaded with nvidia,
+modesetting on — and a udev rule that makes the device files.</li>
+</ul>
+<p>No GLX, Vulkan ICD or VDPAU (hideOS has no X11 and no Vulkan loader yet).
+Flatpak applications are unaffected: they get NVIDIA’s userspace from
+Flathub’s GL extension.</p>
+<p><code>cargo xtask nvidia-test</code> adds it to a Workstation in QEMU, which has no
+NVIDIA GPU, and checks what can be checked without one: it merges; its
+modules are the running kernel’s and are indexed; <code>nvidia.ko</code> loads as far
+as finding no GPU; every library links; and the desktop still comes up,
+drawn by Mesa. A real NVIDIA machine is the rest of the check.</p>
     </article>
   </main>
 </div>
@@ -192,7 +243,7 @@ update: it has to be rebuilt for the new image and added again.</p>
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>5cba8d6</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/System-extensions.md">docs/wiki/System-extensions.md</a>.</p>
+        <p># built from commit <code>b2024ec</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/System-extensions.md">docs/wiki/System-extensions.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>

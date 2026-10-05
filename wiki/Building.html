@@ -142,7 +142,8 @@ payload, the OCI image, the UKI signed with the development key (see
 <a href="Boot-chain.html">Boot chain</a>), and hideBoot as the boot manager. The image version is
 <code>--image-version N</code>, by default the number of commits on <code>HEAD</code>, so two
 builds of the same commit are the same version.</p>
-<p>Never run two image builds at once: see <a href="Development-notes.html#one-image-build-at-a-time">Development notes</a>.</p>
+<p>Two image builds in one checkout collide; side by side, tests run through
+<code>cargo xtask round</code>: see <a href="Development-notes.html#one-image-build-at-a-time-per-checkout">Development notes</a>.</p>
 <h3 id="editions"><a class="h" href="#editions" aria-hidden="true" tabindex="-1">###</a> Editions</h3>
 <div class="table-wrap">
 <table><thead><tr><th>Edition</th><th>What it is</th><th>Boots</th></tr></thead><tbody>
@@ -221,7 +222,7 @@ listed at the top of
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>5cba8d6</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Building.md">docs/wiki/Building.md</a>.</p>
+        <p># built from commit <code>b2024ec</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Building.md">docs/wiki/Building.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>
