@@ -236,9 +236,9 @@ installer adds and each update brings along. aarch64 remains.
 
 ## H7 — Install and recover
 
-**In progress.** Everything but a build on the stable channel: the
-installer, recovery, hideBoot with hideOS's own Secure Boot keys, and
-hideOS beside Windows with a Startup Disk.
+**Done**, 2026-10-05: the installer, recovery, hideBoot with hideOS's own
+Secure Boot keys, hideOS beside Windows with a Startup Disk, and image 49
+on all three channels.
 
 - [x] Installer medium (a disk image for a USB stick rather than an ISO):
       partitioning, LUKS2 with a recovery key, the first user —
@@ -251,14 +251,14 @@ hideOS beside Windows with a Startup Disk.
       starts: choose what boots next, or a shell. Reinstall keeping `/home`
       is the installer's, which carries a payload — see ARCHITECTURE,
       "Recovery". Tested by `cargo xtask installer-test`.
-- [ ] Release channels `edge`, `beta`, `stable` on a public registry.
+- [x] Release channels `edge`, `beta`, `stable` on a public registry.
   - [x] ghcr.io/youhide/hideos, public; `cargo xtask publish` to edge, the
         image's extensions first.
   - [x] `cargo xtask promote --to beta|stable`: a channel takes the image
         the one before it has, never a rebuild, once its extensions are
         published.
   - [x] A build on beta: image 49, Minimal and Workstation, 2026-10-05.
-  - [ ] A build on stable.
+  - [x] A build on stable: image 49, 2026-10-05.
 - [x] Beside Windows, as Boot Camp (ARCHITECTURE, "Beside Windows"): the
       installer says what each disk holds and installs on a disk of its
       own or in the free space beside Windows, with its own ESP and its own
