@@ -280,10 +280,11 @@ on all three channels.
 
 ## H8 — Replacing the bridges
 
-Each of these starts only with a written reason why the replacement is better
-than what ships, not only that it is Rust.
+**Done**, 2026-10-05: hidelogin replaces elogind. Each of these starts only
+with a written reason why the replacement is better than what ships, not
+only that it is Rust; for the device manager and the bus there is none yet
+(ARCHITECTURE, "hidedev and busd: not yet").
 
-- [ ] `hidedev`: device manager with a libudev-compatible library.
 - [x] `hidelogin`: the `org.freedesktop.login1` subset COSMIC uses, in place
       of elogind (2026-10-05). The reason is in ARCHITECTURE, "hidelogin":
       sessions are cgroups delegated to their user, shutdown is oxinit's,
@@ -296,4 +297,11 @@ than what ships, not only that it is Rust.
       active for polkit; the sound card the person's PipeWire plays to;
       the power button's countdown powering off; suspend — and by every
       test that logs in at the greeter.
-- [ ] `busd` instead of dbus-daemon, once it is ready for a desktop.
+
+Later, if:
+
+- `hidedev`, a device manager with a libudev-compatible library — if eudev
+  falls behind what a desktop needs again, or goes unmaintained; systemd's
+  udev built alone comes first.
+- `busd` instead of dbus-daemon — once it enforces bus policy and activates
+  services.

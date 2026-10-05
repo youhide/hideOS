@@ -482,7 +482,7 @@ administrator's changes survive every update.
 | `hide`        | CLI: `install`, `installer`, `recovery`, `update`, `rollback`, `status`, `ext`, `gc`, `swap`, `tpm-enroll` | Exists |
 | COSMIC pieces | Settings pages, panel applet, first-boot setup (`hidesetup`)     | To write      |
 | `hideboot`    | UEFI boot manager with boot counting (youhide/hideBoot)          | Exists        |
-| `hidedev`     | Device manager, libudev-compatible; replaces eudev               | Later         |
+| `hidedev`     | Device manager, libudev-compatible; replaces eudev, if it must   | Later, if     |
 | `hidelogin`   | `org.freedesktop.login1` subset; replaces elogind (see below)    | H8            |
 
 **Upstream, already Rust:** COSMIC (compositor, panel, settings, greeter,
@@ -578,7 +578,7 @@ host-testable library crate; the daemon is the Linux side, as in oxinit.
 
 ### hidedev and busd: not yet
 
-**Proposed (H8): neither replacement starts now.** H8 asks for the reason
+**Decided (H8): neither replacement starts now.** H8 asks for the reason
 first, and as of 2026-10-05 there is none that outweighs the cost. Assessed
 from upstream's state and hideOS's own image:
 
@@ -951,8 +951,8 @@ is therefore also a test of the installer.
 | First-boot setup as on a Mac (`hidesetup`)   | **Decided**  | The installer writes a disk; the person is the first boot's     |
 | Updates bring the extensions they need       | **Decided**  | An NVIDIA machine never boots a system without its driver       |
 | Beside Windows, as Boot Camp                 | **Decided**  | Most PCs keep Windows; hideOS installs beside it and offers it  |
-| Device manager in Rust (hidedev)             | **Proposed** | Not now: eudev works; starts if it falls behind or goes unmaintained |
-| busd instead of dbus-daemon                  | **Proposed** | Not now: busd enforces no policy and activates nothing yet      |
+| Device manager in Rust (hidedev)             | **Decided**  | Not now: eudev works; starts if it falls behind or goes unmaintained |
+| busd instead of dbus-daemon                  | **Decided**  | Not now: busd enforces no policy and activates nothing yet      |
 | hidelogin replaces elogind                   | **Decided**  | Sessions, sleep and shutdown in hideOS's and oxinit's terms     |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI
