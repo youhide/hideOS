@@ -59,7 +59,8 @@ payload, the OCI image, the UKI signed with the development key (see
 `--image-version N`, by default the number of commits on `HEAD`, so two
 builds of the same commit are the same version.
 
-Never run two image builds at once: see [[Development notes#one-image-build-at-a-time]].
+Two image builds in one checkout collide; side by side, tests run through
+`cargo xtask round`: see [[Development notes#one-image-build-at-a-time-per-checkout]].
 
 ### Editions
 
