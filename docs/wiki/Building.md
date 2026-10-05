@@ -104,6 +104,20 @@ Every UKI `cargo xtask` builds is a test image: it appends
 `console=ttyS0` to the command line so that the tests can read and type on
 the serial port. See [[Development notes#the-screen-is-the-console-tests-append-the-serial-port]].
 
+### aarch64
+
+The bootstrap's later stages run what they build, so an aarch64 image is
+built on an aarch64 machine: on an x86 one every compiler would run under
+emulation, for days. `cargo xtask image --arch aarch64` does it on any
+arm64 Linux host with the builder; without one, the
+[aarch64 workflow](../../.github/workflows/aarch64.yml), started by hand
+from the Actions tab, builds it on GitHub's arm64 runners. A job there
+lasts six hours, so the workflow is a chain of steps: each builds for five
+hours, packs the work directory — the store, the sources, the keys — into
+the Actions cache, and the next goes on from it. The step that finishes
+boots Minimal in QEMU's `virt` machine. A run picks up the last run's
+work, so a run that ran out of steps is started again.
+
 ## A disk, and booting it
 
 ```sh
