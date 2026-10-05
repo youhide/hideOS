@@ -114,12 +114,6 @@ cargo xtask firmware-smoke --arch x86_64
 cargo xtask firmware-smoke --arch aarch64
 ```
 
-The [aarch64 build](.github/workflows/aarch64.yml) is started by hand too:
-it builds hideOS for aarch64 from source on GitHub's arm64 runners, free
-for a public repository, in steps of five hours that go on from one
-another through the Actions cache, and boots Minimal in QEMU's `virt`
-machine. See [Building](docs/wiki/Building.md#aarch64).
-
 ## Working over SSH on macOS
 
 The macOS keychain is locked in SSH sessions, including a remote Claude Code
