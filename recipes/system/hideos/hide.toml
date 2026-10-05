@@ -24,5 +24,6 @@ install -Dm644 -t /usr/share/dbus-1/system.d crates/hide/data/os.hide.Update1.co
 install -Dm644 -t /usr/share/polkit-1/actions crates/hide/data/os.hide.update.policy
 install -Dm644 crates/hide/data/update.conf /usr/lib/hide/update.conf
 install -Dm644 crates/hide/data/shell.conf /usr/lib/hide/shell.conf
+install -Dm644 crates/hide/data/clock.conf /usr/lib/hide/clock.conf
 for name in poweroff reboot halt; do ln -s hide /usr/bin/$name; done
 """

@@ -17,9 +17,30 @@ its own image with composefs-oci, the code `hide update` runs, and fails the
 build if adding the UKI layer changed it. `cargo xtask image` writes it as
 `image.oci.tar`.
 
-Today the image travels as a file: `hide update` takes `oci-archive:PATH`
-or `oci:DIR[:TAG]`. Pulling from a registry is not written yet (ROADMAP
-H3).
+It is published to <https://ghcr.io/youhide/hideos>, a public registry,
+one tag per edition and channel: `minimal-edge`, `workstation-beta`, …
+Plain `hide update` pulls this machine's edition on the channel
+`/usr/lib/hide/update.conf` names — `edge` while hideOS is pre-alpha —
+which `/etc/hide/update.conf` overrides. `hide update --image` also takes
+`oci-archive:PATH` and `oci:DIR[:TAG]`, which is how the tests feed it.
+
+## Channels
+
+`edge` is every build that passes the round of tests; `beta` and
+`stable` take an image the channel before them already has, never a
+rebuild, so what a beta machine runs is what edge machines ran:
+
+```sh
+cargo xtask publish --edition workstation --channel edge
+cargo xtask promote --edition workstation --to beta     # edge's image
+cargo xtask promote --edition workstation --to stable   # beta's image
+```
+
+An image's [[System extensions]] are published under its digest before its
+channel tag moves, and `promote` refuses an image whose extensions are not
+there: an update brings the extensions with it, and would wait for one
+that is missing. ARCHITECTURE has stable wait for beta's boot-success
+telemetry; until that exists, promoting is the maintainer's call.
 
 ## `hide update`
 

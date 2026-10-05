@@ -10,12 +10,10 @@
 //! the system image that is booting. Anything else is left out, with a
 //! line on the console — an extension never stops a boot.
 //!
-//! `hide ext add` writes `/hideos/extensions/<name>`:
-//!
-//! ```text
-//! image=sha256:<hex>
-//! signature=<hex>
-//! ```
+//! `hide ext add` and `hide update` write `/hideos/extensions/<name>`, one
+//! entry for each system image the extension was built for; see
+//! `hidestage::extension`. The entry for the booting system is the one
+//! tried.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -87,14 +85,23 @@ fn prepare(
 ) -> Result<PathBuf, String> {
     let record = fs::read_to_string(store.join("extensions").join(name))
         .map_err(|e| format!("reading its record: {e}"))?;
-    let field = |key: &str| {
-        record
-            .lines()
-            .find_map(|l| l.trim().strip_prefix(key))
-            .ok_or_else(|| format!("no {key} in its record"))
-    };
-    let image = field("image=")?;
-    let signature = decode_hex(field("signature=")?).ok_or("its signature is not hex")?;
+    let system = format!("sha256:{}", hidestage::hex(booted));
+    let entries = hidestage::extension::parse(&record);
+    // None for this system: said with the systems it was built for, as
+    // an entry for another one is.
+    let entry = hidestage::extension::for_system(&entries, &system).ok_or_else(|| {
+        let others: Vec<&str> = entries
+            .iter()
+            .filter_map(|e| e.built_for.as_deref())
+            .collect();
+        if others.is_empty() {
+            "the machine has no build of it".to_owned()
+        } else {
+            format!("built for {}, not this system", others.join(", "))
+        }
+    })?;
+    let image = entry.image.as_str();
+    let signature = decode_hex(&entry.signature).ok_or("its signature is not hex")?;
     if !key.verify(image.as_bytes(), &signature) {
         return Err("hideOS did not sign it".into());
     }
@@ -129,8 +136,7 @@ fn prepare(
         .lines()
         .find_map(|l| l.trim().strip_prefix("HIDEOS_IMAGE="))
         .unwrap_or_default();
-    let booted = format!("sha256:{}", hidestage::hex(booted));
-    if built_for != booted {
+    if built_for != system {
         let _ = rustix::mount::unmount(&target, rustix::mount::UnmountFlags::DETACH);
         return Err(format!("built for {built_for}, not this system"));
     }

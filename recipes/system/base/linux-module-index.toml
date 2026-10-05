@@ -1,0 +1,25 @@
+# The kernel's module indexes: modules.dep, modules.alias and the rest of
+# what depmod writes into /usr/lib/modules/<release>, which modprobe and
+# udev find modules by. An output of their own, not the kernel's: they
+# index every module the system has, and a system extension that adds
+# modules — NVIDIA's, see recipes/system/nvidia — ships its own, made over
+# the image's modules and its own, which shadow these when it is merged.
+# hideforge does not let a build replace a file its own stage provided, so
+# the extension could not make them if the kernel's output already had
+# them. They are to modules what ld.so.cache is to libraries: an index
+# over packages, which no one package owns.
+[package]
+name = "linux-module-index"
+version = "1"
+description = "The kernel's module indexes, made by depmod"
+license = "MIT"
+
+[depends]
+build = ["toolchain", "linux", "kmod"]
+
+[build]
+script = """
+release=$(ls /usr/lib/modules)
+depmod -a -o "$PWD/index" "$release"
+install -Dm644 -t "/usr/lib/modules/$release" "index/usr/lib/modules/$release"/modules.*
+"""

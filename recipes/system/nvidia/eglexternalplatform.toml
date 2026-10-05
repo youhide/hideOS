@@ -1,0 +1,27 @@
+# The EGL External Platform interface: two headers and a pkg-config file,
+# which NVIDIA's EGL platform libraries — egl-wayland, egl-wayland2,
+# egl-gbm, built in nvidia.toml — are compiled against. A build dependency
+# only: nothing of it runs, so it is in no image and no extension.
+[package]
+name = "eglexternalplatform"
+version = "1.2.1"
+description = "EGL External Platform interface headers"
+license = "MIT"
+homepage = "https://github.com/NVIDIA/eglexternalplatform"
+
+# The tag archive: NVIDIA publishes no tarball or signature for it.
+[[source]]
+url = "https://github.com/NVIDIA/eglexternalplatform/archive/refs/tags/1.2.1.tar.gz"
+sha256 = "5089ceb054ca50c85837f015756a3d0f2f75cf2a98c9e5fbcbcfb8206137f76e"
+
+[depends]
+build = ["buildtools"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --wrap-mode=nodownload
+meson install -C build
+"""

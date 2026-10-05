@@ -47,6 +47,62 @@ password, and shows the recovery key once.
 It installs with the same code as `hide install` (the code `cargo xtask
 install` runs to make development disks). See [[Disk and encryption]].
 
+## Beside Windows
+
+As Boot Camp Assistant does (ARCHITECTURE.md, "Beside Windows"). The
+installer lists each disk with what it holds — `Windows`, `Windows,
+BitLocker on`, `Windows data`, `hideOS`, `empty` — read from the partition
+types and the NTFS boot sectors
+([crates/hide/src/disks.rs](../../crates/hide/src/disks.rs)).
+
+- **A disk of its own** is erased and installed on, as above. Windows on
+  another disk is left alone.
+- **A disk with Windows** offers its largest free space when it is large
+  enough — the system twice over, a swap file as large as memory, and
+  16 GiB — and installs there with an ESP of its own, adding partitions to
+  the table and changing none (`hide install --beside`). When there is
+  not enough, the installer says how to make room — Disk Management,
+  Shrink Volume, in Windows — and stops; erasing the disk, Windows
+  included, takes typing `windows`. A hideOS installed beside Windows
+  before is replaced in place, its partitions only.
+- **The firmware's boot order**: every install writes a `Boot####` entry,
+  "hideOS", for hideBoot on its ESP, and puts it first, reusing the one an
+  earlier install made ([crates/hide/src/bootentry.rs](../../crates/hide/src/bootentry.rs)).
+  Without it a PC keeps starting Windows Boot Manager.
+- **BitLocker**: with a BitLocker volume on any disk, before Secure Boot's
+  keys change, the installer says that Windows will ask once for its
+  recovery key, and offers to leave Secure Boot for later
+  (`hide secureboot enroll`).
+- **The clock**: with Windows anywhere on the machine, the installer writes
+  `/etc/hide/clock.conf` with `hardware-clock = local`; `hide setup` then
+  reads the hardware clock as local time at every boot, before NTP starts,
+  and the kernel writes it back the same way
+  ([crates/hide/src/clock.rs](../../crates/hide/src/clock.rs)).
+- **NVIDIA**: the Workstation's medium carries the extensions published
+  for its image (a `hideos-extensions` partition); on a machine with an
+  NVIDIA GPU that NVIDIA's open modules drive — Turing, RTX 20 and GTX 16,
+  and newer — the installer adds `nvidia` to the new system, so its first
+  start is drawn by it. An older NVIDIA GPU is said so.
+
+### Startup Disk
+
+Which system starts when no key is held, as on a Mac:
+
+```sh
+hide startup-disk                  # which starts, and whether hideBoot found Windows
+hide startup-disk windows          # Windows from now on
+hide startup-disk hideos           # hideOS again
+hide startup-disk windows --once   # Windows at the next start only
+```
+
+hideBoot finds Windows Boot Manager on any ESP and lists it as "Windows";
+the choice is systemd-boot's variables, `LoaderEntryDefault` and
+`LoaderEntryOneShot`, which hideBoot reads
+([crates/hide/src/startup.rs](../../crates/hide/src/startup.rs)). Settings
+→ System → Updates shows a Startup disk section beside Windows, with
+"Restart in Windows"; hideupd sets it (`SetStartupDisk`, polkit action
+`os.hide.update.startup-disk`).
+
 ## First-boot setup
 
 On a Workstation no one has set up, greetd shows `hidesetup` instead of the

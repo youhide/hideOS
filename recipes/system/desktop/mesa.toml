@@ -15,6 +15,12 @@
 # spirv-tools are enabled explicitly, so that a missing dependency
 # fails the configure instead of quietly dropping iris. libclc is not
 # needed: only rusticl and Microsoft's CLC link it, both off.
+#
+# Behind libglvnd: Mesa installs its EGL as a vendor library,
+# libEGL_mesa, and libglvnd's libEGL picks the vendor for each display.
+# NVIDIA's EGL, from the nvidia system extension, is only ever such a
+# vendor library, and a laptop with an Intel or AMD GPU beside an NVIDIA
+# one needs both in one process.
 # SPIRV-Tools is static (spirv-tools's recipe), so what Mesa uses of
 # it is inside libgallium, and no new library reaches the image.
 [package]
@@ -29,8 +35,8 @@ url = "https://archive.mesa3d.org/mesa-26.2.4.tar.xz"
 sha256 = "bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9"
 
 [depends]
-build = ["buildtools", "llvm", "spirv-tools", "spirv-llvm-translator", "libdrm", "wayland", "wayland-protocols", "expat", "zstd", "elfutils", "eudev"]
-run = ["glibc", "gcc", "zlib", "llvm", "libdrm", "wayland", "expat", "zstd", "elfutils", "eudev"]
+build = ["buildtools", "libglvnd", "llvm", "spirv-tools", "spirv-llvm-translator", "libdrm", "wayland", "wayland-protocols", "expat", "zstd", "elfutils", "eudev"]
+run = ["glibc", "gcc", "zlib", "libglvnd", "llvm", "libdrm", "wayland", "expat", "zstd", "elfutils", "eudev"]
 
 [build]
 script = """
@@ -49,7 +55,7 @@ meson setup build . \\
     -Dgles1=disabled \\
     -Dgles2=enabled \\
     -Dopengl=true \\
-    -Dglvnd=disabled \\
+    -Dglvnd=enabled \\
     -Dgallium-drivers=llvmpipe,softpipe,virgl,radeonsi,iris \\
     -Dvulkan-drivers=[] \\
     -Dllvm=enabled \\
@@ -80,4 +86,7 @@ meson setup build . \\
     -Dcpp_rtti=true
 meson compile -C build -j "$JOBS"
 meson install -C build
+# Mesa's EGL is a vendor library, which libglvnd's libEGL loads.
+test -f /usr/lib/libEGL_mesa.so.0
+test -f /usr/share/glvnd/egl_vendor.d/50_mesa.json
 """

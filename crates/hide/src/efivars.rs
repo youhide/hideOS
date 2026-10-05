@@ -30,6 +30,19 @@ pub fn writable<T>(write: impl FnOnce() -> Result<T>) -> Result<T> {
     result
 }
 
+/// Deletes a variable, lifting its immutable flag: efivarfs deletes a
+/// variable when its file is removed. Inside [`writable`]. One that is not
+/// there is already gone.
+pub fn remove(path: &Path) -> Result<()> {
+    let Ok(fd) = rustix::fs::open(path, OFlags::RDONLY, Mode::empty()) else {
+        return Ok(());
+    };
+    let flags = rustix::fs::ioctl_getflags(&fd)?;
+    rustix::fs::ioctl_setflags(&fd, flags - IFlags::IMMUTABLE)?;
+    drop(fd);
+    fs::remove_file(path).with_context(|| format!("removing {}", path.display()))
+}
+
 /// Writes a variable whole — attributes, then data, as efivarfs takes it —
 /// lifting the immutable flag of one that exists. Inside [`writable`].
 pub fn write(path: &Path, value: &[u8]) -> Result<()> {

@@ -72,6 +72,16 @@ pub(crate) struct Options {
     /// ESP, where hidestage finds it, until first-boot setup replaces it.
     /// See ARCHITECTURE.md, "First-boot setup".
     pub(crate) setup_key: bool,
+    /// Into the largest free space on the disk, beside what is there —
+    /// Windows — instead of erasing it. See ARCHITECTURE.md, "Beside
+    /// Windows".
+    pub(crate) beside: bool,
+    /// The hardware clock kept in local time: Windows is on this machine.
+    pub(crate) clock_local: bool,
+    /// System extensions to add to the new system, from a raw tar of their
+    /// OCI archives — the installer medium's `hideos-extensions` — by
+    /// name: NVIDIA's on a machine with an NVIDIA GPU.
+    pub(crate) extensions: Option<(PathBuf, Vec<String>)>,
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -103,6 +113,10 @@ fn parse(args: &[String]) -> Result<Options> {
     let mut encrypt = None;
     let mut keep_home = false;
     let mut setup_key = false;
+    let mut beside = false;
+    let mut clock_local = false;
+    let mut extension_archive = None;
+    let mut extension_names = Vec::new();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -119,6 +133,10 @@ fn parse(args: &[String]) -> Result<Options> {
             // --encrypt's value is a setup key, left on the ESP for
             // first-boot setup, as the installer does for the Workstation.
             "--setup-key" => setup_key = true,
+            "--beside" => beside = true,
+            "--clock-local" => clock_local = true,
+            "--extensions" => extension_archive = iter.next().map(PathBuf::from),
+            "--extension" => extension_names.extend(iter.next().cloned()),
             "--swap" => {
                 let value = iter.next().context("--swap takes a size in MiB")?;
                 swap_mib = Some(value.parse().context("--swap takes a size in MiB")?);
@@ -144,6 +162,9 @@ fn parse(args: &[String]) -> Result<Options> {
         swap_mib,
         keep_home,
         setup_key,
+        beside,
+        clock_local,
+        extensions: extension_archive.map(|archive| (archive, extension_names)),
     })
 }
 
@@ -163,6 +184,16 @@ pub(crate) fn install(options: &Options) -> Result<()> {
             "the root is encrypted: its passphrase is needed to keep /home"
         );
         (esp, root)
+    } else if options.beside {
+        say(&format!(
+            "partitioning the free space on {}",
+            disk.display()
+        ));
+        partition_beside(disk)?;
+        (
+            wait_for_named(disk, ESP_NAME)?,
+            wait_for_named(disk, ROOT_NAME)?,
+        )
     } else {
         say(&format!("partitioning {}", disk.display()));
         partition(disk)?;
@@ -308,6 +339,18 @@ pub(crate) fn install(options: &Options) -> Result<()> {
     );
     say(&format!("image sealed: sha256:{digest}"));
 
+    if let Some((archive, names)) = &options.extensions {
+        for name in names {
+            add_extension(&root_mount, archive, name, &digest)?;
+        }
+    }
+
+    if options.clock_local {
+        let dir = root_mount.join("@etc/hide");
+        fs::create_dir_all(&dir)?;
+        fs::write(dir.join("clock.conf"), hide::clock::LOCAL)?;
+        say("the hardware clock kept in local time, as Windows keeps it");
+    }
     if let Some((name, password)) = &options.user {
         add_user(&root_mount, name, password)?;
         say(&format!("user {name} created"));
@@ -333,6 +376,7 @@ pub(crate) fn install(options: &Options) -> Result<()> {
     rustix::fs::sync();
     unmount(&esp_mount, UnmountFlags::empty()).context("unmounting the ESP")?;
     unmount(&root_mount, UnmountFlags::empty()).context("unmounting the root")?;
+    boot_entry(disk);
     if options.encrypt.is_some() {
         exec(tool("cryptsetup").args(["close", MAPPED_NAME]))?;
     }
@@ -367,6 +411,232 @@ fn partition(disk: &Path) -> Result<()> {
         disk.display()
     );
     Ok(())
+}
+
+/// The extension `name`, from the tar `archive` of extensions, added to the
+/// new system's store as `hide ext add` adds one: checked against
+/// hideOS's key, and built for the image just installed.
+fn add_extension(root_mount: &Path, archive: &Path, name: &str, digest: &str) -> Result<()> {
+    let wanted = format!("{name}.sysext.oci.tar");
+    let staged = root_mount.join("@var").join(format!(".{wanted}"));
+    let mut found = false;
+    let mut entries = tar::Archive::new(
+        fs::File::open(archive).with_context(|| format!("opening {}", archive.display()))?,
+    );
+    for entry in entries.entries()? {
+        let mut entry = entry?;
+        if entry.path()?.to_string_lossy() == wanted {
+            entry.unpack(&staged)?;
+            found = true;
+            break;
+        }
+    }
+    ensure!(found, "the extensions carry no {name}");
+    let added = crate::ext::install_in(
+        &root_mount.join("@store"),
+        &format!("oci-archive:{}", staged.display()),
+        Some((name, &format!("sha256:{digest}"))),
+    );
+    let _ = fs::remove_file(&staged);
+    let (_, entry) = added?;
+    say(&format!("extension {name} added ({})", entry.image));
+    Ok(())
+}
+
+/// The disk's partition table, as sfdisk lists it.
+pub(crate) fn table(disk: &Path) -> Result<hide::disks::Table> {
+    let output = tool("sfdisk")
+        .arg("--json")
+        .arg(disk)
+        .output()
+        .context("running sfdisk")?;
+    ensure!(
+        output.status.success(),
+        "sfdisk could not read the partition table of {}",
+        disk.display()
+    );
+    Ok(hide::disks::parse(&String::from_utf8_lossy(
+        &output.stdout,
+    ))?)
+}
+
+/// The ESP and the root in the largest free space of `disk`, appended to
+/// its table: nothing already there is moved or erased.
+fn partition_beside(disk: &Path) -> Result<()> {
+    // A hideOS installed here before goes first, and only it: its space
+    // joins the free space it is reinstalled in.
+    for partition in table(disk)?
+        .partitions
+        .iter()
+        .filter(|p| p.name == ESP_NAME || p.name == ROOT_NAME)
+    {
+        let digits = partition
+            .node
+            .trim_end_matches(|c: char| c.is_ascii_digit())
+            .len();
+        let number = partition.node.get(digits..).unwrap_or_default();
+        exec(
+            tool("sfdisk")
+                .args(["--quiet", "--no-reread", "--delete"])
+                .arg(disk)
+                .arg(number),
+        )?;
+        say(&format!("removed the earlier {}", partition.name));
+    }
+    let table = table(disk)?;
+    let free = hide::disks::largest_free(&table)
+        .with_context(|| format!("{} has no free space", disk.display()))?;
+    let esp = (512 << 20) / table.sector_size;
+    ensure!(
+        free.sectors > esp * 4,
+        "the free space on {} is too small",
+        disk.display()
+    );
+    let script = format!(
+        "start={}, size={esp}, type={ESP_TYPE}, name=\"{ESP_NAME}\"\n\
+         start={}, size={}, type={}, name=\"{ROOT_NAME}\"\n",
+        free.start,
+        free.start + esp,
+        free.sectors - esp,
+        root_type()
+    );
+    let mut child = tool("sfdisk")
+        .args([
+            "--quiet",
+            "--append",
+            "--no-reread",
+            "--wipe-partitions",
+            "always",
+        ])
+        .arg(disk)
+        .stdin(Stdio::piped())
+        .spawn()
+        .context("running sfdisk")?;
+    use std::io::Write;
+    child
+        .stdin
+        .take()
+        .context("sfdisk's stdin")?
+        .write_all(script.as_bytes())?;
+    ensure!(
+        child.wait()?.success(),
+        "sfdisk could not add hideOS's partitions to {}",
+        disk.display()
+    );
+    // --no-reread: the disk's other partitions may be in use; the new ones
+    // are told to the kernel one by one.
+    exec(tool("partx").args(["--add", "--"]).arg(disk)).ok();
+    Ok(())
+}
+
+/// hideOS's entry in the firmware's boot menu, first in its order: hideBoot
+/// on this ESP. On a PC with Windows, without it the firmware keeps
+/// starting Windows. A machine whose firmware cannot be written to still
+/// boots hideOS from the ESP's fallback path, so a failure here is said
+/// and not fatal.
+fn boot_entry(disk: &Path) {
+    if let Err(error) = write_boot_entry(disk) {
+        say(&format!(
+            "no boot entry written ({error:#}); the firmware finds hideBoot by its fallback path"
+        ));
+    }
+}
+
+fn write_boot_entry(disk: &Path) -> Result<()> {
+    const GLOBAL: &str = "8be4df61-93ca-11d2-aa0d-00e098032b8c";
+    // Non-volatile, boot service and runtime access: as every Boot####.
+    const ATTRIBUTES: [u8; 4] = [7, 0, 0, 0];
+    let efivars = Path::new(crate::efivars::EFIVARS);
+    ensure!(efivars.is_dir(), "no EFI variables: not booted by UEFI");
+    let table = table(disk)?;
+    let esp = table
+        .partitions
+        .iter()
+        .find(|p| p.name == ESP_NAME)
+        .context("no hideos-esp partition")?;
+    let number = esp
+        .node
+        .trim_end_matches(|c: char| c.is_ascii_digit())
+        .len();
+    let number: u32 = esp
+        .node
+        .get(number..)
+        .and_then(|digits| digits.parse().ok())
+        .context("the ESP's partition number")?;
+    let location = hide::bootentry::EspLocation {
+        number,
+        start: esp.start,
+        sectors: esp.size,
+        guid: esp.uuid.clone(),
+    };
+    let file = if cfg!(target_arch = "aarch64") {
+        "\\EFI\\BOOT\\BOOTAA64.EFI"
+    } else {
+        "\\EFI\\BOOT\\BOOTX64.EFI"
+    };
+    let option = hide::bootentry::load_option(&location, file)?;
+
+    // The entries there are, by number and description, to reuse hideOS's.
+    let mut existing = Vec::new();
+    for entry in fs::read_dir(efivars)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(hex) = name
+            .strip_prefix("Boot")
+            .and_then(|rest| rest.strip_suffix(&format!("-{GLOBAL}")))
+            .filter(|hex| hex.len() == 4)
+        else {
+            continue;
+        };
+        let Ok(number) = u16::from_str_radix(hex, 16) else {
+            continue;
+        };
+        let value = fs::read(entry.path()).unwrap_or_default();
+        existing.push((
+            number,
+            value.get(4..).and_then(hide::bootentry::description),
+        ));
+    }
+    let number = hide::bootentry::number(&existing);
+    let order_path = efivars.join(format!("BootOrder-{GLOBAL}"));
+    let order: Vec<u16> = fs::read(&order_path)
+        .unwrap_or_default()
+        .get(4..)
+        .unwrap_or_default()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
+        .collect();
+    let order = hide::bootentry::first_in_order(&order, number);
+
+    crate::efivars::writable(|| {
+        let mut value = ATTRIBUTES.to_vec();
+        value.extend_from_slice(&option);
+        crate::efivars::write(&efivars.join(format!("Boot{number:04X}-{GLOBAL}")), &value)?;
+        let mut value = ATTRIBUTES.to_vec();
+        value.extend(order.iter().flat_map(|n| n.to_le_bytes()));
+        crate::efivars::write(&order_path, &value)
+    })?;
+    say(&format!(
+        "boot entry Boot{number:04X}, first in the firmware's order"
+    ));
+    Ok(())
+}
+
+/// The partition of `disk` named `label`, once the kernel has it.
+fn wait_for_named(disk: &Path, label: &str) -> Result<PathBuf> {
+    let started = Instant::now();
+    loop {
+        if let Some(path) = partition_on(disk, label).filter(|p| p.exists()) {
+            return Ok(path);
+        }
+        ensure!(
+            started.elapsed() < Duration::from_secs(10),
+            "{} has no partition {label}",
+            disk.display()
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// The partition of `disk` named `label`, from sysfs, which lists a disk's
@@ -620,6 +890,23 @@ pub(crate) fn mount_pseudo_filesystems() -> Result<()> {
         match mount(source, target, fstype, MountFlags::empty(), None) {
             Ok(()) | Err(rustix::io::Errno::BUSY) => {}
             Err(error) => return Err(error).with_context(|| format!("mounting {target}")),
+        }
+    }
+    // The EFI variables, read-only as hidestage mounts them: the boot
+    // entry and Secure Boot's keys are written through them, made
+    // writable for each write (efivars.rs). Without them on a disk that
+    // also holds Windows, the firmware looks for hideBoot on Windows's
+    // ESP, finds nothing, and starts no system.
+    if Path::new("/sys/firmware/efi").is_dir() {
+        match mount(
+            "efivarfs",
+            crate::efivars::EFIVARS,
+            "efivarfs",
+            MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC | MountFlags::RDONLY,
+            None,
+        ) {
+            Ok(()) | Err(rustix::io::Errno::BUSY) => {}
+            Err(error) => say(&format!("no EFI variables: {error}")),
         }
     }
     Ok(())

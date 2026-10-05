@@ -178,6 +178,20 @@ impl Setup1 {
         }
         let _ = fs::remove_file("/etc/localtime");
         symlink(&target, "/etc/localtime").map_err(failed)?;
+        // A hardware clock in local time, beside Windows: the time is read
+        // from it again in the zone now known, and the kernel told the zone
+        // it writes the hardware clock back in.
+        let read = |path: &str| fs::read_to_string(path).unwrap_or_default();
+        if hide::clock::is_local(
+            &read("/usr/lib/hide/clock.conf"),
+            &read("/etc/hide/clock.conf"),
+        ) == Ok(true)
+        {
+            let _ = Command::new("hwclock")
+                .args(["--hctosys", "--localtime", "--noadjfile"])
+                .status()
+                .await;
+        }
         say(&format!("time zone {zone}"));
         Ok(())
     }

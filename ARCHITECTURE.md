@@ -287,6 +287,10 @@ what must stay.
 **Channels.** `edge` (every build that passes CI), `beta`, `stable`. A release
 reaches `stable` only after it has been on `beta` machines and the
 boot-success telemetry — opt-in, local-first — shows no regression.
+Promotion moves a channel's tag to the image the channel before it has —
+`cargo xtask promote` — never to a rebuild, and only once the image's
+extensions are published. Until the telemetry exists, promoting to
+`stable` is the maintainer's judgement.
 
 ### System extensions
 
@@ -299,14 +303,29 @@ signature. Three uses:
   sysext, applied without a reboot where the component allows it, and folded
   into the next full image.
 - **Hardware the base image should not carry.** The NVIDIA driver is the first:
-  the open kernel modules, built for exactly the kernel of each deployment and
-  signed with the hideOS module key, plus the proprietary userspace. Installed
-  only on machines with an NVIDIA GPU.
+  the open kernel modules, built for exactly the kernel of each deployment,
+  plus NVIDIA's userspace, unmodified as its licence requires. Installed only
+  on machines with an NVIDIA GPU. The kernel checks no module signatures
+  (`CONFIG_MODULE_SIG` is off): every module it can load is in the sealed
+  image or in an extension hideOS signed, and both are checked by fs-verity
+  on every read, which a signature on the module would only repeat.
 - **Optional system features** too large or too niche for every machine —
   virtualization host support, for example.
 
 A sysext declares the deployment it was built for and is not merged into any
 other one.
+
+**Decided: an update brings the extensions with it.** hideOS publishes each
+image's extensions beside it, in the same repository, as
+`ext-<name>-<image digest>`, before the image's channel tag moves to it.
+`hide update`, having pulled the new image, fetches the build of every
+extension the machine has for that image, and only then commits; a build
+that is not there stops the update, which says so and waits — a machine
+whose display is NVIDIA's must not start a system without the driver. The
+machine keeps one build per system image it has
+(`/hideos/extensions/<name>`, one entry each), so going back to the
+previous system merges the previous build, and garbage collection drops
+the builds for systems no longer on the disk.
 
 **How, and why composefs rather than dm-verity.** The first sketch was an
 EROFS image with dm-verity, as systemd's sysexts are. hideOS already has a
@@ -684,6 +703,53 @@ The account is asked for again; a home with its name is the account's
 again. `@swap` is made anew too: a swap file kept could hold a hibernated
 system that is no longer there to resume.
 
+### Beside Windows
+
+**Decided: as Boot Camp.** Most PCs hideOS is installed on already have
+Windows, and the person keeps it. The installer does what Boot Camp
+Assistant does, and says what it is doing in plain words:
+
+- **It says what each disk holds** — "Windows, 512 GB, BitLocker on",
+  "hideOS", "empty" — from the partition types and the NTFS boot sectors,
+  before asking anything.
+- **A disk of its own, or the space beside Windows.** A disk without
+  Windows is erased and installed on, as now. A disk with Windows offers
+  the largest unallocated space on it, which must be at least the
+  edition's minimum; when there is not enough, the installer says how to
+  make it — Windows's Disk Management, "Shrink Volume" — and stops. It
+  does not resize NTFS itself: Windows knows its own volume (the page
+  file, hibernation, BitLocker, restore points) and shrinks it safely,
+  and a resizer in the installer would be C code for one use. Erasing a
+  disk that holds Windows takes typing the word `windows`.
+- **Its own ESP**, always: Windows's is usually 100 MiB, too small for
+  hideOS's kernel images, and leaving it alone leaves Windows's boot
+  alone. Firmware boots from any ESP; hideBoot's entry goes first in the
+  boot order, Windows Boot Manager's stays.
+- **hideBoot offers Windows.** It looks on every ESP of every disk for
+  `\EFI\Microsoft\Boot\bootmgfw.efi` and puts "Windows" in its menu
+  (a key held at power-on, as Option is on a Mac). Which system starts
+  when no key is held is Settings' "Startup Disk", and "Restart in
+  Windows" starts it once (`hide startup-disk`): the default and the
+  one-shot choice are EFI variables, as systemd-boot's
+  `LoaderEntryDefault` and `LoaderEntryOneShot` are.
+- **BitLocker is found and warned about.** Enrolling hideOS's Secure Boot
+  keys changes what the TPM measures (PCR 7), and Windows then asks for
+  its BitLocker recovery key. The installer finds BitLocker volumes (an
+  NTFS boot sector that says `-FVE-FS-`) and, before it enrolls, says
+  so and offers to stop: suspend BitLocker in Windows first, or have the
+  recovery key at hand.
+- **The clock is kept as Windows keeps it.** Windows reads the hardware
+  clock as local time, Linux as UTC; beside Windows, hideOS keeps the
+  hardware clock in local time too, so that neither system shows the
+  other's hours.
+
+**NVIDIA from the installer.** The installer medium carries the
+extensions published for its payload's image, and on a machine with an
+NVIDIA GPU (PCI vendor `10de`, display class) the installer adds
+`nvidia`, so the first start — setup included — is drawn by it. A GPU
+older than Turing, which NVIDIA's open modules do not drive, is said so,
+and the desktop runs on the firmware's framebuffer.
+
 ### First-boot setup
 
 **Decided: as a Mac does it.** The Workstation's installer writes the disk
@@ -771,6 +837,8 @@ is therefore also a test of the installer.
 | Secure Boot with hideOS's own keys           | **Decided**  | The chain is hideOS's alone; Microsoft's db kept for option ROMs; shim maybe later |
 | Updates published on ghcr.io/youhide/hideos  | **Decided**  | Free for a public repository; the release workflow's token pushes |
 | First-boot setup as on a Mac (`hidesetup`)   | **Decided**  | The installer writes a disk; the person is the first boot's     |
+| Updates bring the extensions they need       | **Decided**  | An NVIDIA machine never boots a system without its driver       |
+| Beside Windows, as Boot Camp                 | **Decided**  | Most PCs keep Windows; hideOS installs beside it and offers it  |
 | Device manager and logind in Rust            | **Later**    | eudev and elogind work; replace after the desktop is daily-driven |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI

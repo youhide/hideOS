@@ -1,8 +1,10 @@
-# The clock: NTP from the network, once there is one.
+# The clock: NTP from the network, once there is one. After setup, which
+# reads a hardware clock kept in local time as such (`hide setup`, clock):
+# stepped by NTP first, the time would then be shifted wrong.
 [unit]
 description = "Network time"
 requires    = ["oxlogd"]
-after       = ["oxlogd", "networkmanager"]
+after       = ["oxlogd", "networkmanager", "setup"]
 
 [service]
 exec    = "/usr/bin/ntp-daemon"

@@ -110,6 +110,10 @@ pub fn update(args: &[String]) -> Result<()> {
         pulled.digest
     );
     say(&format!("  image sha256:{}", pulled.digest));
+    // The extensions this machine has, built for the new system, before
+    // anything commits: from the repository the image came from.
+    let source = crate::registry::is_registry(&image).then(|| crate::registry::repository(&image));
+    crate::ext::follow(&pulled.digest, source.as_deref())?;
     let uki = &pulled.uki;
     crash("pull")?;
 
@@ -184,7 +188,12 @@ fn collect(kept: &[Uki]) -> Result<()> {
         !roots.is_empty(),
         "no image of a kept deployment found; not collecting anything"
     );
-    // The extensions' images too: they are merged over these deployments.
+    // The extensions' images too, the builds for these deployments.
+    crate::ext::prune(|system| {
+        system
+            .strip_prefix("sha256:")
+            .is_some_and(|hex| kept.iter().any(|u| hex.starts_with(&u.digest)))
+    })?;
     roots.extend(crate::ext::images());
     let repo = Repository::<Sha256HashValue>::open_path(rustix::fs::CWD, STORE)
         .map_err(|e| anyhow::anyhow!("opening the store: {e}"))?;
@@ -502,33 +511,45 @@ fn merge_etc(
 }
 
 /// The ESP, mounted for as long as this value lives.
+///
+/// At a mount point of this process's own: two `hide`s at once — `hide
+/// status` while first-boot setup or hideupd works on the ESP — would
+/// otherwise mount over each other, and one's unmount would take the ESP
+/// from under the other. Two mounts of one FAT share the kernel's one view
+/// of it.
 pub(crate) struct Esp {
+    path: PathBuf,
     mounted: bool,
 }
 
 impl Esp {
     pub(crate) fn mount() -> Result<Esp> {
         let device = partition(ESP_NAME)?;
-        fs::create_dir_all(ESP_MOUNT)?;
+        let path = PathBuf::from(format!("{ESP_MOUNT}.{}", std::process::id()));
+        fs::create_dir_all(&path)?;
         mount(
             &device,
-            ESP_MOUNT,
+            &path,
             "vfat",
             MountFlags::NOSUID | MountFlags::NODEV | MountFlags::NOEXEC,
             Some(c"quiet"),
         )
         .with_context(|| format!("mounting the ESP, {}", device.display()))?;
-        Ok(Esp { mounted: true })
+        Ok(Esp {
+            path,
+            mounted: true,
+        })
     }
 
     pub(crate) fn path(&self) -> &Path {
-        Path::new(ESP_MOUNT)
+        &self.path
     }
 
     pub(crate) fn unmount(mut self) -> Result<()> {
         sync();
-        unmount(ESP_MOUNT, UnmountFlags::empty()).context("unmounting the ESP")?;
+        unmount(&self.path, UnmountFlags::empty()).context("unmounting the ESP")?;
         self.mounted = false;
+        let _ = fs::remove_dir(&self.path);
         Ok(())
     }
 }
@@ -537,7 +558,8 @@ impl Drop for Esp {
     fn drop(&mut self) {
         if self.mounted {
             sync();
-            let _ = unmount(ESP_MOUNT, UnmountFlags::DETACH);
+            let _ = unmount(&self.path, UnmountFlags::DETACH);
+            let _ = fs::remove_dir(&self.path);
         }
     }
 }

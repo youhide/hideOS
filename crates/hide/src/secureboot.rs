@@ -39,6 +39,11 @@ fn flag(name: &str) -> Option<bool> {
     data.get(4).map(|b| *b == 1)
 }
 
+/// Whether the firmware is in setup mode: enrolling will change its keys.
+pub(crate) fn setup_mode() -> bool {
+    flag("SetupMode") == Some(true)
+}
+
 fn status() -> Result<()> {
     let state = match (flag("SecureBoot"), flag("SetupMode")) {
         (None, _) => "not reported: no UEFI, or no Secure Boot",

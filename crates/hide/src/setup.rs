@@ -27,7 +27,36 @@ pub fn run(args: &[String]) -> Result<()> {
     users(&root)?;
     paths(&root)?;
     subordinate_ids(&root)?;
+    if root == Path::new("/") {
+        clock();
+    }
     Ok(())
+}
+
+/// The hardware clock read as local time, on a machine that keeps it so
+/// beside Windows: hwclock tells the kernel the time zone, and the first
+/// time it is told, the kernel moves the clock it set from the hardware
+/// clock — as UTC — by the zone's offset, and from then on writes the
+/// hardware clock back in local time. Before NTP starts, which would
+/// otherwise be moved. Said, never fatal: a wrong clock is fixed by NTP.
+fn clock() {
+    let read = |path: &str| fs::read_to_string(path).unwrap_or_default();
+    match hide::clock::is_local(
+        &read("/usr/lib/hide/clock.conf"),
+        &read("/etc/hide/clock.conf"),
+    ) {
+        Ok(true) => {
+            let set = std::process::Command::new("/usr/bin/hwclock")
+                .args(["--systz", "--localtime", "--noadjfile"])
+                .status();
+            match set {
+                Ok(status) if status.success() => say("hardware clock read as local time"),
+                _ => say("hwclock could not read the hardware clock as local time"),
+            }
+        }
+        Ok(false) => {}
+        Err(why) => say(&format!("clock.conf: {why}")),
+    }
 }
 
 /// `/etc/subuid` and `/etc/subgid`: a range for each person, for rootless

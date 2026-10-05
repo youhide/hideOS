@@ -52,14 +52,17 @@ fn interact() -> Result<()> {
     if disks.is_empty() {
         bail!("there is no disk to install on");
     }
+    // What each disk holds first, as Boot Camp Assistant shows it: the
+    // person chooses knowing what is on it.
     println!("Disks:");
     for (i, disk) in disks.iter().enumerate() {
         println!(
-            "  {}) {:<8} {:>9}  {}",
+            "  {}) {:<8} {:>9}  {:<24} {}",
             i + 1,
             disk.name,
             human(disk.bytes),
-            disk.model
+            disk.model,
+            disk.holds.describe()
         );
     }
     let disk = loop {
@@ -92,19 +95,49 @@ fn interact() -> Result<()> {
         }
         None => false,
     };
-    if !keep_home {
-        println!("Everything on {} will be erased.", disk.name);
+    let beside = if keep_home {
+        false
+    } else if disk.holds.has_windows() {
+        beside_windows(disk, minimum_bytes(&payload))?
+    } else {
+        match disk.holds {
+            hide::disks::Holds::Empty => {
+                println!("hideOS will use all of {}.", disk.name)
+            }
+            _ => println!(
+                "Everything on {} — {} — will be erased.",
+                disk.name,
+                disk.holds.describe()
+            ),
+        }
         if ask("Type `erase` to continue: ")? != "erase" {
             bail!("nothing was changed");
         }
-    }
+        false
+    };
+    let bitlocker = disks.iter().any(|d| d.holds.bitlocker());
+    // Windows anywhere on this machine — this disk, or another — keeps the
+    // hardware clock in local time, and so must hideOS beside it.
+    let clock_local = disks.iter().any(|d| d.holds.has_windows());
+    let extensions = extensions_for_this_machine();
 
     // The Workstation sets up at its first boot, as a Mac does: the person,
     // their passphrase and the recovery key are hidesetup's. Minimal has
     // no screen for that, and asks here.
     let edition = payload_edition(&payload).unwrap_or_else(|| "minimal".to_owned());
     if edition != "minimal" {
-        return install_for_setup(payload, target, keep_home, existing_root.as_deref());
+        return install_for_setup(
+            payload,
+            target,
+            Placement {
+                keep_home,
+                beside,
+                bitlocker,
+                clock_local,
+                extensions,
+            },
+            existing_root.as_deref(),
+        );
     }
 
     println!();
@@ -161,16 +194,13 @@ fn interact() -> Result<()> {
         swap_mib: Some(memory_mib()?),
         keep_home,
         setup_key: false,
+        beside,
+        clock_local,
+        extensions,
     };
     install(&options)?;
     copy_recovery()?;
-
-    // hideOS's Secure Boot keys, when the firmware will take them.
-    println!();
-    match crate::secureboot::run(&["enroll".to_owned()]) {
-        Ok(()) => println!("Secure Boot is on with hideOS's keys from the next start."),
-        Err(why) => println!("Secure Boot keys not enrolled: {why:#}"),
-    }
+    enroll_secure_boot(bitlocker)?;
 
     println!();
     if keep_home {
@@ -197,9 +227,16 @@ fn interact() -> Result<()> {
 fn install_for_setup(
     payload: PathBuf,
     target: PathBuf,
-    keep_home: bool,
+    placement: Placement,
     existing_root: Option<&Path>,
 ) -> Result<()> {
+    let Placement {
+        keep_home,
+        beside,
+        bitlocker,
+        clock_local,
+        extensions,
+    } = placement;
     println!();
     let (encrypt, setup_key) = match existing_root.filter(|_| keep_home) {
         Some(root) if is_luks(root) => loop {
@@ -238,14 +275,13 @@ fn install_for_setup(
         swap_mib: Some(memory_mib()?),
         keep_home,
         setup_key,
+        beside,
+        clock_local,
+        extensions,
     };
     install(&options)?;
     copy_recovery()?;
-    println!();
-    match crate::secureboot::run(&["enroll".to_owned()]) {
-        Ok(()) => println!("Secure Boot is on with hideOS's keys from the next start."),
-        Err(why) => println!("Secure Boot keys not enrolled: {why:#}"),
-    }
+    enroll_secure_boot(bitlocker)?;
     println!();
     println!("hideOS is installed. Remove the installer and restart:");
     println!("the first start sets it up — language, network and your account.");
@@ -314,6 +350,164 @@ struct Disk {
     name: String,
     bytes: u64,
     model: String,
+    holds: hide::disks::Holds,
+    /// The largest free space on it, in bytes: where hideOS goes beside
+    /// Windows.
+    free: u64,
+}
+
+/// Where the install goes, besides which disk.
+struct Placement {
+    /// A reinstall over hideOS, keeping /home.
+    keep_home: bool,
+    /// Into the free space beside Windows.
+    beside: bool,
+    /// A BitLocker volume on some disk of this machine.
+    bitlocker: bool,
+    /// Windows on this machine: the hardware clock in local time.
+    clock_local: bool,
+    /// The medium's extensions this machine needs.
+    extensions: Option<(PathBuf, Vec<String>)>,
+}
+
+/// The extensions on the medium this machine needs: NVIDIA's driver where
+/// there is an NVIDIA GPU its open modules drive.
+fn extensions_for_this_machine() -> Option<(PathBuf, Vec<String>)> {
+    let archive = partition_named("hideos-extensions")?;
+    let mut names = Vec::new();
+    let mut gpus = Vec::new();
+    for device in fs::read_dir("/sys/bus/pci/devices")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let read = |file: &str| {
+            fs::read_to_string(device.path().join(file))
+                .ok()
+                .and_then(|text| u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok())
+        };
+        if let (Some(vendor), Some(class), Some(id)) =
+            (read("vendor"), read("class"), read("device"))
+        {
+            gpus.extend(hide::pci::nvidia_gpu(vendor, class, id));
+        }
+    }
+    match gpus.iter().max() {
+        Some(hide::pci::Nvidia::Open) => {
+            println!("NVIDIA GPU found: its driver is installed with hideOS.");
+            names.push("nvidia".to_owned());
+        }
+        Some(hide::pci::Nvidia::TooOld) => {
+            println!("This NVIDIA GPU is older than NVIDIA's open driver supports (it");
+            println!("starts with Turing: RTX 20, GTX 16); the desktop runs on the");
+            println!("firmware's display instead.");
+        }
+        None => {}
+    }
+    Some((archive, names))
+}
+
+/// The space hideOS needs on a disk: the system twice over (the running
+/// one and an update beside it), a swap file as large as memory for
+/// hibernation, and room to work in.
+fn minimum_bytes(payload: &Path) -> u64 {
+    let payload = fs::metadata(payload)
+        .map(|m| m.len())
+        .ok()
+        .filter(|n| *n > 0)
+        .or_else(|| block_bytes(payload))
+        .unwrap_or(4 << 30);
+    let memory = memory_mib().unwrap_or(8 << 10) << 20;
+    payload.saturating_mul(2) + memory + (16 << 30)
+}
+
+/// A block device's size, from sysfs: a raw payload partition's.
+fn block_bytes(device: &Path) -> Option<u64> {
+    let name = device.file_name()?.to_string_lossy().into_owned();
+    let sectors: u64 = fs::read_to_string(format!("/sys/class/block/{name}/size"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(sectors * 512)
+}
+
+/// A disk with Windows: hideOS beside it in its free space, or the whole
+/// disk erased once the person has typed `windows`. Returns whether it
+/// goes beside.
+fn beside_windows(disk: &Disk, minimum: u64) -> Result<bool> {
+    println!("{} holds Windows.", disk.name);
+    if disk.free >= minimum {
+        println!(
+            "hideOS can go in its free space, {}, beside Windows, which stays as it is.",
+            human(disk.free)
+        );
+        println!("  1) Install beside Windows");
+        println!("  2) Erase the whole disk, Windows included");
+        loop {
+            match ask("Which? [1-2]: ")?.as_str() {
+                "" | "1" => return Ok(true),
+                "2" => break,
+                _ => {}
+            }
+        }
+    } else {
+        println!(
+            "It has {} free, and hideOS needs {} beside it.",
+            human(disk.free),
+            human(minimum)
+        );
+        println!("To make room, start Windows, open Disk Management, right-click");
+        println!("Windows's volume and choose Shrink Volume; then start this");
+        println!("installer again. Windows moves its own files out of the way.");
+        println!();
+        println!("Or erase the whole disk, Windows included.");
+    }
+    println!(
+        "Everything on {}, Windows included, will be erased.",
+        disk.name
+    );
+    if ask("Type `windows` to erase it, or press Enter to stop: ")? != "windows" {
+        bail!("nothing was changed");
+    }
+    Ok(false)
+}
+
+/// hideOS's Secure Boot keys, when the firmware will take them. With
+/// BitLocker on this machine, changing them makes Windows ask for its
+/// recovery key, so the person is told first and may leave it for later.
+fn enroll_secure_boot(bitlocker: bool) -> Result<()> {
+    println!();
+    if bitlocker && crate::secureboot::setup_mode() {
+        println!("Windows on this machine uses BitLocker. Turning Secure Boot on with");
+        println!("hideOS's keys changes what the TPM measures, and Windows will then");
+        println!("ask once for its BitLocker recovery key. Suspend BitLocker in");
+        println!("Windows first (Control Panel, BitLocker, Suspend protection), or");
+        println!("have the recovery key at hand: account.microsoft.com/devicekey.");
+        let enroll = !matches!(
+            ask("Turn Secure Boot on with hideOS's keys now? [Y/n]: ")?
+                .to_lowercase()
+                .as_str(),
+            "n" | "no"
+        );
+        if !enroll {
+            println!("Secure Boot left as it is; `hide secureboot enroll` turns it on later.");
+            return Ok(());
+        }
+    }
+    match crate::secureboot::run(&["enroll".to_owned()]) {
+        Ok(()) => println!("Secure Boot is on with hideOS's keys from the next start."),
+        Err(why) => println!("Secure Boot keys not enrolled: {why:#}"),
+    }
+    Ok(())
+}
+
+/// A partition's first sector, where NTFS and BitLocker say what they are.
+fn boot_sector(node: &str) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut sector = vec![0u8; 512];
+    fs::File::open(node).ok()?.read_exact(&mut sector).ok()?;
+    Some(sector)
 }
 
 /// Disks a person might install on: not the medium, not RAM, loop or
@@ -340,10 +534,38 @@ fn disks(medium: Option<&str>) -> Result<Vec<Disk>> {
             .unwrap_or_default()
             .trim()
             .to_owned();
+        let device = Path::new("/dev").join(&name);
+        let table = crate::install::table(&device).ok();
+        let holds = table
+            .as_ref()
+            .map(|t| {
+                hide::disks::holds(t, |p| {
+                    boot_sector(&p.node)
+                        .as_deref()
+                        .and_then(hide::disks::volume)
+                })
+            })
+            .unwrap_or(hide::disks::Holds::Empty);
+        // A disk with no GPT at all is all free to an install that erases
+        // it, and none beside.
+        // hideOS's own partitions count as free: an install beside
+        // Windows replaces them.
+        let free = table
+            .as_ref()
+            .and_then(|t| {
+                let mut without = t.clone();
+                without
+                    .partitions
+                    .retain(|p| p.name != "hideos-esp" && p.name != "hideos-root");
+                hide::disks::largest_free(&without).map(|f| f.bytes(&without))
+            })
+            .unwrap_or(0);
         found.push(Disk {
             name,
             bytes: sectors * 512,
             model,
+            holds,
+            free,
         });
     }
     found.sort_by(|a, b| a.name.cmp(&b.name));

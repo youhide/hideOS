@@ -46,6 +46,8 @@ mod setup;
 mod setup_service;
 #[cfg(target_os = "linux")]
 mod shell;
+#[cfg(target_os = "linux")]
+mod startup_disk;
 
 use std::process::ExitCode;
 
@@ -127,6 +129,8 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         Some("shell") => shell::run(args.get(1..).unwrap_or_default()),
         #[cfg(target_os = "linux")]
         Some("secureboot") => secureboot::run(args.get(1..).unwrap_or_default()),
+        #[cfg(target_os = "linux")]
+        Some("startup-disk") => startup_disk::run(args.get(1..).unwrap_or_default()),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", USAGE);
             Ok(())
@@ -253,6 +257,11 @@ const USAGE: &str = "usage: hide <command>
     ext add oci-archive:PATH | list | remove NAME
         System extensions hideOS signed: added to the store, merged over
         /usr from the next boot of the system each was built for.
+
+    startup-disk [hideos|windows [--once]]
+        Which system starts when no key is held, as Startup Disk on a Mac:
+        hideOS, or Windows beside it. --once: the next start only. Without
+        arguments, which starts, and whether hideBoot found Windows.
 
     gc
         Remove from the store what no deployment on the ESP uses. An update

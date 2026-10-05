@@ -128,6 +128,34 @@ impl Update1 {
         self.start(emitter, vec!["gc".into()])
     }
 
+    /// Which system starts, and whether hideBoot found Windows: what
+    /// `hide startup-disk` says. Anyone may ask.
+    async fn startup_disk(&self) -> fdo::Result<String> {
+        self.read(&["startup-disk"]).await
+    }
+
+    /// `hide startup-disk SYSTEM [--once]`: hideos or windows, from now on
+    /// or for the next start only. Settings' Startup Disk.
+    async fn set_startup_disk(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &Connection,
+        system: String,
+        once: bool,
+    ) -> fdo::Result<String> {
+        authorize(connection, &header, "os.hide.update.startup-disk").await?;
+        if hide::startup::System::parse(&system).is_none() {
+            return Err(fdo::Error::InvalidArgs(format!(
+                "`{system}` is hideos or windows"
+            )));
+        }
+        let mut args = vec!["startup-disk", system.as_str()];
+        if once {
+            args.push("--once");
+        }
+        self.read(&args).await
+    }
+
     /// What `hide status` says. Anyone may ask.
     async fn status(&self) -> fdo::Result<String> {
         self.read(&["status"]).await

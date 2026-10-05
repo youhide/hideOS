@@ -222,6 +222,12 @@ reaching for another machine. CI boots to the greeter and logs in.
       the signature does not hold — `cargo xtask sysext-test`.
 - [ ] NVIDIA sysext: open kernel modules per deployment kernel, signed;
       proprietary userspace.
+  - [x] The extension: open modules built against each image's kernel and
+        indexed with its modules, NVIDIA's userspace unmodified, EGL
+        behind libglvnd beside Mesa's — `cargo xtask nvidia-test` in QEMU.
+  - [x] Updates bring each extension's build for the image they bring,
+        and wait while it is missing — `cargo xtask registry-test`.
+  - [ ] On a machine with an NVIDIA GPU: the desktop drawn by it.
 - [ ] aarch64 images published and booting on a physical UEFI ARM machine.
 
 ## H7 — Install and recover
@@ -238,6 +244,31 @@ reaching for another machine. CI boots to the greeter and logs in.
       is the installer's, which carries a payload — see ARCHITECTURE,
       "Recovery". Tested by `cargo xtask installer-test`.
 - [ ] Release channels `edge`, `beta`, `stable` on a public registry.
+  - [x] ghcr.io/youhide/hideos, public; `cargo xtask publish` to edge, the
+        image's extensions first.
+  - [x] `cargo xtask promote --to beta|stable`: a channel takes the image
+        the one before it has, never a rebuild, once its extensions are
+        published.
+  - [ ] A build on beta, then on stable.
+- [x] Beside Windows, as Boot Camp (ARCHITECTURE, "Beside Windows"): the
+      installer says what each disk holds and installs on a disk of its
+      own or in the free space beside Windows, with its own ESP and its own
+      entry first in the firmware's boot order; hideBoot offers Windows;
+      BitLocker found and warned about before Secure Boot keys change; the
+      hardware clock kept in local time beside Windows — `cargo xtask
+      beside-test`, on a disk laid out as Windows lays out its own, with
+      hideBoot's stand-in for Windows Boot Manager. Real Windows, on the
+      author's PC, is H6's NVIDIA machine.
+- [x] "Startup Disk": the default system, and "Restart in Windows", from
+      Settings and `hide startup-disk` — `beside-test` restarts in Windows
+      once through hideupd, as Settings does, and the next start is
+      hideOS's.
+- [ ] The installer adds the nvidia extension on a machine with an NVIDIA
+      GPU, from the medium.
+  - [x] The medium carries it; `hide install --extensions` adds it with the
+        system — `cargo xtask nvidia-test`; finding the GPU, by PCI ID, is
+        tested on the host.
+  - [ ] On a machine with an NVIDIA GPU.
 - [x] `hideboot` (in youhide/hideBoot) replaces `systemd-boot`; nothing on the
       ESP changes. `update-test` and `seal-test` pass with it, Secure Boot
       included.

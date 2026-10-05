@@ -15,11 +15,16 @@ thiserror.workspace = true
 # program, and this needs none.
 tar = "0.4"
 sha-crypt = "0.6"
+# sfdisk's listing, which the installer reads disks by (disks.rs).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true, features = ["fs", "mount", "process", "system", "termios"] }
 composefs-ioctls = "0.9.3"
 hidecrypt.workspace = true
+# The extension record's format, which hidestage reads at boot.
+hidestage.workspace = true
 zeroize = "1"
 # The store's garbage collection: composefs knows which objects an image
 # uses, and hide does not reimplement that.
@@ -36,7 +41,6 @@ futures-util = { version = "0.3", default-features = false }
 # the C compiler alone; the system's CA certificates (ca-certificates).
 oci-client = { version = "0.18", default-features = false, features = ["rustls-tls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-serde_json = "1"
 sha2 = "0.10"
 # composefs links OpenSSL. Vendored, as in hideforge: openssl-sys does not
 # know hideOS's OpenSSL 4, and the builder image has no libssl-dev. A sealed

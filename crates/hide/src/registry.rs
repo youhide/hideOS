@@ -27,6 +27,16 @@ pub fn is_registry(image: &str) -> bool {
     !(image.starts_with("oci-archive:") || image.starts_with("oci:"))
 }
 
+/// The repository `image` names, without its tag or digest: where an
+/// image's extensions are published beside it.
+pub fn repository(image: &str) -> String {
+    let image = image.split_once('@').map_or(image, |(name, _)| name);
+    match image.rsplit_once(':') {
+        Some((name, tag)) if !tag.contains('/') => name.to_owned(),
+        _ => image.to_owned(),
+    }
+}
+
 /// Fetches `image` into the cache and returns the `oci:` reference that
 /// pulls it from there.
 pub fn fetch(image: &str) -> Result<String> {
@@ -139,4 +149,23 @@ pub fn clean() {
 
 fn say(line: &str) {
     eprintln!("hide update: {line}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_repository_is_the_image_without_its_tag() {
+        assert_eq!(
+            repository("ghcr.io/youhide/hideos:workstation-edge"),
+            "ghcr.io/youhide/hideos"
+        );
+        assert_eq!(
+            repository("http://localhost:5000/hideos:minimal-edge"),
+            "http://localhost:5000/hideos"
+        );
+        assert_eq!(repository("localhost:5000/hideos"), "localhost:5000/hideos");
+        assert_eq!(repository("ghcr.io/x/y@sha256:ab"), "ghcr.io/x/y");
+    }
 }

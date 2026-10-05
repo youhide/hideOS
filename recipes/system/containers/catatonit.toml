@@ -33,7 +33,7 @@ sed -e 's|@PACKAGE_NAME@|catatonit|' \\
     -e 's|@PACKAGE_BUGREPORT@|https://bugs.opensuse.org/|' \\
     -e 's|@PACKAGE_URL@|https://github.com/openSUSE/catatonit/|' \\
     config.h.in > config.h
-! grep -q @ config.h
+if grep -q @ config.h; then exit 1; fi
 gcc -O2 -Wall -static \\
     -DHAVE_LINUX_CLOSE_RANGE_H=1 -DHAVE_CLOSE_RANGE=1 \\
     -o catatonit catatonit.c

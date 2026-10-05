@@ -1,0 +1,25 @@
+# A stand-in for Windows Boot Manager, for tests: hideBoot's test-bootmgfw,
+# which prints where it was loaded from and powers off. `cargo xtask
+# beside-test` puts it at \EFI\Microsoft\Boot\bootmgfw.efi on a disk laid
+# out as Windows's, and checks hideBoot finds it and starts it. In no image.
+[package]
+name = "test-bootmgfw"
+version = "1"
+description = "A stand-in for Windows Boot Manager, for tests"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/youhide/hideBoot"
+
+# The same source as hideboot.toml's.
+[[source]]
+url = "https://github.com/youhide/hideBoot/archive/1ed128330af2dd1c47d3a518383f3015e2a97f05.tar.gz"
+sha256 = "b6adee143adae1ea422d5e5cf5b6d6683eed683c046e01f0a6d77d28ae89935d"
+
+[depends]
+build = ["toolchain", "stage1-rust", "stage1-rust-uefi"]
+
+[build]
+vendor = "cargo"
+script = """
+cargo build --release --frozen --package test-bootmgfw --target "$ARCH-unknown-uefi"
+install -Dm644 "target/$ARCH-unknown-uefi/release/test-bootmgfw.efi" /usr/lib/hideboot-test/test-bootmgfw.efi
+"""

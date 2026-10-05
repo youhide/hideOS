@@ -42,6 +42,8 @@ run = [
     # firmware they ask for. Not in the RAM image the installer and the
     # recovery system run (see hideforge's image.rs).
     "linux",
+    # modules.dep and the rest, which modprobe and udev find modules by.
+    "linux-module-index",
     "kmod",
     "linux-firmware",
 ]

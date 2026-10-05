@@ -1,0 +1,268 @@
+# NVIDIA's driver, as the `nvidia` system extension: see ARCHITECTURE.md,
+# "System extensions". `hideforge sysext nvidia --image DIGEST` turns this
+# output, which is /usr only, into the extension for that one image:
+#
+# - the open GPU kernel modules, built against the build tree of the
+#   image's kernel (/usr/src/linux-<release>, see linux.toml), installed
+#   in /usr/lib/modules/<release>/extra by the kernel's own
+#   modules_install, so compressed and stripped as the kernel's modules are;
+# - the module indexes, made by depmod over the image's modules and these.
+#   The extension is merged over /usr, so its modules.dep shadows the
+#   image's, which does not list NVIDIA's modules. That is valid only
+#   because an extension is merged over no image but the one it was built
+#   for, whose kernel output is the one in this build's root;
+# - NVIDIA's proprietary userspace, from the .run, extracted and never run,
+#   and installed byte for byte as NVIDIA ships it: its licence allows
+#   redistribution of the binaries unmodified. EGL and GLES behind
+#   libglvnd, the GBM backend, CUDA, NVML and nvidia-smi, the GSP firmware;
+# - the EGL platform libraries for Wayland and GBM, and nvidia-modprobe,
+#   built from NVIDIA's sources rather than taken from the .run, which
+#   carries prebuilt copies of them;
+# - modprobe.d and a udev rule: nouveau kept from binding, the order the
+#   modules load in, the options the image's signed command line cannot
+#   carry, and the device files.
+#
+# Not here: GLX, the Vulkan ICD, VDPAU and NvFBC, which need libX11 and
+# libXext — hideOS has no X11 — and a Vulkan loader hideOS does not ship
+# yet; OpenCL, whose ICD file belongs in /etc; OptiX, NGX, the CUDA
+# debugger, Tile IR, nvidia-persistenced and nvidia-powerd. Flatpak
+# applications are unaffected: they get NVIDIA's whole userspace, matched to
+# the running module's version, from Flathub's GL extension.
+#
+# 615.71.09: the newest release (the 615 feature branch). It knows Linux
+# 7.2 — its conftest handles 7.2's rename of struct drm_atomic_state to
+# drm_atomic_commit, which 7.2.8 has — and it is what Arch Linux builds
+# against the same kernel and configuration (nvidia-open 615.71.09-6, for
+# linux 7.2.8.arch1-2). Open modules drive Turing (RTX 20, GTX 16) and
+# newer only; /usr/share/nvidia/supported-gpus.json says which, under the
+# feature "kernelopen".
+[package]
+name = "nvidia"
+version = "615.71.09"
+description = "NVIDIA GPU driver: open kernel modules and NVIDIA's userspace"
+license = "(MIT OR GPL-2.0-only) AND LicenseRef-NVIDIA-Driver-License AND MIT AND Apache-2.0 AND GPL-2.0-only"
+homepage = "https://github.com/NVIDIA/open-gpu-kernel-modules"
+
+# The kernel modules' source as NVIDIA publishes it beside the .run: the
+# same tree as the open-gpu-kernel-modules tag 615.71.09. These three are
+# checked against the .sha256sum files NVIDIA publishes next to them, and
+# against Arch Linux's sha512 for the same files.
+[[source]]
+url = "https://download.nvidia.com/XFree86/NVIDIA-kernel-module-source/NVIDIA-kernel-module-source-615.71.09.tar.xz"
+sha256 = "b038fe5d70e7c3209459a8121f231543939895145f0ad0d58d34f170e7eaf7e9"
+
+[[source]]
+url = "https://download.nvidia.com/XFree86/Linux-x86_64/615.71.09/NVIDIA-Linux-x86_64-615.71.09.run"
+sha256 = "cdceed22bbeb61248d1a6deabc2596673e3a6501698ee71ac8d2fdc28f3b70fe"
+extract = false
+dest = "run"
+arch = "x86_64"
+
+[[source]]
+url = "https://download.nvidia.com/XFree86/Linux-aarch64/615.71.09/NVIDIA-Linux-aarch64-615.71.09.run"
+sha256 = "21b7a442113b7057e69cf65a2d8f4d0d8705ec2a0d67ed906fbb1177810e8163"
+extract = false
+dest = "run"
+arch = "aarch64"
+
+# Checked against NVIDIA's published .sha256sum.
+[[source]]
+url = "https://download.nvidia.com/XFree86/nvidia-modprobe/nvidia-modprobe-615.71.09.tar.bz2"
+sha256 = "ac095040a1257ce1b6e813ecb41cf9d8befa8596e63ddde93fb20e78a055c2a9"
+dest = "nvidia-modprobe"
+
+# The EGL platform libraries, newest releases, as Arch builds them with
+# 615.71.09. Tag archives: NVIDIA publishes no tarballs or signatures for
+# them. egl-gbm's matches Arch's sha256 for the same archive.
+[[source]]
+url = "https://github.com/NVIDIA/egl-wayland/archive/refs/tags/1.1.23.tar.gz"
+sha256 = "01a32227f24c6b5156c096a36b03de774ae8d5d3980c60bba2473a84e2c9c673"
+dest = "egl-wayland"
+
+[[source]]
+url = "https://github.com/NVIDIA/egl-wayland2/archive/refs/tags/v1.0.2.tar.gz"
+sha256 = "19262df1df00de75bdc419d31d544953a3589e6369e5dff1a4ebcee465c6d046"
+dest = "egl-wayland2"
+
+# Tagged 1.1.4; its meson.build still says 1.1.3, so the library is
+# libnvidia-egl-gbm.so.1.1.3.
+[[source]]
+url = "https://github.com/NVIDIA/egl-gbm/archive/refs/tags/1.1.4.tar.gz"
+sha256 = "9738d7961550a67f2fcca5923374d1869ac214e00e96da6393b7206e3ef293e0"
+dest = "egl-gbm"
+
+[depends]
+# linux for its build tree and its modules, which depmod indexes with
+# NVIDIA's; elfutils for objtool, which the kernel build runs on every
+# object; zstd, which modules_install compresses with. libglvnd for the
+# EGL headers and egl.pc the platform libraries compile against, mesa for
+# libgbm.
+build = [
+    "buildtools",
+    "linux",
+    "kmod",
+    "zstd",
+    "elfutils",
+    "libglvnd",
+    "mesa",
+    "libdrm",
+    "wayland",
+    "wayland-protocols",
+    "eglexternalplatform",
+]
+# What the image the extension is merged over must provide.
+run = ["glibc", "gcc", "libglvnd", "mesa", "libdrm", "wayland", "kmod", "eudev"]
+
+[build]
+script = """
+version=615.71.09
+cpu=$ARCH
+src=$PWD
+stage="$src/stage"
+
+# The image's kernel: exactly one release, and its build tree.
+release=$(ls /usr/lib/modules)
+[ "$(printf '%s\\n' "$release" | wc -l)" = 1 ]
+tree="/usr/src/linux-$release"
+[ -f "$tree/Module.symvers" ]
+
+# --- The open kernel modules ---------------------------------------------
+
+# NVIDIA's Makefiles, like the kernel's, call aarch64 arm64.
+[ "$cpu" = aarch64 ] && export ARCH=arm64
+# The build user, host and date NVIDIA writes into its objects, fixed so
+# that two builds are the same. nvidia-peermem is for InfiniBand.
+nvmake() {
+    make -j"$JOBS" \\
+        SYSSRC="$tree" SYSOUT="$tree" \\
+        NV_EXCLUDE_KERNEL_MODULES=nvidia-peermem \\
+        NV_BUILD_USER=hideforge NV_BUILD_HOST=hideforge \\
+        DATE="date -u -d @$SOURCE_DATE_EPOCH" \\
+        "$@"
+}
+nvmake modules
+# modules_install runs depmod, which would rewrite the image's indexes in
+# place; they are made below, over a copy, instead.
+nvmake modules_install \\
+    INSTALL_MOD_PATH=/usr INSTALL_MOD_DIR=extra INSTALL_MOD_STRIP=1 DEPMOD=true
+export ARCH=$cpu
+
+modules="/usr/lib/modules/$release"
+for module in nvidia nvidia-uvm nvidia-modeset nvidia-drm; do
+    file=$(ls "$modules/extra/$module".ko*)
+    # Built for this kernel and no other: modprobe refuses a module whose
+    # vermagic names another release.
+    modinfo -F vermagic "$file" | grep -q "^$release "
+done
+
+# --- The module indexes --------------------------------------------------
+
+# Over everything in /usr/lib/modules/<release>: the image's modules from
+# the kernel's output, NVIDIA's from this one. Written outside the root:
+# the kernel's indexes are linux-module-index's output, not in this root,
+# so installing these does not replace anything.
+depmod -a -e -F "$tree/System.map" -o "$src/index" "$release" 2>&1 | tee depmod.log
+if grep -E 'extra/.*(unknown symbol|disagrees about version)' depmod.log; then
+    echo "NVIDIA's modules do not link against $release"
+    exit 1
+fi
+index="$src/index/usr/lib/modules/$release"
+grep -E '^extra/nvidia-drm[.]ko[^:]*:' "$index/modules.dep" | grep -q 'extra/nvidia-modeset[.]ko'
+grep -E '^extra/nvidia-modeset[.]ko[^:]*:' "$index/modules.dep" | grep -q 'extra/nvidia[.]ko'
+grep -q ' nvidia$' "$index/modules.alias"
+install -Dm644 -t "$modules" "$index"/modules.*
+
+# --- NVIDIA's userspace --------------------------------------------------
+
+# --extract-only unpacks the archive and runs nothing in it. SETUP_NOCHECK:
+# hideforge has checked the file's sha256 already, and the .run's own CRC
+# and MD5 would read its half gigabyte twice more.
+mkdir -p "$src/tmp"
+SETUP_NOCHECK=1 sh "run/NVIDIA-Linux-$cpu-$version.run" --extract-only \\
+    --tmpdir "$src/tmp" --target "$src/nv"
+nv="$src/nv"
+
+# EGL and GLES, loaded by libglvnd through 10_nvidia.json; what they load;
+# the GBM backend; CUDA; NVML. NVIDIA's own list of what each API needs is
+# sandboxutils-filelist.json in the .run.
+libraries="
+    libEGL_nvidia libGLESv2_nvidia libGLESv1_CM_nvidia
+    libnvidia-eglcore libnvidia-glsi libnvidia-gpucomp libnvidia-glvkspirv
+    libnvidia-tls libnvidia-allocator
+    libcuda libnvidia-ptxjitcompiler libnvidia-nvvm
+    libnvidia-ml
+"
+for name in $libraries; do
+    install -Dm755 "$nv/$name.so.$version" "/usr/lib/$name.so.$version"
+done
+install -Dm755 -t /usr/lib "$nv/libnvidia-nvvm70.so.4"
+# The names programs and libglvnd load them by: each library's SONAME, as
+# NVIDIA's installer links them.
+for name in $libraries; do
+    file="$name.so.$version"
+    soname=$(readelf -d "/usr/lib/$file" | sed -n 's/.*(SONAME).*\\[\\(.*\\)\\]/\\1/p')
+    [ -n "$soname" ]
+    [ "$soname" = "$file" ] || ln -s "$file" "/usr/lib/$soname"
+done
+# Mesa's libgbm loads <DRM driver name>_gbm.so from /usr/lib/gbm.
+install -d /usr/lib/gbm
+ln -s ../libnvidia-allocator.so.1 /usr/lib/gbm/nvidia-drm_gbm.so
+
+install -Dm644 -t /usr/share/glvnd/egl_vendor.d "$nv/10_nvidia.json"
+install -Dm644 -t /usr/share/nvidia \\
+    "$nv/nvidia-application-profiles-$version-rc" \\
+    "$nv/nvidia-application-profiles-$version-key-documentation" \\
+    "$nv/supported-gpus/supported-gpus.json"
+install -Dm755 -t /usr/bin "$nv/nvidia-smi"
+
+# The GSP firmware, where nvidia.ko asks for it (nvidia/<version>/, see
+# MODULE_FIRMWARE). Not compressed, unlike linux-firmware's: NVIDIA's
+# licence allows redistributing its binaries unmodified, and nothing else.
+install -Dm644 -t "/usr/lib/firmware/nvidia/$version" "$nv"/firmware/*.bin
+for firmware in $(modinfo -F firmware "$modules"/extra/nvidia.ko*); do
+    [ -f "/usr/lib/firmware/$firmware" ]
+done
+
+# --- From source: EGL platforms and nvidia-modprobe -----------------------
+
+# Installed into a staging directory, then only what runs is copied: no
+# headers, pkg-config files or protocol descriptions in an extension.
+for platform in egl-wayland egl-wayland2 egl-gbm; do
+    meson setup "$platform/build" "$platform" \\
+        --prefix=/usr \\
+        --libdir=lib \\
+        --buildtype=release \\
+        --wrap-mode=nodownload
+    meson compile -C "$platform/build" -j "$JOBS"
+    meson install -C "$platform/build" --destdir "$stage"
+done
+cp -P "$stage"/usr/lib/libnvidia-egl-*.so.1* /usr/lib/
+install -Dm644 -t /usr/share/egl/egl_external_platform.d \\
+    "$stage"/usr/share/egl/egl_external_platform.d/*.json
+ls /usr/share/egl/egl_external_platform.d/09_nvidia_wayland2.json \\
+    /usr/share/egl/egl_external_platform.d/10_nvidia_wayland.json \\
+    /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json
+
+# Setuid root, as NVIDIA installs it: the userspace runs it to load
+# nvidia-uvm and make a device file it lacks, for a program that is not
+# root. The udev rule makes the usual ones at boot, as root, without it.
+make -C nvidia-modprobe -j"$JOBS" \\
+    MANPAGE= \\
+    NV_BUILD_USER=hideforge NV_BUILD_HOST=hideforge \\
+    DATE="date -u -d @$SOURCE_DATE_EPOCH"
+install -Dm4755 nvidia-modprobe/_out/Linux_*/nvidia-modprobe /usr/bin/nvidia-modprobe
+
+# --- Configuration -------------------------------------------------------
+
+install -Dm644 "$FILES/modprobe.conf" /usr/lib/modprobe.d/nvidia.conf
+install -Dm644 "$FILES/60-nvidia.rules" /usr/lib/udev/rules.d/60-nvidia.rules
+
+# NVIDIA's licence goes with its binaries, as it requires.
+licenses=/usr/share/licenses/nvidia
+install -Dm644 "$nv/LICENSE" "$licenses/LICENSE"
+install -Dm644 COPYING "$licenses/open-gpu-kernel-modules"
+install -Dm644 nvidia-modprobe/COPYING "$licenses/nvidia-modprobe"
+install -Dm644 egl-wayland/COPYING "$licenses/egl-wayland"
+install -Dm644 egl-wayland2/LICENSE "$licenses/egl-wayland2"
+install -Dm644 egl-gbm/COPYING "$licenses/egl-gbm"
+"""

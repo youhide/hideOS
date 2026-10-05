@@ -63,13 +63,13 @@ new file mode 100644
 index 0000000..e68a37c
 --- /dev/null
 +++ b/cosmic-settings/src/pages/system/hideos.rs
-@@ -0,0 +1,326 @@
+@@ -0,0 +1,443 @@
 +// SPDX-License-Identifier: GPL-3.0-only
 +
 +//! hideOS: System → Updates. Updating from the channel, the deployments on
 +//! the machine in the order they boot, going back to the previous one, how
-+//! the disk is protected,
-+//! and the system extensions — as hideupd, `os.hide.Update1` on the system
++//! the disk is protected, the system extensions, and — beside Windows —
++//! which system starts, as Startup Disk on a Mac; as hideupd, `os.hide.Update1` on the system
 +//! bus, reports them. Updating and going back ask hideupd, which asks polkit, whose
 +//! agent asks for the password. A hideOS patch: see hideOS's
 +//! ARCHITECTURE.md, "The desktop".
@@ -93,6 +93,8 @@ index 0000000..e68a37c
 +    fn channel(&self) -> zbus::Result<String>;
 +    fn update(&self, image: &str) -> zbus::Result<u32>;
 +    fn rollback(&self) -> zbus::Result<u32>;
++    fn startup_disk(&self) -> zbus::Result<String>;
++    fn set_startup_disk(&self, system: &str, once: bool) -> zbus::Result<String>;
 +
 +    #[zbus(signal)]
 +    fn finished(&self, job: u32, ok: bool, error: String) -> zbus::Result<()>;
@@ -114,6 +116,9 @@ index 0000000..e68a37c
 +    disk: String,
 +    extensions: String,
 +    channel: String,
++    /// What `hide startup-disk` says: which system starts, and whether
++    /// hideBoot found Windows.
++    startup: String,
 +}
 +
 +#[derive(Clone, Debug)]
@@ -123,6 +128,11 @@ index 0000000..e68a37c
 +    Updated(Result<(), String>),
 +    Rollback,
 +    RolledBack(Result<(), String>),
++    /// hideos or windows, from now on.
++    Startup(&'static str),
++    /// Windows once, and restart now.
++    RestartInWindows,
++    StartupSet(Result<(), String>),
 +}
 +
 +impl From<Message> for crate::app::Message {
@@ -160,6 +170,7 @@ index 0000000..e68a37c
 +            sections.insert(system_image()),
 +            sections.insert(disk()),
 +            sections.insert(extensions()),
++            sections.insert(startup_disk()),
 +        ])
 +    }
 +
@@ -206,6 +217,33 @@ index 0000000..e68a37c
 +                    .map(crate::app::Message::from)
 +                    .map(Into::into);
 +            }
++            Message::Startup(system) => {
++                self.working = true;
++                return cosmic::Task::future(async move {
++                    Message::StartupSet(set_startup(system, false).await)
++                })
++                .map(crate::app::Message::from)
++                .map(Into::into);
++            }
++            Message::RestartInWindows => {
++                self.working = true;
++                return cosmic::Task::future(async move {
++                    let result = match set_startup("windows", true).await {
++                        Ok(()) => restart().await,
++                        Err(why) => Err(why),
++                    };
++                    Message::StartupSet(result)
++                })
++                .map(crate::app::Message::from)
++                .map(Into::into);
++            }
++            Message::StartupSet(result) => {
++                self.working = false;
++                if let Err(why) = result {
++                    self.note = Some(why);
++                }
++                return load().map(crate::app::Message::from).map(Into::into);
++            }
 +            Message::RolledBack(result) => {
 +                self.working = false;
 +                self.note = Some(match result {
@@ -243,7 +281,40 @@ index 0000000..e68a37c
 +        disk: proxy.disk().await.unwrap_or_default(),
 +        extensions: proxy.extensions().await.unwrap_or_default(),
 +        channel: proxy.channel().await.unwrap_or_default(),
++        startup: proxy.startup_disk().await.unwrap_or_default(),
 +    })
++}
++
++/// hideupd sets which system starts; polkit's agent asks for the password.
++async fn set_startup(system: &str, once: bool) -> Result<(), String> {
++    let connection = zbus::Connection::system().await.map_err(|e| e.to_string())?;
++    let proxy = Update1Proxy::new(&connection)
++        .await
++        .map_err(|e| e.to_string())?;
++    proxy
++        .set_startup_disk(system, once)
++        .await
++        .map(|_| ())
++        .map_err(|e| match e {
++            zbus::Error::MethodError(_, Some(text), _) => text,
++            other => other.to_string(),
++        })
++}
++
++/// Restarts the machine, through logind, as the session's Restart does.
++async fn restart() -> Result<(), String> {
++    let connection = zbus::Connection::system().await.map_err(|e| e.to_string())?;
++    connection
++        .call_method(
++            Some("org.freedesktop.login1"),
++            "/org/freedesktop/login1",
++            Some("org.freedesktop.login1.Manager"),
++            "Reboot",
++            &(true,),
++        )
++        .await
++        .map(|_| ())
++        .map_err(|e| e.to_string())
 +}
 +
 +enum Job {
@@ -388,6 +459,52 @@ index 0000000..e68a37c
 +                column = column.add(settings::item(line, text::body("")));
 +            }
 +            column.into()
++        })
++}
++
++fn startup_disk() -> Section<crate::pages::Message> {
++    Section::default()
++        .title("Startup disk")
++        .view::<Page>(move |_binder, page, section| {
++            let startup = match &page.state {
++                Some(Ok(state)) => state.startup.as_str(),
++                _ => "",
++            };
++            // Only beside Windows: with one system there is nothing to choose.
++            if !startup.contains("Windows: found") {
++                return widget::column::with_capacity(0).into();
++            }
++            let windows = startup.contains("starts: Windows");
++            let choice = |label: &'static str, system: &'static str, chosen: bool| {
++                let button = if chosen {
++                    widget::button::suggested(label)
++                } else {
++                    widget::button::standard(label)
++                };
++                button
++                    .on_press_maybe((!page.working && !chosen).then_some(Message::Startup(system)))
++                    .into()
++            };
++            settings::section()
++                .title(&section.title)
++                .add(
++                    settings::flex_item(
++                        "Starts when the computer is turned on",
++                        widget::row::with_children(vec![
++                            choice("hideOS", "hideos", !windows),
++                            choice("Windows", "windows", windows),
++                        ])
++                        .spacing(8),
++                    )
++                    .align_items(Alignment::Center),
++                )
++                .add(settings::item(
++                    "Start Windows once",
++                    widget::button::standard("Restart in Windows")
++                        .on_press_maybe((!page.working).then_some(Message::RestartInWindows)),
++                ))
++                .apply(cosmic::Element::from)
++                .map(crate::pages::Message::Hideos)
 +        })
 +}
 diff --git a/cosmic-settings/src/pages/system/mod.rs b/cosmic-settings/src/pages/system/mod.rs

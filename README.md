@@ -18,7 +18,11 @@ first start as a Mac does — language, keyboard, Wi-Fi, time zone, the
 account, the disk's passphrase and recovery key — enrolls its own Secure Boot
 keys, opens an encrypted disk with the TPM, updates whole from
 ghcr.io/youhide/hideos and rolls back by itself, with a hardware watchdog
-for a boot that hangs. Not yet for daily use; see [ROADMAP.md](ROADMAP.md). Site and wiki:
+for a boot that hangs. It installs beside Windows — on a disk of its own
+or in the free space of Windows's, warning about BitLocker, keeping the
+clock as Windows does — with a Startup Disk to restart in Windows, and
+NVIDIA's driver comes as a signed system extension that each update brings
+along. Not yet for daily use; see [ROADMAP.md](ROADMAP.md). Site and wiki:
 <https://youhide.github.io/hideOS/>.
 
 ![hideOS Workstation: the COSMIC desktop in hideOS's Dracula theme, its menu bar laid out like a Mac's, a terminal showing `hide status` — the running deployment, the disk, and updates from ghcr.io/youhide/hideos:workstation-edge](docs/images/workstation-desktop.png)

@@ -1,0 +1,45 @@
+# libglvnd: libEGL, libGLESv2 and libOpenGL as dispatchers, which load
+# the vendor implementation each display needs, named by the JSON files in
+# /usr/share/glvnd/egl_vendor.d — Mesa's libEGL_mesa, and NVIDIA's
+# libEGL_nvidia where the nvidia system extension is merged. NVIDIA ships
+# only a vendor library, so without libglvnd its EGL cannot be loaded at
+# all; and a laptop with an Intel or AMD GPU beside an NVIDIA one needs
+# both vendors in one process. EGL and GLES only, as Mesa is built: hideOS
+# has no X11, so no GLX and no libGL. No GLES 1, which Mesa does not build
+# either.
+[package]
+name = "libglvnd"
+version = "1.7.0"
+description = "The GL Vendor-Neutral Dispatch library"
+license = "LicenseRef-libglvnd"
+homepage = "https://gitlab.freedesktop.org/glvnd/libglvnd"
+
+# GitLab's tag archive: libglvnd publishes no release tarball and no
+# signature. The same bytes as Arch Linux's libglvnd 1.7.0 source, whose
+# sha512 it matches.
+[[source]]
+url = "https://gitlab.freedesktop.org/glvnd/libglvnd/-/archive/v1.7.0/libglvnd-v1.7.0.tar.gz"
+sha256 = "2b6e15b06aafb4c0b6e2348124808cbd9b291c647299eaaba2e3202f51ff2f3d"
+
+[depends]
+build = ["buildtools"]
+run = ["glibc"]
+
+[build]
+script = """
+meson setup build . \\
+    --prefix=/usr \\
+    --libdir=lib \\
+    --sysconfdir=/etc \\
+    --buildtype=release \\
+    --wrap-mode=nodownload \\
+    -Dx11=disabled \\
+    -Dglx=disabled \\
+    -Degl=true \\
+    -Dgles1=false \\
+    -Dgles2=true \\
+    -Dheaders=true
+meson compile -C build -j "$JOBS"
+meson install -C build
+install -Dm644 README.md /usr/share/licenses/libglvnd/README.md
+"""

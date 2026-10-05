@@ -61,11 +61,13 @@ make -j"$JOBS" KBUILD_BUILD_USER=hideforge KBUILD_BUILD_HOST=hideforge \\
     KBUILD_BUILD_TIMESTAMP="@$SOURCE_DATE_EPOCH" "$(basename "$image")" modules
 release=$(make -s kernelrelease)
 # Installed under /usr — the kernel puts them in $INSTALL_MOD_PATH/lib/modules
-# — and indexed after: the kernel's depmod step passes `-b /usr`, and this
-# kmod, whose module directory is /usr/lib/modules already, would look in
-# /usr/usr/lib/modules.
+# — and not indexed: the indexes are linux-module-index's, so that the
+# nvidia system extension can ship its own, over the image's modules and
+# NVIDIA's. Checked here, though: every module's symbols resolve.
 make INSTALL_MOD_PATH=/usr INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
-depmod -a -e -F System.map "$release"
+depmod -a -e -F System.map -o "$PWD/index-check" "$release" 2>&1 | tee depmod.log
+# An `if`, not `!`: bash -e does not stop on a negated command.
+if grep -E 'unknown symbol|disagrees about version' depmod.log; then exit 1; fi
 # modules_install links build/ and source/ to this source tree, which is
 # not kept. Out-of-tree builds name /usr/src/linux-<release> themselves:
 # a build/ link into what images leave out would dangle in every image.

@@ -36,4 +36,14 @@
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
   </action>
+
+  <action id="os.hide.update.startup-disk">
+    <description>Choose the system that starts</description>
+    <message>Authentication is required to choose the system that starts</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
 </policyconfig>

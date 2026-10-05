@@ -1,0 +1,8 @@
+# The NVIDIA device files: /dev/nvidiactl, /dev/nvidia0, /dev/nvidia-uvm
+# and /dev/nvidia-modeset, which the kernel modules do not create. NVIDIA's
+# userspace makes a missing one itself through the setuid nvidia-modprobe;
+# made here, as root, once nvidia-drm — the last module to load, see
+# modprobe.d/nvidia.conf — is in, so that the compositor and nvidia-smi find
+# them without the setuid helper. A second GPU's /dev/nvidia1 is still made
+# on demand.
+ACTION=="add", SUBSYSTEM=="module", KERNEL=="nvidia_drm", RUN+="/usr/bin/nvidia-modprobe -c0 -u -m"

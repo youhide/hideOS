@@ -12,6 +12,8 @@
 
 use std::path::PathBuf;
 
+pub mod extension;
+
 /// What hidestage needs to know, all of it from the kernel command line. The
 /// command line is inside the signed UKI, so every value here is as trusted
 /// as the kernel itself — in particular the image digest, which is the seal.
