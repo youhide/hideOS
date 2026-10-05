@@ -563,11 +563,58 @@ How:
   with every crate, and a run dependency is not part of a recipe's hash,
   so a change here does not rebuild them.
 - **A `loginctl` that locks, suspends and powers off.**
+- **The person at the screen's devices.** `70-uaccess.rules` tags sound
+  cards, cameras, security keys, game controllers and optical drives
+  `uaccess`, as logind's rules do — eudev ships none — and hidelogin gives
+  them to the active session's user with an ACL, moving them when another
+  session comes forward; udev runs `hidelogin uaccess` for one that
+  appears. Without it nobody but `audio` had the sound card, and nobody is
+  in `audio`.
 - **busctl is not replaced.** COSMIC's brightness, volume and input keys use
   it from elogind, so hideOS's COSMIC defaults call `dbus-send` instead.
 
 The policy — who may power off, suspend, take which device — is a
 host-testable library crate; the daemon is the Linux side, as in oxinit.
+
+### hidedev and busd: not yet
+
+**Proposed (H8): neither replacement starts now.** H8 asks for the reason
+first, and as of 2026-10-05 there is none that outweighs the cost. Assessed
+from upstream's state and hideOS's own image:
+
+**eudev → hidedev.** eudev does not work against hideOS the way elogind did:
+it runs where oxinit starts it, stays in its cgroup, and assumes nothing of
+systemd. What hideOS needed from logind's side of it — giving the person at
+the screen their sound card, camera and keys, which logind does with the
+`uaccess` tag and eudev does not ship — is now hidelogin's
+(`70-uaccess.rules`). Against that, a replacement would have to be all of
+udev that hideOS's packages lean on:
+
+- the libudev ABI that libinput, cosmic-comp (Smithay), COSMIC's settings,
+  settings daemon, applets and on-screen keyboard, NetworkManager and
+  PipeWire link;
+- the rules language, since libinput, Mesa, ALSA and the rest ship rules;
+- the hardware database, where libinput's keyboard and touchpad quirks
+  live;
+- the builtins those rules call: `input_id`, `path_id`, `usb_id`,
+  `keyboard`, `hwdb`, `net_id`, `blkid`, `kmod`.
+
+There is no Rust udev daemon to start from, only libraries. The risk on the
+other side is eudev's upkeep: one maintainer, and two years without a
+commit before 3.2.15 (2026-09-27) caught its rules, hwdb and builtins up
+with systemd v262. **hidedev starts if** eudev falls behind again — a hwdb
+or rule a desktop needs, a libudev consumer that wants more than its frozen
+`UDEV_VERSION` 251 — or goes unmaintained. The fallback before hidedev is
+systemd's udev built alone, as Gentoo and Chimera Linux build it.
+
+**dbus-daemon → busd.** busd 0.5.0 (2026-01-13) says of itself "Alpha. It's
+not ready for production use yet". It reads the XML configuration but
+enforces no policy — a system bus on it has no access control — and does
+not activate services: `StartServiceByName` returns an error, and the
+portals and COSMIC's services depend on activation. No distribution ships
+it as its bus. dbus-broker, which Ubuntu 26.10 moves to, needs systemd to
+launch it. **busd starts if** it enforces policy and activates services
+(its issues #79 and #82); until then dbus-daemon stays.
 
 ### What oxinit needs to grow for a desktop
 
@@ -904,7 +951,8 @@ is therefore also a test of the installer.
 | First-boot setup as on a Mac (`hidesetup`)   | **Decided**  | The installer writes a disk; the person is the first boot's     |
 | Updates bring the extensions they need       | **Decided**  | An NVIDIA machine never boots a system without its driver       |
 | Beside Windows, as Boot Camp                 | **Decided**  | Most PCs keep Windows; hideOS installs beside it and offers it  |
-| Device manager in Rust                       | **Later**    | eudev works; replace once there is a reason, as with hidelogin  |
+| Device manager in Rust (hidedev)             | **Proposed** | Not now: eudev works; starts if it falls behind or goes unmaintained |
+| busd instead of dbus-daemon                  | **Proposed** | Not now: busd enforces no policy and activates nothing yet      |
 | hidelogin replaces elogind                   | **Decided**  | Sessions, sleep and shutdown in hideOS's and oxinit's terms     |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI

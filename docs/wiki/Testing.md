@@ -216,8 +216,9 @@ the host online); bubblewrap makes an unprivileged sandbox for a user; the
 portals, Flatpak's system helper and Settings' Updates page are in the
 image. Then it logs in at the greeter and checks the desktop: an
 application started in the session stays up; the session is hidelogin's,
-on seat0, in a cgroup its user owns, and active as polkit sees it; `hide
-shell` enters a container; polkit asks an administrator's password and
+on seat0, in a cgroup its user owns, and active as polkit sees it; the
+sound card — QEMU's, heard by nobody — is the person's, and their
+PipeWire plays to it; `hide shell` enters a container; polkit asks an administrator's password and
 takes it; the power button asks rather than powering off, and the
 machine powers off by itself at the end of COSMIC's countdown, within a
 minute, with the session up. A second boot logs in again and checks that

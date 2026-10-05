@@ -11,9 +11,11 @@
     clippy::indexing_slicing
 )]
 
+pub mod acl;
 pub mod conf;
 pub mod mounts;
 pub mod query;
 pub mod seat;
 pub mod seatd;
 pub mod session;
+pub mod uaccess;

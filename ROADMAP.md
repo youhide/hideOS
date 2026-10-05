@@ -290,8 +290,10 @@ than what ships, not only that it is Rust.
       the power key is COSMIC's. One daemon serves login1 and seatd's
       protocol; a PAM module registers sessions; `libhidelogin-sd` answers
       sd-login for polkit, NetworkManager and WirePlumber; `loginctl`
-      locks, suspends and powers off; the lid suspends. Tested by
+      locks, suspends and powers off; the lid suspends; the sound card,
+      cameras and security keys are the active session's user's. Tested by
       `cargo xtask desktop-test` — the session on seat0 in its own cgroup,
-      active for polkit; the power button's countdown powering off; suspend
-      — and by every test that logs in at the greeter.
+      active for polkit; the sound card the person's PipeWire plays to;
+      the power button's countdown powering off; suspend — and by every
+      test that logs in at the greeter.
 - [ ] `busd` instead of dbus-daemon, once it is ready for a desktop.

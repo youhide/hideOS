@@ -27,4 +27,5 @@ install -Dm755 target/release/libpam_hidelogin.so /usr/lib/security/pam_hidelogi
 install -Dm755 target/release/libhidelogin_sd.so /usr/lib/libhidelogin-sd.so.0
 install -Dm644 -t /usr/share/dbus-1/system.d crates/hidelogin/data/org.freedesktop.login1.conf
 install -Dm644 -t /usr/share/polkit-1/actions crates/hidelogin/data/org.freedesktop.login1.policy
+install -Dm644 -t /usr/lib/udev/rules.d crates/hidelogin/data/70-uaccess.rules crates/hidelogin/data/73-hidelogin-uaccess.rules
 """

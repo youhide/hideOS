@@ -60,6 +60,8 @@ pub struct Daemon {
     pub lid_closed: bool,
     /// Whether a sleep is under way, between PrepareForSleep's two signals.
     pub sleeping: bool,
+    /// Whose the uaccess devices are now.
+    uaccess: Option<u32>,
 }
 
 pub fn lock(shared: &Shared) -> MutexGuard<'_, Daemon> {
@@ -82,6 +84,7 @@ impl Daemon {
             next_inhibitor: 1,
             lid_closed: false,
             sleeping: false,
+            uaccess: None,
         }
     }
 
@@ -383,7 +386,7 @@ impl Daemon {
 
     /// Every state file, written anew and renamed into place, so a reader
     /// never sees half of one and inotify sees the change.
-    pub fn write_state(&self) {
+    pub fn write_state(&mut self) {
         let root = Path::new(session::STATE);
         let write = |dir: &str, name: &str, text: &str| {
             let dir = root.join(dir);
@@ -420,6 +423,13 @@ impl Daemon {
             }
         }
         write("seats", "seat0", &self.sessions.render_seat());
+        // The active session's user has the person-at-the-screen devices;
+        // moved only when that user changes.
+        let active = self.sessions.active().map(|s| s.uid);
+        if active != self.uaccess {
+            crate::uaccess::grant_all(active);
+            self.uaccess = active;
+        }
     }
 }
 

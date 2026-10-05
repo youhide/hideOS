@@ -1991,6 +1991,22 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
             &out,
         );
 
+        // The sound card is the person's, through the ACL hidelogin sets on
+        // what udev tagged uaccess, and their PipeWire plays to it.
+        let out = guest.run(
+            "setopt nonomatch; \
+             for p in /proc/[0-9]*; do [[ $(<$p/comm) == cosmic-panel ]] && comp=${p#/proc/}; done 2>/dev/null; \
+             envs=(\"${(@0)$(</proc/$comp/environ)}\"); \
+             ( USERNAME=hide; exec 3<>/dev/snd/controlC0 && print snd-open; \
+             env -i $envs wpctl status 2>&1 | sed -n '/Sinks:/,/Sources:/p' )",
+            minute,
+        )?;
+        check(
+            "the sound card is the session's, and PipeWire plays to it",
+            out.contains("snd-open") && out.contains("Built-in Audio"),
+            &out,
+        );
+
         // `hide shell`, as the person, from a small image the test picks:
         // a container sharing the home, entered, a command run in it.
         let out = guest.run(
@@ -2119,9 +2135,12 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
     log_in(&mut guest, &socket)?;
     // Suspend as COSMIC's idle suspend and its Suspend action ask it —
     // the command hideOS's system actions name — and as the launcher's
-    // script does, with the clock set to wake the machine.
+    // script does, with the clock set to wake the machine. Not in the
+    // first minute after boot: the kernel was still busy with the sound
+    // card's work then, its freezer gave up after twenty seconds, and so
+    // did the suspend; nobody suspends half a minute after logging in.
     let out = guest.run(
-        r#"rtcwake -m no -s 15 >/dev/null; actions=/usr/share/hideos/cosmic/com.system76.CosmicSettings.Shortcuts/v1/system_actions; cmd=$(sed -n 's/^ *Suspend: "\(.*\)",$/\1/p' $actions); print "suspend with: $cmd"; grep -c systemctl /usr/lib/pop-launcher/scripts/session/session-suspend.sh; ${=cmd}; print suspend=$?; sleep 30; dmesg | grep -c 'PM: suspend exit'"#,
+        r#"while (( ${$(</proc/uptime)%%.*} < 60 )); do sleep 1; done; rtcwake -m no -s 15 >/dev/null; actions=/usr/share/hideos/cosmic/com.system76.CosmicSettings.Shortcuts/v1/system_actions; cmd=$(sed -n 's/^ *Suspend: "\(.*\)",$/\1/p' $actions); print "suspend with: $cmd"; grep -c systemctl /usr/lib/pop-launcher/scripts/session/session-suspend.sh; ${=cmd}; print suspend=$?; sleep 30; dmesg | grep -c 'PM: suspend exit'"#,
         Duration::from_secs(120),
     )?;
     check(
@@ -4849,6 +4868,14 @@ const DESKTOP_DEVICES: &[&str] = &[
     "virtio-keyboard-pci",
     "-device",
     "virtio-tablet-pci",
+    // A sound card, heard by nobody: what the session's PipeWire opens
+    // once hidelogin gives the person at the screen the device.
+    "-audiodev",
+    "none,id=sound",
+    "-device",
+    "intel-hda",
+    "-device",
+    "hda-duplex,audiodev=sound",
 ];
 
 /// What `screenshot` types at the console, one command per entry.

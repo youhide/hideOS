@@ -20,6 +20,8 @@ mod shutdown;
 #[cfg(target_os = "linux")]
 mod sys;
 #[cfg(target_os = "linux")]
+mod uaccess;
+#[cfg(target_os = "linux")]
 mod vt;
 
 use std::process::ExitCode;
@@ -32,6 +34,19 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "linux")]
 fn main() -> ExitCode {
+    // `hidelogin uaccess NODE`: udev's call for a device that appeared.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [command, node] = args.as_slice()
+        && command == "uaccess"
+    {
+        return match uaccess::grant_one(node) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("hidelogin uaccess: {error:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

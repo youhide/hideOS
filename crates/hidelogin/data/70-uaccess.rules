@@ -1,0 +1,24 @@
+# The devices the person at the screen may use, as logind's uaccess:
+# tagged here, given by hidelogin to the active session's user with an ACL
+# (73-hidelogin-uaccess.rules), and taken back when another session comes
+# forward. The GPU and the input devices are not here: the compositor
+# gets those from hidelogin through libseat.
+ACTION=="remove", GOTO="uaccess_end"
+ENV{MAJOR}=="", GOTO="uaccess_end"
+
+# Sound, for PipeWire in the session.
+SUBSYSTEM=="sound", TAG+="uaccess"
+# Cameras, and their media controllers.
+SUBSYSTEM=="video4linux", TAG+="uaccess"
+SUBSYSTEM=="media", TAG+="uaccess"
+# Security keys, for the browser's WebAuthn.
+SUBSYSTEM=="hidraw", ENV{ID_FIDO_TOKEN}=="1", TAG+="uaccess"
+# Game controllers.
+SUBSYSTEM=="input", ENV{ID_INPUT_JOYSTICK}=="1", TAG+="uaccess"
+# The radio switches: airplane mode.
+SUBSYSTEM=="misc", KERNEL=="rfkill", TAG+="uaccess"
+# Optical drives.
+SUBSYSTEM=="block", ENV{ID_CDROM}=="1", TAG+="uaccess"
+SUBSYSTEM=="scsi_generic", SUBSYSTEMS=="scsi", ATTRS{type}=="4|5", TAG+="uaccess"
+
+LABEL="uaccess_end"

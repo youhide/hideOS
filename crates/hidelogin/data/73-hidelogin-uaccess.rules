@@ -1,0 +1,3 @@
+# A tagged device that appears goes to whoever is at the screen now;
+# hidelogin moves them all when that changes. See 70-uaccess.rules.
+ACTION!="remove", TAG=="uaccess", ENV{MAJOR}!="", RUN+="/usr/libexec/hidelogin uaccess $devnode"

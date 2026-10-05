@@ -86,10 +86,27 @@ pub async fn sleep(shared: Shared, how: Sleep) -> Result<()> {
         Sleep::Hibernate => "disk",
     };
     println!("hidelogin: to sleep, {state}");
-    // The write returns once the machine is back.
+    // The write returns once the machine is back. EBUSY is the kernel
+    // giving up because a wakeup event came in as it went down — a device
+    // still settling — and a second later it goes through: tried three
+    // times before it is an error.
     let slept = tokio::task::spawn_blocking(move || {
-        std::fs::write("/sys/power/state", state)
-            .with_context(|| format!("writing {state} to /sys/power/state"))
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            match std::fs::write("/sys/power/state", state) {
+                Err(error)
+                    if error.raw_os_error() == Some(rustix::io::Errno::BUSY.raw_os_error())
+                        && tries < 3 =>
+                {
+                    eprintln!("hidelogin: sleep refused for a wakeup event; again");
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+                done => {
+                    return done.with_context(|| format!("writing {state} to /sys/power/state"));
+                }
+            }
+        }
     })
     .await
     .context("the sleep's thread")?;
