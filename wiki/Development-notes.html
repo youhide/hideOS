@@ -214,9 +214,10 @@ first, kmod — built with <code>/usr/lib/modules</code> as its module directory
 looks in <code>/usr/usr/lib/modules</code>. <code>linux.toml</code> installs with <code>DEPMOD=true</code>
 and runs <code>depmod</code> itself.</p>
 <h2 id="daemons-that-leave-their-cgroup"><a class="h" href="#daemons-that-leave-their-cgroup" aria-hidden="true" tabindex="-1">##</a> Daemons that leave their cgroup</h2>
-<p>elogind, as a cgroup controller, moves itself out of the cgroup oxinit
-started it in. Signalling the cgroup then reached nothing, and the
-Workstation never powered off. oxinit now also signals the process it
+<p>elogind, as a cgroup controller, moved itself out of the cgroup oxinit
+started it in, until H8 replaced it with hidelogin, which stays put.
+Signalling the cgroup then reached nothing, and the Workstation never
+powered off. oxinit now also signals the process it
 forked when it is outside its cgroup, and wakes for its shutdown deadline
 (youhide/oxinit#25, released in v0.2.0).</p>
     </article>
@@ -228,7 +229,7 @@ forked when it is outside its cgroup, and wakes for its shutdown deadline
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>09bcda2</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Development-notes.md">docs/wiki/Development-notes.md</a>.</p>
+        <p># built from commit <code>e013951</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Development-notes.md">docs/wiki/Development-notes.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>

@@ -180,6 +180,12 @@ read them:</p>
 <p>Every UKI <code>cargo xtask</code> builds is a test image: it appends
 <code>console=ttyS0</code> to the command line so that the tests can read and type on
 the serial port. See <a href="Development-notes.html#the-screen-is-the-console-tests-append-the-serial-port">Development notes</a>.</p>
+<h3 id="aarch64"><a class="h" href="#aarch64" aria-hidden="true" tabindex="-1">###</a> aarch64</h3>
+<p>The bootstrap’s later stages run what they build, so an aarch64 image is
+built on an aarch64 machine: on an x86 one every compiler would run under
+emulation, for days. <code>cargo xtask image --arch aarch64</code> does it on any
+arm64 Linux host with the builder, and boots it in QEMU’s <code>virt</code> machine
+with <code>--arch aarch64</code> on the same commands as below.</p>
 <h2 id="a-disk-and-booting-it"><a class="h" href="#a-disk-and-booting-it" aria-hidden="true" tabindex="-1">##</a> A disk, and booting it</h2>
 <pre><code class="language-sh">cargo xtask install                  # target/images/minimal-x86_64/disk.raw
 cargo xtask boot                     # Minimal from RAM; quit QEMU with Ctrl-A X
@@ -222,7 +228,7 @@ listed at the top of
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>09bcda2</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Building.md">docs/wiki/Building.md</a>.</p>
+        <p># built from commit <code>e013951</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Building.md">docs/wiki/Building.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>
