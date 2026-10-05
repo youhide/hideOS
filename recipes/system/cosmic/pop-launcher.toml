@@ -21,4 +21,8 @@ export VERGEN_GIT_COMMIT_DATE="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d)"
 cargo build --release --frozen -p pop-launcher-bin
 # rootdir must be set: empty, the justfile installs into ~/.local.
 just rootdir=/ install
+# Suspend through logind: hideOS has no systemctl.
+script=/usr/lib/pop-launcher/scripts/session/session-suspend.sh
+sed -i 's/^systemctl suspend$/loginctl suspend/' "$script"
+grep -qx 'loginctl suspend' "$script"
 """

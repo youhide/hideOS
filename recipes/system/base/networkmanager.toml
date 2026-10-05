@@ -16,8 +16,11 @@ url = "https://gitlab.freedesktop.org/api/v4/projects/411/packages/generic/Netwo
 sha256 = "262864cfd198123d3e5dbe91937441b97ee9059d6d712e1a5bfbb1c54668d14d"
 
 [depends]
-build = ["buildtools", "glib", "dbus", "eudev", "util-linux", "libndp", "elogind", "polkit", "readline"]
-run = ["glibc", "glib", "dbus", "eudev", "util-linux", "libndp", "elogind", "readline", "iwd"]
+# Sessions and sleep "from elogind": sd-login, which hidelogin's library
+# answers (see hidelogin-sd), and login1's PrepareForSleep, which
+# hidelogin sends.
+build = ["buildtools", "glib", "dbus", "eudev", "util-linux", "libndp", "hidelogin-sd", "polkit", "readline"]
+run = ["glibc", "glib", "dbus", "eudev", "util-linux", "libndp", "hidelogin", "readline", "iwd"]
 
 [build]
 script = """

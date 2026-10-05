@@ -252,17 +252,24 @@ fn strip(root: &Path) -> Result<usize> {
 /// Every (file, library) where an ELF file in the image names a shared
 /// library in DT_NEEDED that the image does not contain.
 fn missing_libraries(root: &Path) -> Result<Vec<(String, String)>> {
-    unresolved_libraries(root, &[root.to_path_buf()])
+    unresolved_libraries(root, &[root.to_path_buf()], &[])
 }
+
+/// Where a recipe puts a library that exists only to be linked against —
+/// a stand-in with the real one's soname and symbols, the real one a run
+/// dependency. A build's check of what its output links looks here too;
+/// an image's never does, so the real library must be in the image.
+pub const LINK_ONLY: &str = "/usr/lib/link-only";
 
 /// Every (file, library) where an ELF file under `scan` names a shared
 /// library in DT_NEEDED that none of `roots` contains. Each root is a tree
 /// laid out from `/`. Libraries are looked for where the dynamic linker looks:
 /// the file's own RUNPATH or RPATH, with `$ORIGIN` as its directory, then
-/// /usr/lib, which /lib and /lib64 point to.
+/// /usr/lib, which /lib and /lib64 point to, then `extra`.
 pub fn unresolved_libraries(
     scan: &Path,
     roots: &[std::path::PathBuf],
+    extra: &[&str],
 ) -> Result<Vec<(String, String)>> {
     let mut missing = Vec::new();
     for file in elf_files(scan)? {
@@ -295,6 +302,7 @@ pub fn unresolved_libraries(
             })
             .collect();
         search.push("/usr/lib".to_owned());
+        search.extend(extra.iter().map(|dir| (*dir).to_owned()));
         for library in text
             .lines()
             .filter(|l| l.contains("(NEEDED)"))

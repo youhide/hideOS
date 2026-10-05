@@ -24,8 +24,10 @@ dest = "subprojects/packagecache"
 extract = false
 
 [depends]
-build = ["buildtools", "glib", "pipewire", "elogind"]
-run = ["glibc", "glib", "pipewire", "elogind"]
+# -Delogind: sd-login, which hidelogin's library answers; see
+# hidelogin-sd.
+build = ["buildtools", "glib", "pipewire", "hidelogin-sd"]
+run = ["glibc", "glib", "pipewire", "hidelogin"]
 
 [build]
 script = """

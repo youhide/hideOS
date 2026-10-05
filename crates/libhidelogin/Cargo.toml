@@ -1,0 +1,20 @@
+[package]
+name = "libhidelogin"
+version.workspace = true
+description = "sd-login's functions, answered from hidelogin's state: what polkit, NetworkManager and WirePlumber ask"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+# Installed as libhidelogin-sd.so.0, its soname (build.rs), which
+# `libelogind.pc` names: the programs built against elogind's sd-login link
+# this one instead, their sources unchanged.
+name = "hidelogin_sd"
+crate-type = ["cdylib"]
+
+[dependencies]
+hidelogin = { path = "../hidelogin" }
+libc = "0.2"

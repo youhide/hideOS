@@ -1,5 +1,6 @@
-# Only libseat, and only its logind backend: elogind is the seat
-# manager. cosmic-comp opens the GPU and input devices through it.
+# Only libseat, and only its seatd backend: hidelogin is the seat manager
+# and speaks seatd's protocol on /run/seatd.sock. cosmic-comp opens the
+# GPU and input devices through it, with no D-Bus library in between.
 [package]
 name = "seatd"
 version = "0.9.3"
@@ -12,8 +13,8 @@ url = "https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.3.tar.gz"
 sha256 = "302564d54d8e28191fadfd734f2675ecb0c9e0615a58011b89ef15dfa4dbaa96"
 
 [depends]
-build = ["buildtools", "elogind"]
-run = ["glibc", "elogind"]
+build = ["buildtools"]
+run = ["glibc"]
 
 [build]
 script = """
@@ -24,8 +25,8 @@ meson setup build . \\
     --localstatedir=/var \\
     --buildtype=release \\
     --wrap-mode=nodownload \\
-    -Dlibseat-logind=elogind \\
-    -Dlibseat-seatd=disabled \\
+    -Dlibseat-logind=disabled \\
+    -Dlibseat-seatd=enabled \\
     -Dlibseat-builtin=disabled \\
     -Dserver=disabled \\
     -Dexamples=disabled \\

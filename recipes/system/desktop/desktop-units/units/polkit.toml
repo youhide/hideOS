@@ -1,6 +1,6 @@
-# Answers "may this user do that?" for elogind and COSMIC. Started at boot
-# rather than on the first D-Bus call: elogind asks it from the first
-# login. polkitd drops to the polkitd user by itself.
+# Answers "may this user do that?" for hidelogin and COSMIC. Started at
+# boot rather than on the first D-Bus call: hidelogin asks it from the
+# first login. polkitd drops to the polkitd user by itself.
 [unit]
 description = "Authorization manager"
 requires    = ["dbus"]

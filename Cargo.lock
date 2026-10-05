@@ -1068,6 +1068,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hidelogin"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "rustix",
+ "thiserror",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "hidestage"
 version = "0.0.0"
 dependencies = [
@@ -1502,6 +1513,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
+name = "libhidelogin"
+version = "0.0.0"
+dependencies = [
+ "hidelogin",
+ "libc",
+]
+
+[[package]]
 name = "libz-sys"
 version = "1.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1764,6 +1783,14 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "pam-hidelogin"
+version = "0.0.0"
+dependencies = [
+ "hidelogin",
+ "libc",
 ]
 
 [[package]]

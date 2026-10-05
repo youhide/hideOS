@@ -11,11 +11,11 @@ license = "MIT"
 
 [depends]
 # COSMIC's own defaults for the components hideOS changes a key of.
-build = ["toolchain", "cosmic-panel", "cosmic-applets"]
+build = ["toolchain", "cosmic-panel", "cosmic-applets", "cosmic-comp", "cosmic-settings-daemon"]
 run = [
     "hideos-units",
     "hide",
-    "elogind",
+    "hidelogin",
     "sudo-rs",
     "polkit",
     "pipewire",
@@ -59,10 +59,17 @@ install -Dm644 -t /usr/share/icons/hicolor/scalable/apps "$FILES"/icons/*.svg
 # built-in fallbacks. So a component hideOS changes is copied whole from
 # its package first, and hideOS's keys laid over it.
 mkdir -p /usr/share/hideos/cosmic
-for component in com.system76.CosmicPanel.Panel com.system76.CosmicAppList; do
+# The shortcuts are two packages' files: cosmic-comp's key bindings
+# (defaults) and cosmic-settings-daemon's system actions, which hideOS
+# changes. Without the bindings beside the actions, no key did anything —
+# not the power button, not Super.
+for component in com.system76.CosmicPanel.Panel com.system76.CosmicAppList \
+    com.system76.CosmicSettings.Shortcuts; do
     cp -r "/usr/share/cosmic/$component" /usr/share/hideos/cosmic/
 done
 cp -r "$FILES/cosmic/." /usr/share/hideos/cosmic/
+grep -q '"XF86PowerOff"): System(PowerOff)' /usr/share/hideos/cosmic/com.system76.CosmicSettings.Shortcuts/v1/defaults
+grep -q 'Suspend: "loginctl suspend"' /usr/share/hideos/cosmic/com.system76.CosmicSettings.Shortcuts/v1/system_actions
 test -f /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/size
 grep -q os.hide.UpdateApplet /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings
 grep -q os.hide.LogoButton /usr/share/hideos/cosmic/com.system76.CosmicPanel.Panel/v1/plugins_wings

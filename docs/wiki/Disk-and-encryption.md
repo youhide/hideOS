@@ -105,5 +105,5 @@ line cannot say it — it is signed and the same for every machine — so:
    mounts the disk, since writing to a hibernated system's filesystems
    first would lose its writes.
 
-Suspend to RAM is elogind's, or `/sys/power/state`. `cargo xtask
+Suspend to RAM is hidelogin's, through `/sys/power/state`. `cargo xtask
 power-test` suspends and wakes, hibernates and resumes; see [[Testing]].

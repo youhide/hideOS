@@ -1,0 +1,20 @@
+[package]
+name = "hidelogin"
+version.workspace = true
+description = "Seats, sessions and power for hideOS: the login1 subset and seatd's protocol"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+
+[target.'cfg(target_os = "linux")'.dependencies]
+anyhow.workspace = true
+rustix = { workspace = true, features = ["fs", "mount", "net", "pipe", "process"] }
+tokio = { version = "1", features = ["rt", "net", "signal", "macros", "sync", "time", "io-util", "fs", "process"] }
+# org.freedesktop.login1, on the system bus: the same zbus hideupd uses.
+zbus = { version = "5", default-features = false, features = ["tokio"] }

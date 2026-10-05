@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     "crates/hide",
     "crates/hidecrypt",
+    "crates/hidelogin",
+    "crates/libhidelogin",
+    "crates/pam-hidelogin",
     "crates/hideforge",
     "crates/hideforge-recipe",
     "crates/hidestage",

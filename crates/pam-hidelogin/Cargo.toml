@@ -1,0 +1,17 @@
+[package]
+name = "pam-hidelogin"
+version.workspace = true
+description = "pam_hidelogin.so: registers a login session with hidelogin"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "pam_hidelogin"
+crate-type = ["cdylib"]
+
+[dependencies]
+hidelogin = { path = "../hidelogin" }
+libc = "0.2"

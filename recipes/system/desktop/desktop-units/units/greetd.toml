@@ -2,9 +2,9 @@
 # person picks.
 [unit]
 description = "Login manager"
-requires    = ["dbus", "elogind"]
+requires    = ["dbus", "hidelogin"]
 wants       = ["cosmic-greeter-daemon", "udev-settle"]
-after       = ["elogind", "cosmic-greeter-daemon", "udev-settle"]
+after       = ["hidelogin", "cosmic-greeter-daemon", "udev-settle"]
 
 [service]
 exec    = "/usr/bin/greetd --config /usr/lib/greetd/config.toml"

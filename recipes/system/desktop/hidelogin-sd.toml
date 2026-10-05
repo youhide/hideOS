@@ -1,0 +1,67 @@
+# What polkit, NetworkManager and WirePlumber build against in place of
+# elogind: elogind's own sd-login headers, a libelogind.pc that names
+# hidelogin's library, and a stand-in for that library with its functions'
+# names and nothing else, to link against. The library itself is
+# hidelogin's, a run dependency of each.
+#
+# A recipe apart, and one that never changes, for the sake of what builds
+# against it: hidelogin is built from this repository's workspace, so it
+# changes with every crate in it, and a build dependency on it would
+# rebuild polkit, NetworkManager, WirePlumber and libseat each time. A run
+# dependency is not part of a recipe's hash. See ARCHITECTURE.md,
+# "hidelogin".
+[package]
+name = "hidelogin-sd"
+version = "257"
+description = "sd-login's headers and pkg-config file, for building against hidelogin"
+license = "LGPL-2.1-or-later"
+homepage = "https://github.com/elogind/elogind"
+
+[[source]]
+url = "https://github.com/elogind/elogind/archive/refs/tags/v257.16.tar.gz"
+sha256 = "3c8146409bfb9daa77f272212c2b0bf0ae727c782ec87ece0d2d25e0e5bf5f4c"
+
+[depends]
+build = ["buildtools"]
+run = []
+
+[build]
+script = """
+# Both of elogind's layouts: <elogind/sd-login.h> and <systemd/sd-login.h>.
+for header in sd-login.h sd-daemon.h _sd-common.h; do
+    install -Dm644 src/systemd/$header /usr/include/elogind/$header
+    install -Dm644 src/systemd/$header /usr/include/elogind/systemd/$header
+done
+# The functions hidelogin's library has (crates/libhidelogin), as symbols
+# to link against, in hideforge's directory for libraries that are only
+# linked against, /usr/lib/link-only: a build that also has hidelogin's
+# real library — NetworkManager's, through polkit — would otherwise have
+# the same file twice, and hideforge's check of what a build links looks
+# there while an image's does not. It goes under the soname too: a
+# program linked against a library that links this one — pkaction,
+# against libpolkit — has the linker look it up by that name, in the
+# directories -rpath-link names. The image never has this stand-in.
+for f in sd_pid_get_session sd_pidfd_get_session sd_pid_get_owner_uid \\
+    sd_pidfd_get_owner_uid sd_session_is_active sd_session_get_state \\
+    sd_session_get_uid sd_session_get_seat sd_uid_get_state \\
+    sd_uid_get_display sd_uid_get_sessions sd_uid_get_seats \\
+    sd_login_monitor_new sd_login_monitor_unref sd_login_monitor_flush \\
+    sd_login_monitor_get_fd sd_login_monitor_get_events \\
+    sd_login_monitor_get_timeout sd_notify; do
+    printf 'int %s(void) { return -38; }\\n' "$f"
+done > stub.c
+cc -shared -fPIC -O2 -Wl,-soname,libhidelogin-sd.so.0 -o libhidelogin-sd.so.0 stub.c
+install -Dm755 libhidelogin-sd.so.0 /usr/lib/link-only/libhidelogin-sd.so.0
+ln -s libhidelogin-sd.so.0 /usr/lib/link-only/libhidelogin-sd.so
+install -Dm644 /dev/stdin /usr/lib/pkgconfig/libelogind.pc <<'END'
+prefix=/usr
+libdir=${prefix}/lib
+includedir=${prefix}/include/elogind
+
+Name: elogind
+Description: sd-login, answered by hidelogin
+Version: 257
+Libs: -L${libdir}/link-only -Wl,-rpath-link,${libdir}/link-only -lhidelogin-sd
+Cflags: -I${includedir}
+END
+"""

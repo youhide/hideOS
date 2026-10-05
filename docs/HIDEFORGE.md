@@ -87,6 +87,10 @@ something inside that sandbox.
   stage-2 output in the sandbox. The earlier stages are underneath during the
   build, and a configure script that finds a library there will link it; the
   build works, and the binary fails on any machine that has only stage 2.
+  A library that exists only to be linked against — a stand-in with the
+  real one's soname, the real one a run dependency, as `hidelogin-sd` is
+  for hidelogin's sd-login — goes in `/usr/lib/link-only`, which this check
+  searches and an image's never does: the image must have the real one.
 
 One exception, applied by hideforge rather than by recipes: indexes over
 every package's files — `share/info/dir`, `etc/ld.so.cache` — are removed

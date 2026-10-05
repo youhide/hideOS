@@ -52,7 +52,7 @@ mod startup_disk;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    // Called as poweroff, reboot or halt — the names elogind, and people,
+    // Called as poweroff, reboot or halt — the names hidelogin, and people,
     // reach for — ask oxinit to do it. oxinit takes those requests as
     // signals: see its ARCHITECTURE, "Shutdown".
     #[cfg(target_os = "linux")]

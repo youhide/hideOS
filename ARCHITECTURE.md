@@ -175,8 +175,8 @@ command line, which is signed and the same for every machine, so `hide
 swap` also writes the offset into an EFI variable of hideOS's own, and
 hidestage reads it and asks the kernel to resume before it mounts the disk.
 Turning swap on rewrites the signature of an image that was never resumed,
-so a stale one is never found later. Suspend to RAM is elogind's, or
-`/sys/power/state`.
+so a stale one is never found later. Suspend to RAM is hidelogin's,
+through `/sys/power/state`.
 
 Why btrfs: checksums on data, cheap snapshots for `/home`, transparent
 compression, fs-verity support (Linux 5.15+), and one pool instead of
@@ -483,7 +483,7 @@ administrator's changes survive every update.
 | COSMIC pieces | Settings pages, panel applet, first-boot setup (`hidesetup`)     | To write      |
 | `hideboot`    | UEFI boot manager with boot counting (youhide/hideBoot)          | Exists        |
 | `hidedev`     | Device manager, libudev-compatible; replaces eudev               | Later         |
-| `hidelogin`   | `org.freedesktop.login1` subset; replaces elogind                | Later         |
+| `hidelogin`   | `org.freedesktop.login1` subset; replaces elogind (see below)    | H8            |
 
 **Upstream, already Rust:** COSMIC (compositor, panel, settings, greeter,
 files, terminal, editor, portal), greetd, uutils (coreutils, findutils,
@@ -498,7 +498,7 @@ allows it.
 | glibc                    | See [Decisions](#decisions)                      | —                         |
 | Mesa, linux-firmware     | GPU drivers and firmware                         | —                         |
 | eudev                    | libudev ABI that libinput, Mesa, Smithay link to | `hidedev`                 |
-| elogind                  | Seats, sessions, suspend, lid — COSMIC needs logind's D-Bus API | `hidelogin` |
+| ~~elogind~~              | Replaced by hidelogin in H8 — see [hidelogin](#hidelogin) | done |
 | dbus-daemon              | The session and system bus                       | `busd` when it is ready   |
 | PipeWire + WirePlumber   | Audio and screen capture                         | —                         |
 | zsh, bash                | Login shell, and `/bin/sh` for scripts — see [The shell](#the-shell) | —           |
@@ -506,6 +506,68 @@ allows it.
 | polkit                   | Authorization for COSMIC Settings                | —                         |
 | cryptsetup (lib), btrfs-progs, util-linux, kmod | Storage and modules       | Partly, via hidestage     |
 | Flatpak, Podman          | Applications and containers                      | —                         |
+
+### hidelogin
+
+**Decided (H8): hidelogin replaces elogind.** H8 asks for the reason first,
+and it is not that hidelogin is Rust.
+
+elogind is systemd 257's logind taken out of systemd, and it brings
+systemd's model with it:
+
+- **Cgroups.** It runs its own cgroup controller and moves itself and every
+  session out of the tree oxinit gave them; oxinit had to learn to let it
+  (oxinit#25).
+- **Sleep.** It writes `/sys/power/state` by its own rules and knows
+  nothing of the hibernation `hide swap` prepares.
+- **What hideOS does not use.** It installs a user database, varlink tools,
+  an NSS module and udev rules.
+- **Its defaults.** The power key turns the machine off at once: COSMIC
+  takes the key from logind only on systemd.
+
+hidelogin is the part hideOS uses, in hideOS's terms:
+
+- each session is a cgroup beside oxinit's, delegated to its user, so
+  `oxinit --user` in it supervises its services with cgroups; under
+  elogind it has none;
+- shutdown goes to oxinit, as `hide poweroff` already does;
+- sleep is the kernel's, and a hibernated system resumes from the swap
+  file `hide swap` recorded at boot;
+- the power key is COSMIC's, which asks first; the lid suspends unless a
+  second display is connected or COSMIC holds it.
+
+What it has to provide. This is a survey of the image, every consumer and
+call site; anything not listed is not called:
+
+| Way in | Who | What |
+|---|---|---|
+| D-Bus `org.freedesktop.login1` | cosmic-greeter, -osd, -applets, -settings-daemon, -comp; hideOS's Settings patch; NetworkManager; podman | Manager: `CreateSession(WithPIDFD)`, `ReleaseSession`, `GetSession`, `GetSessionByPID`, `GetSeat`, `GetUser`, `PowerOff`, `Reboot`, `Suspend`, `SetRebootToFirmwareSetup`, `Inhibit` (sleep delay; lid and power key block), `LidClosed`, `PrepareForSleep`, `PrepareForShutdown`. Session (and `/session/auto`): `Lock`, `SetBrightness`, `SetType`, `Id`, `Class`, `Type`, `Active`, `User`, `Lock`/`Unlock` signals. Seat: `ActiveSession`. User: `Sessions`. |
+| PAM session module | greetd, for the greeter and every login | Registers the session, makes `/run/user/UID`, exports `XDG_SESSION_ID` and `XDG_RUNTIME_DIR` |
+| sd-login, the C API in `libelogind` | polkit (every "active session" decision), NetworkManager, WirePlumber | `sd_pid(fd)_get_session`, `sd_session_get_uid`, `_get_seat`, `_is_active`, `sd_uid_get_state`, `_get_display`, `_get_sessions`, `_get_seats`, `sd_login_monitor_*` |
+| Devices for the compositor | cosmic-comp, through libseat | Opening DRM and input devices for the active session, taking them away on a switch |
+| Commands | COSMIC's lock shortcut, idle lock and Suspend action | `loginctl lock-session`, `loginctl suspend` |
+
+How:
+
+- **One daemon.** It serves the login1 subset and seatd's protocol. libseat
+  is built with its seatd backend, the simplest of its three: cosmic-comp
+  then gets its devices from hidelogin over seatd's socket, with no D-Bus
+  library in between.
+- **A PAM module.** It registers the session with the daemon.
+- **A library with libelogind's sd-login functions and name,** answering
+  from hidelogin's state files in `/run/hidelogin`, so polkit,
+  NetworkManager and WirePlumber keep their builds. They build against
+  `hidelogin-sd` — elogind's headers, a `libelogind.pc` naming
+  `libhidelogin-sd`, and a stand-in with its symbols — and load hidelogin's
+  library at run time: hidelogin is built from the workspace and changes
+  with every crate, and a run dependency is not part of a recipe's hash,
+  so a change here does not rebuild them.
+- **A `loginctl` that locks, suspends and powers off.**
+- **busctl is not replaced.** COSMIC's brightness, volume and input keys use
+  it from elogind, so hideOS's COSMIC defaults call `dbus-send` instead.
+
+The policy — who may power off, suspend, take which device — is a
+host-testable library crate; the daemon is the Linux side, as in oxinit.
 
 ### What oxinit needs to grow for a desktop
 
@@ -842,7 +904,8 @@ is therefore also a test of the installer.
 | First-boot setup as on a Mac (`hidesetup`)   | **Decided**  | The installer writes a disk; the person is the first boot's     |
 | Updates bring the extensions they need       | **Decided**  | An NVIDIA machine never boots a system without its driver       |
 | Beside Windows, as Boot Camp                 | **Decided**  | Most PCs keep Windows; hideOS installs beside it and offers it  |
-| Device manager and logind in Rust            | **Later**    | eudev and elogind work; replace once the desktop is done (H5)   |
+| Device manager in Rust                       | **Later**    | eudev works; replace once there is a reason, as with hidelogin  |
+| hidelogin replaces elogind                   | **Decided**  | Sessions, sleep and shutdown in hideOS's and oxinit's terms     |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI
 firmware, QEMU `virt`) are the target. Snapdragon X laptops depend on upstream

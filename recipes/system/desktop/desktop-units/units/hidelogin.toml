@@ -1,0 +1,14 @@
+# Seats, sessions and power: COSMIC gets its GPU and input devices from it
+# over seatd's socket, logins register with it through PAM, and the lid
+# goes to it. Before polkit, which asks it whose session a caller is in,
+# through the state files it keeps in /run/hidelogin.
+[unit]
+description = "Login and seat manager"
+requires    = ["dbus", "oxlogd"]
+wants       = ["polkit"]
+after       = ["dbus", "oxlogd", "udev-settle"]
+
+[service]
+exec    = "/usr/libexec/hidelogin"
+restart = "on-failure"
+output  = "log"

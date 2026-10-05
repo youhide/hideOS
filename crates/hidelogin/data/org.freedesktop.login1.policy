@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+        "https://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  What hidelogin asks polkit, with logind's defaults: the person at the
+  machine may power it off, restart it and put it to sleep; anyone else
+  needs an administrator. Only the actions hidelogin checks are here.
+-->
+<policyconfig>
+        <vendor>hideOS</vendor>
+        <vendor_url>https://github.com/youhide/hideOS</vendor_url>
+
+        <action id="org.freedesktop.login1.power-off">
+                <description>Power off the system</description>
+                <message>Authentication is required to power off the system.</message>
+                <defaults>
+                        <allow_any>auth_admin_keep</allow_any>
+                        <allow_inactive>auth_admin_keep</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.reboot">
+                <description>Reboot the system</description>
+                <message>Authentication is required to reboot the system.</message>
+                <defaults>
+                        <allow_any>auth_admin_keep</allow_any>
+                        <allow_inactive>auth_admin_keep</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.suspend">
+                <description>Suspend the system</description>
+                <message>Authentication is required to suspend the system.</message>
+                <defaults>
+                        <allow_any>auth_admin_keep</allow_any>
+                        <allow_inactive>auth_admin_keep</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.hibernate">
+                <description>Hibernate the system</description>
+                <message>Authentication is required to hibernate the system.</message>
+                <defaults>
+                        <allow_any>auth_admin_keep</allow_any>
+                        <allow_inactive>auth_admin_keep</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-block-shutdown">
+                <description>Allow applications to block system shutdown</description>
+                <message>Authentication is required for an application to block system shutdown.</message>
+                <defaults>
+                        <allow_any>no</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-delay-shutdown">
+                <description>Allow applications to delay system shutdown</description>
+                <message>Authentication is required for an application to delay system shutdown.</message>
+                <defaults>
+                        <allow_any>yes</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-block-sleep">
+                <description>Allow applications to block system sleep</description>
+                <message>Authentication is required for an application to block system sleep.</message>
+                <defaults>
+                        <allow_any>no</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-delay-sleep">
+                <description>Allow applications to delay system sleep</description>
+                <message>Authentication is required for an application to delay system sleep.</message>
+                <defaults>
+                        <allow_any>yes</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-block-idle">
+                <description>Allow applications to block automatic system suspend</description>
+                <message>Authentication is required for an application to block automatic system suspend.</message>
+                <defaults>
+                        <allow_any>yes</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-handle-power-key">
+                <description>Allow applications to handle the power key</description>
+                <message>Authentication is required for an application to handle the power key.</message>
+                <defaults>
+                        <allow_any>no</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-handle-suspend-key">
+                <description>Allow applications to handle the suspend key</description>
+                <message>Authentication is required for an application to handle the suspend key.</message>
+                <defaults>
+                        <allow_any>no</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-handle-hibernate-key">
+                <description>Allow applications to handle the hibernate key</description>
+                <message>Authentication is required for an application to handle the hibernate key.</message>
+                <defaults>
+                        <allow_any>no</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-handle-lid-switch">
+                <description>Allow applications to handle the lid switch</description>
+                <message>Authentication is required for an application to handle the lid switch.</message>
+                <defaults>
+                        <allow_any>no</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+        <action id="org.freedesktop.login1.inhibit-handle-reboot-key">
+                <description>Allow applications to handle the reboot key</description>
+                <message>Authentication is required for an application to handle the reboot key.</message>
+                <defaults>
+                        <allow_any>no</allow_any>
+                        <allow_inactive>yes</allow_inactive>
+                        <allow_active>yes</allow_active>
+                </defaults>
+        </action>
+
+</policyconfig>

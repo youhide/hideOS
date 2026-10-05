@@ -78,7 +78,7 @@ pub(crate) fn subordinate_ids(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The machine's identity, which D-Bus and elogind read. Made once, from
+/// The machine's identity, which D-Bus reads. Made once, from
 /// the kernel's random source, the first time the machine boots.
 fn machine_id(root: &Path) -> Result<()> {
     let path = root.join("etc/machine-id");

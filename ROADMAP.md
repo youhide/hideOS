@@ -284,5 +284,14 @@ Each of these starts only with a written reason why the replacement is better
 than what ships, not only that it is Rust.
 
 - [ ] `hidedev`: device manager with a libudev-compatible library.
-- [ ] `hidelogin`: the `org.freedesktop.login1` subset COSMIC uses.
+- [x] `hidelogin`: the `org.freedesktop.login1` subset COSMIC uses, in place
+      of elogind (2026-10-05). The reason is in ARCHITECTURE, "hidelogin":
+      sessions are cgroups delegated to their user, shutdown is oxinit's,
+      the power key is COSMIC's. One daemon serves login1 and seatd's
+      protocol; a PAM module registers sessions; `libhidelogin-sd` answers
+      sd-login for polkit, NetworkManager and WirePlumber; `loginctl`
+      locks, suspends and powers off; the lid suspends. Tested by
+      `cargo xtask desktop-test` — the session on seat0 in its own cgroup,
+      active for polkit; the power button's countdown powering off; suspend
+      — and by every test that logs in at the greeter.
 - [ ] `busd` instead of dbus-daemon, once it is ready for a desktop.

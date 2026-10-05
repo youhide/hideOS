@@ -1,9 +1,9 @@
-# Logins from the greeter, and the greeter's own session. pam_elogind
-# gives each a logind session on the seat, which is how the compositor
-# gets the GPU and the input devices.
+# Logins from the greeter, and the greeter's own session. pam_hidelogin
+# registers each with hidelogin as a session on the seat, which is how the
+# compositor gets the GPU and the input devices.
 auth      required  pam_unix.so
 account   required  pam_unix.so
 password  required  pam_unix.so sha512 shadow
 session   required  pam_unix.so
 session   required  pam_env.so
-session   optional  pam_elogind.so
+session   optional  pam_hidelogin.so

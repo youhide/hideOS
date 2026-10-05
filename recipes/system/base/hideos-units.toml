@@ -17,5 +17,6 @@ script = """
 install -Dm644 -t /usr/lib/oxinit/units "$FILES"/*.toml
 install -Dm644 -t /usr/lib/oxinit "$FILES"/oxinit/watchdog.toml
 install -Dm644 -t /usr/lib/tmpfiles.d "$FILES"/tmpfiles.d/hideos.conf
+install -Dm644 -t /usr/share/factory/etc "$FILES"/factory/shells
 install -Dm644 -t /usr/lib/sysusers.d "$FILES"/sysusers.d/*.conf
 """

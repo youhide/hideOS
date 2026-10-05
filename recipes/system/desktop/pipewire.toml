@@ -1,7 +1,8 @@
 # Audio through ALSA, with the PulseAudio replacement; screen capture
 # for the portal; pw-play, with libsndfile, for the desktop's sounds;
 # real-time audio threads through RealtimeKit. Everything else optional
-# off. The session manager is WirePlumber, its own recipe.
+# off — logind too: only the Bluetooth plugin, which is off, asks it. The
+# session manager is WirePlumber, its own recipe.
 [package]
 name = "pipewire"
 version = "1.6.9"
@@ -14,8 +15,8 @@ url = "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.9/pipewire
 sha256 = "0cde58c124825bad462b32ab79f9aa286ee7b113cc73a5cda923a4365e752657"
 
 [depends]
-build = ["buildtools", "alsa-lib", "dbus", "eudev", "elogind", "libsndfile"]
-run = ["glibc", "alsa-lib", "dbus", "eudev", "elogind", "libsndfile", "rtkit"]
+build = ["buildtools", "alsa-lib", "dbus", "eudev", "libsndfile"]
+run = ["glibc", "alsa-lib", "dbus", "eudev", "libsndfile", "rtkit"]
 
 [build]
 script = """
@@ -35,8 +36,7 @@ meson setup build . \\
     -Dlibsystemd=disabled \\
     -Dsystemd-system-service=disabled \\
     -Dsystemd-user-service=disabled \\
-    -Dlogind=enabled \\
-    -Dlogind-provider=libelogind \\
+    -Dlogind=disabled \\
     -Dselinux=disabled \\
     -Dgstreamer=disabled \\
     -Dgstreamer-device-provider=disabled \\

@@ -1,6 +1,6 @@
 # Containers: what `hide shell` runs, and what anyone can use directly.
 # Rootless — a user's containers are theirs, in their home — with oxinit
-# and elogind rather than systemd, on cgroup v2. See ARCHITECTURE.md,
+# and hidelogin rather than systemd, on cgroup v2. See ARCHITECTURE.md,
 # "Applications and development".
 #
 # The Go modules Podman builds from are in the release archive's vendor/,

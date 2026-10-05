@@ -1,0 +1,30 @@
+# hidelogin: seats, sessions and power, in place of elogind —
+# crates/hidelogin, crates/pam-hidelogin and crates/libhidelogin in this
+# repository. The daemon, loginctl, the PAM module greetd's stacks list,
+# and libhidelogin-sd.so.0, which polkit, NetworkManager and WirePlumber
+# load as sd-login (they build against hidelogin-sd). See ARCHITECTURE.md,
+# "hidelogin".
+[package]
+name = "hidelogin"
+version = "0.0.0"
+description = "Seats, sessions and power: the login1 subset, seatd's protocol, sd-login"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/youhide/hideOS"
+
+[depends]
+build = ["toolchain", "stage1-rust"]
+# Shutdown is hide's poweroff and reboot, which hand it to oxinit.
+run = ["glibc", "gcc", "hide"]
+
+[build]
+workspace = true
+vendor = "cargo"
+script = """
+cargo build --release --locked --package hidelogin --package pam-hidelogin --package libhidelogin
+install -Dm755 target/release/hidelogin /usr/libexec/hidelogin
+install -Dm755 target/release/loginctl /usr/bin/loginctl
+install -Dm755 target/release/libpam_hidelogin.so /usr/lib/security/pam_hidelogin.so
+install -Dm755 target/release/libhidelogin_sd.so /usr/lib/libhidelogin-sd.so.0
+install -Dm644 -t /usr/share/dbus-1/system.d crates/hidelogin/data/org.freedesktop.login1.conf
+install -Dm644 -t /usr/share/polkit-1/actions crates/hidelogin/data/org.freedesktop.login1.policy
+"""

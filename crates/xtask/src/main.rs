@@ -162,7 +162,8 @@ fn usage() -> &'static str {
                                   greeter, then run each file put in the image
                                   directory's desktop-shell/in as a command on
                                   the serial console, its output to .../out;
-                                  `screenshot` saves the screen, `quit` ends
+                                  `screenshot` saves the screen, `monitor CMD`
+                                  sends CMD to QEMU's monitor, `quit` ends
     screenshot [--arch ARCH] [--edition E] [--login] [--then STEPS]
                                   boot it and save a PNG of the screen;
                                   --login logs in at the greeter first;
@@ -1812,6 +1813,12 @@ fn desktop_shell(args: &[String]) -> Result<(), String> {
                 let _ = fs::rename(&shot, &png).or_else(|_| fs::copy(&shot, &png).map(|_| ()));
                 println!("desktop-shell: {name}: {}", png.display());
             }
+            // A QEMU monitor command: system_powerdown presses the power
+            // button, sendkey types a key the console cannot.
+            command if command.starts_with("monitor ") => {
+                send(command.trim_start_matches("monitor "))?;
+                println!("desktop-shell: {name} sent");
+            }
             command => {
                 let out = guest.run(command, Duration::from_secs(600))?;
                 fs::write(outbox.join(format!("{name}.txt")), &out).map_err(|e| e.to_string())?;
@@ -1962,6 +1969,28 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
             &out,
         );
 
+        // The session is hidelogin's: on seat0, its processes in a cgroup
+        // of its own that its user owns, and active as polkit sees it —
+        // through hidelogin's sd-login — so the person may suspend.
+        let out = guest.run(
+            "setopt nonomatch; \
+             for p in /proc/[0-9]*; do [[ $(<$p/comm) == cosmic-panel ]] && comp=${p#/proc/}; done 2>/dev/null; \
+             loginctl list-sessions; cg=$(sed -n 's/^0:://p' /proc/$comp/cgroup); print cgroup=$cg; \
+             s=$(print $cg | grep -o '^/hidelogin.slice/session-[0-9]*'); \
+             print owner=$(stat -c %U /sys/fs/cgroup$s); \
+             pkcheck --action-id org.freedesktop.login1.suspend --process $comp && print pk-active",
+            minute,
+        )?;
+        check(
+            "the session is hidelogin's: on seat0, in its own cgroup, active for polkit",
+            out.lines()
+                .any(|l| l.contains(DEV_USER) && l.contains("seat0"))
+                && out.contains("cgroup=/hidelogin.slice/session-")
+                && out.contains(&format!("owner={DEV_USER}"))
+                && out.contains("pk-active"),
+            &out,
+        );
+
         // `hide shell`, as the person, from a small image the test picks:
         // a container sharing the home, entered, a command run in it.
         let out = guest.run(
@@ -1982,12 +2011,70 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
         );
         println!("        screen: {}", png.display());
         println!("        {}", out.replace('\n', "\n        "));
+
+        // An administrator's password, as Settings asks it through polkit:
+        // pkexec from no session asks for one, on the console, and polkit's
+        // helper checks it through PAM.
+        let before = guest.output().len();
+        guest.type_line(&format!(
+            "su {DEV_USER} -c 'pkexec /usr/bin/true; a=pk; print ${{a}}exit$?'"
+        ))?;
+        let asked = guest.wait_for_after(before, "Password", minute);
+        if asked {
+            guest.type_line(DEV_USER)?;
+        }
+        guest.wait_for_after(before, "pkexit", minute);
+        let out = guest.output().get(before..).unwrap_or("").to_owned();
+        check(
+            "polkit asks an administrator's password, and takes it",
+            asked && out.contains("pkexit0"),
+            &out,
+        );
+
+        // The power button, as on a Mac: COSMIC asks, and after its
+        // countdown the machine goes down, through logind and oxinit, with
+        // the session up.
+        send("system_powerdown")?;
+        thread::sleep(Duration::from_secs(15));
+        let up = guest
+            .run("print still-up", minute)
+            .is_ok_and(|o| o.contains("still-up"));
+        check(
+            "the power button asks rather than turning the machine off",
+            up,
+            &guest.output(),
+        );
+        let started = Instant::now();
+        while !guest.exited() && started.elapsed() < Duration::from_secs(120) {
+            thread::sleep(Duration::from_millis(500));
+        }
+        // When it did not: what of COSMIC was there to ask, and what the
+        // session said.
+        let why = if guest.exited() {
+            String::new()
+        } else {
+            guest
+                .run(
+                    "for p in /proc/[0-9]*; do c=$(<$p/comm); [[ $c == (cosmic-osd|cosmic-comp|hidelogin) ]] && print ${p#/proc/} $c; done 2>/dev/null; \
+                     loginctl list-sessions; oxctl logs hidelogin 2>/dev/null | tail -n 40",
+                    minute,
+                )
+                .unwrap_or_default()
+        };
+        check(
+            "and the machine powers off by itself at the end of COSMIC's countdown",
+            guest.exited(),
+            &format!("still up two minutes after the power button\n{why}"),
+        );
     }
     let _ = fs::remove_file(&socket);
-    // With a session up — elogind, which leaves the cgroup oxinit gave it,
-    // the person's own oxinit and its PipeWire — the machine still goes
-    // down, and well inside oxinit's 90-second backstop.
-    guest.type_line("poweroff")?;
+    // With a session up — hidelogin's session cgroup beside oxinit's, the
+    // person's own oxinit in it and its PipeWire — the machine still goes
+    // down, and well inside oxinit's 90-second backstop: by the power
+    // dialog's countdown, or, when that never came, by `poweroff`.
+    if !guest.exited() {
+        guest.type_line("poweroff")?;
+    }
     let started = Instant::now();
     while !guest.exited() && started.elapsed() < minute {
         thread::sleep(Duration::from_millis(200));
@@ -2008,6 +2095,45 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
             .join("\n"),
     );
     drop(guest);
+
+    // Suspend, in a boot of its own and last: after QEMU's S3 resume the
+    // kernel's virtio-gpu commits stall, and a session ending after one
+    // hangs in the console's return to text mode, so the power-off checks
+    // above come first. The machine is then stopped, not shut down.
+    let _ = fs::remove_file(&socket);
+    let mut command = disk_qemu(arch, edition, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(DESKTOP_DEVICES)
+        .arg("-monitor")
+        .arg(format!("unix:{},server,nowait", socket.display()));
+    let mut guest = Guest::spawn(arch, command)?;
+    if !guest.wait_for(
+        "reached target default",
+        arch.timeout.max(Duration::from_secs(300)),
+    ) {
+        return Err(format!("the disk did not boot again:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    log_in(&mut guest, &socket)?;
+    // Suspend as COSMIC's idle suspend and its Suspend action ask it —
+    // the command hideOS's system actions name — and as the launcher's
+    // script does, with the clock set to wake the machine.
+    let out = guest.run(
+        r#"rtcwake -m no -s 15 >/dev/null; actions=/usr/share/hideos/cosmic/com.system76.CosmicSettings.Shortcuts/v1/system_actions; cmd=$(sed -n 's/^ *Suspend: "\(.*\)",$/\1/p' $actions); print "suspend with: $cmd"; grep -c systemctl /usr/lib/pop-launcher/scripts/session/session-suspend.sh; ${=cmd}; print suspend=$?; sleep 30; dmesg | grep -c 'PM: suspend exit'"#,
+        Duration::from_secs(120),
+    )?;
+    check(
+        "COSMIC's Suspend suspends through logind, and the clock wakes it",
+        out.contains("suspend with: loginctl suspend")
+            && out.contains("suspend=0")
+            && out.lines().any(|l| l.trim() == "0")
+            && out.lines().any(|l| l.trim() == "1"),
+        &out,
+    );
+    drop(guest);
+    let _ = fs::remove_file(&socket);
     // Kept when something failed, for `cargo xtask desktop-shell`.
     if failures.is_empty() {
         let _ = fs::remove_file(&disk);

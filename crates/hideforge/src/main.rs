@@ -615,7 +615,7 @@ fn build_one(
                 .filter(|l| l.stage == 2)
                 .map(|l| l.path.clone()),
         );
-        let unresolved = image::unresolved_libraries(&dirs.upper(), &roots)?;
+        let unresolved = image::unresolved_libraries(&dirs.upper(), &roots, &[image::LINK_ONLY])?;
         if !unresolved.is_empty() {
             for (file, library) in &unresolved {
                 eprintln!("  /{file} needs {library}, which no stage-2 output provides");
