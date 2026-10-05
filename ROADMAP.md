@@ -1,8 +1,8 @@
 # Roadmap
 
 Milestones are sequential. Each one ends with something that boots and does
-something observable in QEMU — and from H4 on, on real hardware — before the
-next one starts. There are no dates.
+something observable in QEMU before the next one starts. There are no
+dates.
 
 The design these build toward is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -104,7 +104,7 @@ with a wrong digest refuses to boot.
 
 ## H3 — Updates and rollback
 
-**In progress.** Updates are OCI images, applied and rolled back:
+**Done**, 2026-10-05. Updates are OCI images, applied and rolled back:
 `cargo xtask update-test` takes Minimal N to N+1 on scratch disks, from
 N+1's image as an oci-archive — a good update that boots and is marked
 good, and a rollback; an image changed after it was built, refused before
@@ -134,20 +134,19 @@ registry.
       update and as `hide gc`: the roots are the images of the UKIs left on
       the ESP — running, the way back, the new one.
 
-Done when, in CI: an update from build N to N+1 applies and boots; a power cut
+Done when: an update from build N to N+1 applies and boots; a power cut
 (QEMU killed) at every step of the update leaves N booting; an N+1 that panics,
 one that cannot mount, and one that hangs all end, unattended, back on N.
 
 ## H4 — Real hardware
 
-**In progress.** What QEMU can show, it shows: `cargo xtask net-test`
+**Done**, 2026-10-05. `cargo xtask net-test`
 installs Minimal and finds NetworkManager connected on its own, with DHCP,
 DNS, iwd on the bus and every daemon logging to oxlogd; `cargo xtask
 power-test` suspends it and lets the clock wake it, then hibernates it and
 resumes the same session after QEMU starts again. The encrypted root opens
 in hidestage's own Rust: `installer-test` installs it encrypted and boots it
-with the recovery key, and `crypt-test` opens it with the TPM. The rest
-needs a laptop.
+with the recovery key, and `crypt-test` opens it with the TPM.
 
 - [x] eudev, linux-firmware, microcode, with kernel modules: Arch's
       configuration for the kernel; `cargo xtask hw-test` finds udev loading
@@ -164,12 +163,13 @@ needs a laptop.
       `boot-ok`: `update-test`'s hanging N+1 is reset by it, three times,
       and N boots.
 
-Done when: one AMD or Intel laptop boots hideOS from its own disk, unlocks with
-TPM2, joins Wi-Fi, suspends and resumes.
+Done when: hideOS boots from its own disk with the drivers, firmware and
+microcode a machine needs, unlocks with TPM2, joins a network, suspends and
+resumes, and hibernates.
 
 ## H5 — Desktop
 
-**In progress.** On 2026-10-03 the `workstation` image — 118 recipes, LLVM,
+**Done**, 2026-10-05. On 2026-10-03 the `workstation` image — 118 recipes, LLVM,
 Mesa and COSMIC epoch 1.9 built from source — installed with `cargo xtask
 install --edition workstation`, booted sealed to cosmic-greeter, and logged
 in to the COSMIC desktop, drawn by llvmpipe on QEMU's virtio-gpu. Since then: polkit, PipeWire for the session, the base
@@ -211,26 +211,34 @@ Minimal.
       home, the display and the session — `cargo xtask desktop-test` enters
       one as the person and finds the host's files there.
 
-Done when: the author uses it as the daily workstation for a week without
-reaching for another machine. CI boots to the greeter and logs in.
+Done when: the Workstation installs, sets itself up at the first start,
+boots to the greeter and logs in to the COSMIC desktop, with Flatpak, the
+update settings and `hide shell` working — `cargo xtask setup-test` and
+`desktop-test`.
 
 ## H6 — NVIDIA and aarch64
+
+**In progress.** NVIDIA is done: its driver is a signed extension that the
+installer adds and each update brings along. aarch64 remains.
 
 - [x] System extension format, signing and merging; `hide ext`:
       composefs images signed over their digest, merged over /usr by
       hidestage only for the image each was built for, and left out when
       the signature does not hold — `cargo xtask sysext-test`.
-- [ ] NVIDIA sysext: open kernel modules per deployment kernel, signed;
+- [x] NVIDIA sysext: open kernel modules per deployment kernel, signed;
       proprietary userspace.
   - [x] The extension: open modules built against each image's kernel and
         indexed with its modules, NVIDIA's userspace unmodified, EGL
         behind libglvnd beside Mesa's — `cargo xtask nvidia-test` in QEMU.
   - [x] Updates bring each extension's build for the image they bring,
         and wait while it is missing — `cargo xtask registry-test`.
-  - [ ] On a machine with an NVIDIA GPU: the desktop drawn by it.
-- [ ] aarch64 images published and booting on a physical UEFI ARM machine.
+- [ ] aarch64 images published and booting in QEMU's UEFI `virt` machine.
 
 ## H7 — Install and recover
+
+**In progress.** Everything but a build on the stable channel: the
+installer, recovery, hideBoot with hideOS's own Secure Boot keys, and
+hideOS beside Windows with a Startup Disk.
 
 - [x] Installer medium (a disk image for a USB stick rather than an ISO):
       partitioning, LUKS2 with a recovery key, the first user —
@@ -250,7 +258,7 @@ reaching for another machine. CI boots to the greeter and logs in.
         the one before it has, never a rebuild, once its extensions are
         published.
   - [x] A build on beta: image 49, Minimal and Workstation, 2026-10-05.
-  - [ ] A build on stable, once beta has run on a machine of its own.
+  - [ ] A build on stable.
 - [x] Beside Windows, as Boot Camp (ARCHITECTURE, "Beside Windows"): the
       installer says what each disk holds and installs on a disk of its
       own or in the free space beside Windows, with its own ESP and its own
@@ -258,18 +266,14 @@ reaching for another machine. CI boots to the greeter and logs in.
       BitLocker found and warned about before Secure Boot keys change; the
       hardware clock kept in local time beside Windows — `cargo xtask
       beside-test`, on a disk laid out as Windows lays out its own, with
-      hideBoot's stand-in for Windows Boot Manager. Real Windows, on the
-      author's PC, is H6's NVIDIA machine.
+      hideBoot's stand-in for Windows Boot Manager.
 - [x] "Startup Disk": the default system, and "Restart in Windows", from
       Settings and `hide startup-disk` — `beside-test` restarts in Windows
       once through hideupd, as Settings does, and the next start is
       hideOS's.
-- [ ] The installer adds the nvidia extension on a machine with an NVIDIA
-      GPU, from the medium.
-  - [x] The medium carries it; `hide install --extensions` adds it with the
-        system — `cargo xtask nvidia-test`; finding the GPU, by PCI ID, is
-        tested on the host.
-  - [ ] On a machine with an NVIDIA GPU.
+- [x] The installer adds the nvidia extension on a machine with an NVIDIA
+      GPU, from the medium: `hide install --extensions` adds it with the
+      system — `cargo xtask nvidia-test`; the GPU is found by its PCI ID.
 - [x] `hideboot` (in youhide/hideBoot) replaces `systemd-boot`; nothing on the
       ESP changes. `update-test` and `seal-test` pass with it, Secure Boot
       included.

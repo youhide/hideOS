@@ -842,7 +842,7 @@ is therefore also a test of the installer.
 | First-boot setup as on a Mac (`hidesetup`)   | **Decided**  | The installer writes a disk; the person is the first boot's     |
 | Updates bring the extensions they need       | **Decided**  | An NVIDIA machine never boots a system without its driver       |
 | Beside Windows, as Boot Camp                 | **Decided**  | Most PCs keep Windows; hideOS installs beside it and offers it  |
-| Device manager and logind in Rust            | **Later**    | eudev and elogind work; replace after the desktop is daily-driven |
+| Device manager and logind in Rust            | **Later**    | eudev and elogind work; replace once the desktop is done (H5)   |
 
 aarch64 note: generic UEFI aarch64 machines (Ampere, Raspberry Pi 5 with UEFI
 firmware, QEMU `virt`) are the target. Snapdragon X laptops depend on upstream
