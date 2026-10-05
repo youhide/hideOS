@@ -39,8 +39,14 @@ cargo xtask promote --edition workstation --to stable   # beta's image
 An image's [[System extensions]] are published under its system digest —
 what a client computes from it, which hideforge also writes on the
 manifest as `os.hide.image.system` — before its channel tag moves, and
-`promote` refuses an image whose extensions are not there: an update brings the extensions with it, and would wait for one
-that is missing. ARCHITECTURE has stable wait for beta's boot-success
+`promote` refuses an image whose extensions are not there: an update
+brings the extensions with it, and would wait for one that is missing.
+
+Building an extension needs the build store, and pushing needs gh's
+token, which need not be on the same machine. `publish --prepare` builds
+the image's extensions where the store is and records which system they
+were built for; copied with the image, `target/images/E-ARCH/`, to where
+gh is, `publish` pushes them as they are rather than building again. ARCHITECTURE has stable wait for beta's boot-success
 telemetry; until that exists, promoting is the maintainer's call.
 
 ## `hide update`

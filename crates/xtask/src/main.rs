@@ -176,9 +176,11 @@ fn usage() -> &'static str {
                                   copy of the checkout under target/lanes;
                                   every test when none is named, a log per
                                   test and one line each in target/logs/round.log
-    publish --edition E --channel C [--arch ARCH]
+    publish --edition E --channel C [--arch ARCH] [--prepare]
                                   push the built image to
-                                  ghcr.io/youhide/hideos:E-C, with gh's token
+                                  ghcr.io/youhide/hideos:E-C, with gh's token;
+                                  --prepare only builds its extensions, for a
+                                  push from another machine
     promote --edition E --to beta|stable
                                   move E's beta tag to edge's image, or its
                                   stable tag to beta's, once the image's
@@ -5318,6 +5320,38 @@ fn publish(args: &[String]) -> Result<(), String> {
         ));
     }
     let root = workspace_root()?;
+    let digest = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
+    let digest = digest.trim().trim_start_matches("sha256:").to_owned();
+    // The image's extensions, each built for it, signed — unless one was
+    // already, for this very image: `--prepare` does this part alone, on
+    // the machine with the build store, and the push can then happen
+    // where the registry's credentials are.
+    for name in extensions_of(edition) {
+        let out = dir.join("sysext").join(name);
+        let stamp = out.join("built-for");
+        let built = fs::read_to_string(&stamp).is_ok_and(|s| s.trim() == digest)
+            && out.join(format!("{name}.sysext.oci.tar")).is_file();
+        if !built {
+            build_sysext(
+                arch,
+                name,
+                &digest,
+                true,
+                &format!(
+                    "/src/target/images/{}-{}/sysext/{name}",
+                    edition.name, arch.name
+                ),
+            )?;
+            fs::write(&stamp, format!("{digest}\n")).map_err(|e| e.to_string())?;
+        }
+    }
+    if args.iter().any(|a| a == "--prepare") {
+        println!(
+            "{}: prepared for {channel}; push with `cargo xtask publish` where gh is",
+            edition.name
+        );
+        return Ok(());
+    }
     let auth = ghcr_auth(&root)?;
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
     let push = |archive: &Path, target: &str| -> Result<(), String> {
@@ -5336,22 +5370,10 @@ fn publish(args: &[String]) -> Result<(), String> {
         println!("published {target}");
         Ok(())
     };
-    // The image's extensions first, each built for it: an update to the
-    // image fetches them, and waits while one is missing.
+    // The image's extensions first: an update to the image fetches them,
+    // and waits while one is missing.
     let result = (|| {
-        let digest = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
-        let digest = digest.trim().trim_start_matches("sha256:").to_owned();
         for name in extensions_of(edition) {
-            build_sysext(
-                arch,
-                name,
-                &digest,
-                true,
-                &format!(
-                    "/src/target/images/{}-{}/sysext/{name}",
-                    edition.name, arch.name
-                ),
-            )?;
             push(
                 &dir.join("sysext")
                     .join(name)
