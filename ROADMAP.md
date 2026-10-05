@@ -249,7 +249,8 @@ reaching for another machine. CI boots to the greeter and logs in.
   - [x] `cargo xtask promote --to beta|stable`: a channel takes the image
         the one before it has, never a rebuild, once its extensions are
         published.
-  - [ ] A build on beta, then on stable.
+  - [x] A build on beta: image 49, Minimal and Workstation, 2026-10-05.
+  - [ ] A build on stable, once beta has run on a machine of its own.
 - [x] Beside Windows, as Boot Camp (ARCHITECTURE, "Beside Windows"): the
       installer says what each disk holds and installs on a disk of its
       own or in the free space beside Windows, with its own ESP and its own

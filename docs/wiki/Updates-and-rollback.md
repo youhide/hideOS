@@ -36,9 +36,10 @@ cargo xtask promote --edition workstation --to beta     # edge's image
 cargo xtask promote --edition workstation --to stable   # beta's image
 ```
 
-An image's [[System extensions]] are published under its digest before its
-channel tag moves, and `promote` refuses an image whose extensions are not
-there: an update brings the extensions with it, and would wait for one
+An image's [[System extensions]] are published under its system digest —
+what a client computes from it, which hideforge also writes on the
+manifest as `os.hide.image.system` — before its channel tag moves, and
+`promote` refuses an image whose extensions are not there: an update brings the extensions with it, and would wait for one
 that is missing. ARCHITECTURE has stable wait for beta's boot-success
 telemetry; until that exists, promoting is the maintainer's call.
 

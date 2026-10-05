@@ -206,6 +206,21 @@ impl Image {
             "the finished image's boot digest is sha256:{again}, but its UKI carries \
              sha256:{digest}: the UKI layer changed what boots"
         );
+        // What a client computes from the image, on its manifest, for what
+        // has to name the image by it without pulling gigabytes: extensions
+        // are published under it, and `cargo xtask promote` finds them so.
+        // An annotation changes the manifest's digest, not what boots.
+        let mut annotations = self.manifest.annotations().clone().unwrap_or_default();
+        annotations.insert(
+            "os.hide.image.system".to_owned(),
+            format!("sha256:{digest}"),
+        );
+        self.manifest.set_annotations(Some(annotations));
+        self.oci.insert_manifest(
+            self.manifest.clone(),
+            Some(&self.tag),
+            self.platform.clone(),
+        )?;
         Ok(())
     }
 

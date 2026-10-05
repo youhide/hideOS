@@ -3867,6 +3867,8 @@ fn boot_until_up(
             }
             thread::sleep(Duration::from_millis(500));
         }
+        // QEMU gone, its last lines may still be on their way from the pipe.
+        thread::sleep(Duration::from_millis(500));
         log.push_str(&format!("attempt {attempt}:\n{}\n", guest.output()));
     }
     Err("the disk did not come up in six boots".to_owned())
@@ -4607,11 +4609,19 @@ print panic-ready",
         reboot(guest)?;
         let mut panics = String::new();
         let mut guest = boot_until_up(arch, &dir, &disk, None, &mut panics)?;
-        let resets = panics.matches("Kernel panic").count();
+        // Failed attempts, each a boot that ended before the system was up;
+        // the panic seen in at least one says why. Its line is the last a
+        // dying guest prints, and the one most easily lost on a busy host.
+        let resets = panics
+            .lines()
+            .filter(|l| l.starts_with("attempt ") && l.ends_with(':'))
+            .count();
         check(
             "N+1 panics three times, then N boots",
-            running_digest(&mut guest)? == n && resets == 3,
-            &format!("{resets} panics:\n{panics}"),
+            running_digest(&mut guest)? == n
+                && resets == 3
+                && panics.contains("Kernel panic"),
+            &format!("{resets} failed boots:\n{panics}"),
         );
         let status = guest.run("hide status", minute)?;
         check(
@@ -5280,10 +5290,50 @@ fn promote(args: &[String]) -> Result<(), String> {
         if hex.len() != 64 {
             return Err(format!("{source} has no digest: `{digest}`"));
         }
+        // Extensions are published under the system's digest — what a
+        // client computes from the image — not the manifest's.
+        let manifest = skopeo(&["inspect", "--raw", &source])?;
+        let system = match json_string(&manifest, "os.hide.image.system") {
+            Some(system) => system,
+            // An image from before hideforge wrote it on the manifest: the
+            // one built here, when it is the same image — the same config,
+            // which lists every layer's content and which a push copies as
+            // it is, where the manifest is written anew.
+            None => {
+                let dir = image_dir(edition, find_arch(&[])?)?;
+                let local = skopeo(&[
+                    "inspect",
+                    "--raw",
+                    &format!(
+                        "oci-archive:/src/target/images/{}/image.oci.tar",
+                        dir.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                ])?;
+                let config = |m: &str| {
+                    m.find("\"config\"")
+                        .and_then(|at| m.get(at..))
+                        .and_then(|m| json_string(m, "digest"))
+                };
+                if config(&manifest).is_none() || config(&manifest) != config(&local) {
+                    return Err(format!(
+                        "{source} names no system digest, and is not the image in {}",
+                        dir.display()
+                    ));
+                }
+                fs::read_to_string(dir.join("image.digest"))
+                    .map_err(|e| e.to_string())?
+                    .trim()
+                    .to_owned()
+            }
+        };
+        let system_hex = system.trim_start_matches("sha256:");
+        if system_hex.len() != 64 {
+            return Err(format!("{source}'s system digest is `{system}`"));
+        }
         for name in extensions_of(edition) {
-            let tag = format!("{repository}:ext-{name}-{hex}");
+            let tag = format!("{repository}:ext-{name}-{system_hex}");
             skopeo(&["inspect", "--format", "{{.Digest}}", &tag]).map_err(|_| {
-                format!("{source} is {digest}, and its {name} extension is not published: {tag}")
+                format!("{source} boots {system}, and its {name} extension is not published: {tag}")
             })?;
             println!("  {name} extension published for it");
         }
@@ -5294,6 +5344,15 @@ fn promote(args: &[String]) -> Result<(), String> {
     })();
     let _ = fs::remove_file(&auth);
     result
+}
+
+/// The string value of the first `"key": "value"` in `json`: enough for
+/// the registry's manifests, without a JSON parser in xtask.
+fn json_string(json: &str, key: &str) -> Option<String> {
+    let at = json.find(&format!("\"{key}\""))? + key.len() + 2;
+    let rest = json.get(at..)?.trim_start().strip_prefix(':')?.trim_start();
+    let value = rest.strip_prefix('"')?;
+    Some(value.get(..value.find('"')?)?.to_owned())
 }
 
 /// The system extensions hideOS publishes for each of an edition's
@@ -5794,6 +5853,26 @@ fn run(command: &mut Command) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_manifest_names_its_config_and_system() {
+        let manifest = r#"{"schemaVersion":2,"config":{"mediaType":"x","digest":"sha256:c0","size":1},
+            "annotations": { "os.hide.image.system" : "sha256:5y5" }}"#;
+        assert_eq!(
+            super::json_string(manifest, "os.hide.image.system").as_deref(),
+            Some("sha256:5y5")
+        );
+        let config = manifest
+            .find("\"config\"")
+            .and_then(|at| manifest.get(at..));
+        assert_eq!(
+            config
+                .and_then(|m| super::json_string(m, "digest"))
+                .as_deref(),
+            Some("sha256:c0")
+        );
+        assert_eq!(super::json_string(manifest, "missing"), None);
+    }
+
     #[test]
     fn base64_as_registries_read_it() {
         assert_eq!(super::base64_encode(b"youhide:abc"), "eW91aGlkZTphYmM=");

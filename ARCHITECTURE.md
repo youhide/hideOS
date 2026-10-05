@@ -318,6 +318,9 @@ other one.
 **Decided: an update brings the extensions with it.** hideOS publishes each
 image's extensions beside it, in the same repository, as
 `ext-<name>-<image digest>`, before the image's channel tag moves to it.
+The digest is the system's — the composefs image a client computes, which
+the UKI names — not the manifest's, which a push rewrites; the manifest
+carries it as the annotation `os.hide.image.system`.
 `hide update`, having pulled the new image, fetches the build of every
 extension the machine has for that image, and only then commits; a build
 that is not there stops the update, which says so and waits — a machine
