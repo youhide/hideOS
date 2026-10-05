@@ -49,6 +49,7 @@ mod output;
 mod payload;
 #[cfg(target_os = "linux")]
 mod sandbox;
+mod stamp;
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 mod sys;
@@ -291,7 +292,20 @@ fn run(args: &[String]) -> Result<i32> {
                     None => 0,
                 },
             };
-            image::assemble(&set, &layout, &hashes, name, &outputs)?;
+            let dir = std::path::Path::new(output);
+            let key = stamp::key(
+                &hashes,
+                rest,
+                parsed.value("--sign").map(std::path::Path::new),
+            )?;
+            if stamp::fresh(dir, &key) {
+                println!("  image   {output}: assembled from these inputs already");
+            } else {
+                stamp::clear(dir);
+                let before = stamp::files(dir);
+                image::assemble(&set, &layout, &hashes, name, &outputs)?;
+                stamp::write(dir, &key, &before)?;
+            }
         }
         other => bail!("unknown command `{other}`"),
     }
@@ -443,6 +457,12 @@ fn build_one(
         .get(name)
         .ok_or_else(|| anyhow!("no hash for {name}"))?;
     let output = layout.output(hash, recipe);
+    if output.is_dir() {
+        println!("  cached  {}", layout::store_name(hash, recipe));
+        return Ok(());
+    }
+    let _lock = layout.lock(&layout::store_name(hash, recipe))?;
+    // Built by another run while this one waited for the lock.
     if output.is_dir() {
         println!("  cached  {}", layout::store_name(hash, recipe));
         return Ok(());

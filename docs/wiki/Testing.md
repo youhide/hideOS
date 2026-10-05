@@ -25,8 +25,11 @@ CI runs only for `v*` tags or by hand, never on push; see
 
 - **It builds what it tests.** Each test runs `cargo xtask image` first, in
   the builder, so it tests this tree. With nothing changed that is a few
-  seconds; after a change to a recipe or to `crates/`, it is that rebuild.
-  Never start two at once: see [[Development notes#one-image-build-at-a-time]].
+  seconds; after a change to a recipe or to a crate that ships, it is that
+  rebuild. hideforge stamps the image directory with what the image was
+  assembled from (`.hideforge-image`), and leaves an image assembled from
+  the same inputs as it is. Two tests in one checkout never run at once:
+  see [[Development notes#one-image-build-at-a-time-per-checkout]].
 - **It installs a fresh disk** the way `cargo xtask install` does, by
   booting Minimal from RAM with `hide install` as PID 1. An install may take
   up to 15 minutes before the test gives up.
@@ -46,6 +49,26 @@ CI runs only for `v*` tags or by hand, never on push; see
 
 Durations below are given as what a test does — builds, installs, boots —
 because few runs have been timed. Recorded numbers are marked.
+
+## A round of tests
+
+```sh
+cargo xtask round                 # every test, in lanes side by side
+cargo xtask round --lanes 2 beside-test installer-test --edition workstation
+```
+
+Each lane is a copy of the checkout in `target/lanes/N`, with its own
+`target/`, and runs its tests one after another; the lanes run at once.
+The images are built once, before the lanes, and each lane gets them as
+hard links, so that four lanes do not assemble four Workstations at once
+on one disk. Logs go to `target/logs/round-<test>.log`, one line per test
+to `target/logs/round.log`, and every guest's serial console as it comes
+to the lane's `target/logs/console-<pid>.log` — where to look while a test
+waits for a line. The default is one lane per two CPUs, at most three.
+
+On an eight-CPU Linux PC with KVM, a guest boots in seconds where the
+Mac's emulated Secure Boot takes minutes; `hw-test` took 2 minutes there
+and 15 on the Mac.
 
 ## The tests
 
@@ -139,6 +162,39 @@ by `hide ext add`; one built for another image is added but left out at
 boot; one signed for this image is merged over `/usr`, read-only; and that
 one is left out once its record's signature is damaged. One install, four
 boots. See [[System extensions]].
+
+### `registry-test`
+
+Builds Minimal N and N+1 and the test extension for each, and serves N+1
+and N+1's extension from a small read-only registry of xtask's own. On an
+installed N with the extension for N: plain `hide update` waits while the
+registry has no extension build for N+1; once it has, the update fetches
+the image and the build and commits; N+1 boots with its build merged; and
+after `hide rollback`, N boots with N's. See [[Updates and rollback]] and
+[[System extensions]].
+
+### `nvidia-test`
+
+Builds the Workstation and the nvidia extension for it, and installs the
+two together, as the installer does from its medium on a machine with an
+NVIDIA GPU (`hide install --extensions`; finding the GPU is tested on the
+host, QEMU has none to show). Then it checks, in QEMU: its
+modules are the running kernel's and are indexed with the image's;
+`nvidia.ko` loads as far as finding no GPU; NVIDIA's libraries and
+`nvidia-smi` link, its EGL vendor file sits beside Mesa's in libglvnd's,
+and modprobe.d keeps nouveau off; and the desktop still comes up, drawn by
+Mesa through libglvnd. See [[System extensions]].
+
+### `beside-test`
+
+Lays out a disk as Windows 11 lays out its own — the ESP with a stand-in
+for `bootmgfw.efi`, the reserved partition, an NTFS system volume, the
+recovery partition — with 40 GiB free after them, made by Minimal from RAM.
+Then the installer: it says the disk holds Windows, offers the space beside
+it, installs there; the disk boots from the firmware's own entry for
+hideOS, first in its order; Windows's partitions, their places and
+contents are as they were; and the hardware clock is read as local time.
+See [[Install and recover]].
 
 ### `installer-test`
 

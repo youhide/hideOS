@@ -5,7 +5,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -72,6 +71,7 @@ pub fn assemble(
         bail!("{name}: {} path(s) provided twice", conflicts.len());
     }
 
+    let _lock = layout.lock(&format!("image-{name}"))?;
     let root = layout.image_root(name);
     if root.exists() {
         fs::remove_dir_all(&root)?;
@@ -415,7 +415,7 @@ fn write_payload(
     {
         let mut file = fs::File::create(&initrd)?;
         if let Some(early) = &early {
-            io::copy(&mut fs::File::open(early)?, &mut file)?;
+            std::io::copy(&mut fs::File::open(early)?, &mut file)?;
         }
         run(Command::new("sh")
             .arg("-c")
@@ -728,6 +728,16 @@ pub struct Sysext<'a> {
     pub sign: Option<&'a Path>,
 }
 
+#[cfg(not(target_os = "linux"))]
+pub fn sysext(
+    _: &RecipeSet,
+    _: &Layout,
+    _: &BTreeMap<String, InputHash>,
+    _: &Sysext,
+) -> Result<()> {
+    bail!("building needs Linux; run it in the builder: cargo xtask forge -- sysext NAME")
+}
+
 #[cfg(target_os = "linux")]
 pub fn sysext(
     set: &RecipeSet,
@@ -749,6 +759,7 @@ pub fn sysext(
         .get(name)
         .ok_or_else(|| anyhow!("no hash for {name}"))?;
     let built = layout.output(hash, &set.get(name)?.recipe);
+    let _lock = layout.lock(&format!("image-{name}.sysext"))?;
     let stage = layout.image_root(&format!("{name}.sysext"));
     if stage.exists() {
         fs::remove_dir_all(&stage)?;
@@ -780,7 +791,7 @@ pub fn sysext(
 
     let oci = stage.join("oci");
     let digest =
-        crate::payload::write_extension(&root, &oci, &stage.join("repo"), name, arch, sign)?;
+        crate::payload::write_extension(&root, &oci, &stage.join("repo"), name, image, arch, sign)?;
     fs::create_dir_all(output)?;
     let archive = output.join(format!("{name}.sysext.oci.tar"));
     run(Command::new("tar")

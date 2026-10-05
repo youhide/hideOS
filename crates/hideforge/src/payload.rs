@@ -82,6 +82,7 @@ pub fn write_extension(
     oci: &Path,
     repo: &Path,
     name: &str,
+    built_for: &str,
     arch: hideforge_recipe::Arch,
     sign: Option<&Path>,
 ) -> Result<String> {
@@ -90,6 +91,13 @@ pub fn write_extension(
     let digest = pull(oci, repo, name, true, false)?;
     let mut annotations = std::collections::HashMap::new();
     annotations.insert("os.hide.extension.name".to_owned(), name.to_owned());
+    // The system image it was built for, as its extension-release says:
+    // where `hide` records it, without mounting it. Not signed, and not
+    // trusted for more than that: hidestage checks the signed file.
+    annotations.insert(
+        "os.hide.extension.for".to_owned(),
+        format!("sha256:{built_for}"),
+    );
     if let Some(keys) = sign {
         let output = Command::new("openssl")
             .args(["dgst", "-sha256", "-sign"])

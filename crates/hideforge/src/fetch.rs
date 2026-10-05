@@ -360,7 +360,7 @@ fn vendor_cargo_git(layout: &Layout, src: &Path, inside: &str, git: usize) -> Re
 /// Downloads the first of `urls` that answers to `path`, keeping it only if
 /// its SHA-256 is `sha256`.
 fn download(urls: &[String], path: &Path, sha256: &str) -> Result<()> {
-    let partial = path.with_extension("part");
+    let partial = path.with_extension(format!("part-{}", crate::layout::run_id()));
     for url in urls {
         eprintln!("  fetch {url}");
         let status = Command::new("curl")

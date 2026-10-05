@@ -48,6 +48,7 @@ fn main() -> ExitCode {
         Some("power-test") => power_test(args.get(1..).unwrap_or_default()),
         Some("crypt-test") => crypt_test(args.get(1..).unwrap_or_default()),
         Some("sysext-test") => sysext_test(args.get(1..).unwrap_or_default()),
+        Some("nvidia-test") => nvidia_test(args.get(1..).unwrap_or_default()),
         Some("desktop-test") => desktop_test(args.get(1..).unwrap_or_default()),
         Some("desktop-shell") => desktop_shell(args.get(1..).unwrap_or_default()),
         Some("setup-test") => setup_test(args.get(1..).unwrap_or_default()),
@@ -57,10 +58,13 @@ fn main() -> ExitCode {
         Some("secureboot-test") => secureboot_test(args.get(1..).unwrap_or_default()),
         Some("installer") => installer(args.get(1..).unwrap_or_default()).map(|_| ()),
         Some("installer-test") => installer_test(args.get(1..).unwrap_or_default()),
+        Some("beside-test") => beside_test(args.get(1..).unwrap_or_default()),
         Some("screenshot") => screenshot(args.get(1..).unwrap_or_default()),
         Some("hideboot-screenshot") => hideboot_screenshot(args.get(1..).unwrap_or_default()),
         Some("publish-site") => publish_site(),
+        Some("round") => round(args.get(1..).unwrap_or_default()),
         Some("publish") => publish(args.get(1..).unwrap_or_default()),
+        Some("promote") => promote(args.get(1..).unwrap_or_default()),
         Some("wiki") => wiki::run(),
         Some("help" | "--help" | "-h") | None => {
             print!("{}", usage());
@@ -119,6 +123,17 @@ fn usage() -> &'static str {
                                   answer it, and boot what it installed; the
                                   Workstation's asks only about the disk and
                                   starts first-boot setup
+    nvidia-test [--arch ARCH]     the nvidia extension on a Workstation:
+                                  installed with it, as the installer does
+                                  from its medium, merged, its modules
+                                  built for the kernel and indexed, its
+                                  userspace linked, and the desktop still
+                                  drawn by Mesa with no NVIDIA GPU
+    beside-test [--arch ARCH]     a disk laid out as Windows lays out its own,
+                                  with free space after it: the installer says
+                                  it holds Windows, installs beside it without
+                                  touching it, and puts hideOS first in the
+                                  firmware's boot order
     sysext-test [--arch ARCH]     system extensions: refused unsigned, left out
                                   when built for another image, merged over
                                   /usr when signed for this one
@@ -156,9 +171,17 @@ fn usage() -> &'static str {
                                   install Minimal, give its ESP an entry in
                                   each state and the recovery system, and
                                   save PNGs of hideBoot's menu
+    round [--lanes N] [TEST...]   run tests side by side, each lane in its own
+                                  copy of the checkout under target/lanes;
+                                  every test when none is named, a log per
+                                  test and one line each in target/logs/round.log
     publish --edition E --channel C [--arch ARCH]
                                   push the built image to
                                   ghcr.io/youhide/hideos:E-C, with gh's token
+    promote --edition E --to beta|stable
+                                  move E's beta tag to edge's image, or its
+                                  stable tag to beta's, once the image's
+                                  extensions are published
     publish-site                  push site/ and the screenshots to gh-pages
     wiki                          render docs/wiki into site/wiki
 "
@@ -331,6 +354,17 @@ fn doctor() -> Result<(), String> {
         });
     }
 
+    // The TPM the encryption and power tests give their guests.
+    checks.push(if on_path("swtpm") {
+        Check::Ok("swtpm found".to_owned())
+    } else {
+        Check::Missing(
+            "swtpm not on PATH; crypt-test needs it: `swtpm` and `swtpm-tools` (Debian), \
+             or Homebrew's `swtpm`"
+                .to_owned(),
+        )
+    });
+
     let runtime = container_runtime();
     checks.push(match &runtime {
         Some(runtime) if daemon_reachable(runtime) => {
@@ -467,7 +501,17 @@ fn builder_command(runtime: &str, root: &Path, interactive: bool) -> Command {
         // namespaces are for hermeticity, and they need the privilege.
         .arg("--privileged");
     // Host-environment recipes hash the builder they ran in.
-    if let Some(id) = builder_image_id(runtime) {
+    // HIDEFORGE_HOST_ID from the environment wins: the same builder image
+    // has another ID on a Docker that stores images another way —
+    // containerd's store names an image by its manifest, which `docker
+    // save` and `docker load` rewrite — so a machine given a copy of
+    // another's build cache, and its builder image, names the ID that cache
+    // was built with. Only for that image: a rebuilt builder is a new ID.
+    if let Some(id) = env::var("HIDEFORGE_HOST_ID")
+        .ok()
+        .filter(|id| !id.is_empty())
+        .or_else(|| builder_image_id(runtime))
+    {
         command.args(["--env", &format!("HIDEFORGE_HOST_ID={id}")]);
     }
     // KVM, where the host has it. Docker Desktop on macOS never does: QEMU
@@ -476,7 +520,31 @@ fn builder_command(runtime: &str, root: &Path, interactive: bool) -> Command {
     if Path::new("/dev/kvm").exists() {
         command.args(["--device", "/dev/kvm"]);
     }
+    // On a Linux host the bind mount keeps the builder's root as the owner
+    // of what it writes, and the tests then cannot add their disks beside
+    // an image they did not create. Docker Desktop maps ownership itself.
+    // So the command runs under a shell that, whatever it exits with, hands
+    // `target/` back to whoever owns the checkout.
+    let owner = cfg!(target_os = "linux")
+        .then(|| {
+            use std::os::unix::fs::MetadataExt as _;
+            fs::metadata(root).ok().map(|m| (m.uid(), m.gid()))
+        })
+        .flatten()
+        .filter(|&(uid, _)| uid != 0);
+    if owner.is_some() {
+        command.args(["--entrypoint", "sh"]);
+    }
     command.arg(BUILDER_IMAGE);
+    if let Some((uid, gid)) = owner {
+        command.args([
+            "-c",
+            &format!(
+                "\"$@\"; status=$?; chown -R {uid}:{gid} /src/target 2>/dev/null; exit $status"
+            ),
+            "sh",
+        ]);
+    }
     command
 }
 
@@ -860,6 +928,19 @@ fn install_payload_as(
     disk: &Path,
     arguments: &str,
 ) -> Result<(), String> {
+    install_payload_with(arch, edition, dir, disk, arguments, None)
+}
+
+/// `install_payload_as`, with `third` as the installing machine's third
+/// disk, vdc: what the installer medium's other partitions are to it.
+fn install_payload_with(
+    arch: Arch,
+    edition: Edition,
+    dir: &Path,
+    disk: &Path,
+    arguments: &str,
+    third: Option<&Path>,
+) -> Result<(), String> {
     let dir = dir.to_path_buf();
     // Every edition is installed by Minimal, as on a real machine.
     let (kernel, initrd) = ram_image(arch, &image_dir(MINIMAL, arch)?)?;
@@ -904,6 +985,12 @@ fn install_payload_as(
             "if=virtio,format=raw,readonly=on,file={}",
             payload.display()
         ));
+    if let Some(third) = third {
+        command.arg("-drive").arg(format!(
+            "if=virtio,format=raw,readonly=on,file={}",
+            third.display()
+        ));
+    }
     println!(
         "installing hideOS {} {} on {}",
         edition.name,
@@ -1367,15 +1454,32 @@ impl Guest {
         let mut stdout = child.stdout.take().ok_or("QEMU's stdout")?;
         let output = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let sink = std::sync::Arc::clone(&output);
+        // The console as it comes, also in a file: a test waiting for a
+        // line that never comes says nothing until it gives up, and this is
+        // where to look meanwhile. Every guest of one run in one file.
+        let mut tee = workspace_root().ok().and_then(|root| {
+            let logs = root.join("target").join("logs");
+            fs::create_dir_all(&logs).ok()?;
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(logs.join(format!("console-{}.log", process::id())))
+                .ok()
+        });
         thread::spawn(move || {
-            use std::io::Read;
+            use std::io::{Read, Write};
             let mut buffer = [0u8; 4096];
             while let Ok(n) = stdout.read(&mut buffer) {
                 if n == 0 {
                     break;
                 }
-                if let (Ok(mut text), Some(bytes)) = (sink.lock(), buffer.get(..n)) {
-                    text.push_str(&String::from_utf8_lossy(bytes));
+                if let Some(bytes) = buffer.get(..n) {
+                    if let Some(file) = tee.as_mut() {
+                        let _ = file.write_all(bytes);
+                    }
+                    if let Ok(mut text) = sink.lock() {
+                        text.push_str(&String::from_utf8_lossy(bytes));
+                    }
                 }
             }
         });
@@ -1434,13 +1538,18 @@ impl Guest {
 
     /// Runs `command` at the shell and returns what it printed between two
     /// markers. The markers are built by the shell from pieces, so the
-    /// echo of the typed line never matches them.
+    /// echo of the typed line never matches them, and numbered, so the late
+    /// answer to a command that timed out — `shell` asks again when a slow
+    /// guest has not answered yet — is never taken for this one's.
     fn run(&mut self, command: &str, timeout: Duration) -> Result<String, String> {
+        static RUNS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (begin, end) = (format!("@@BEGIN{n}@@"), format!("@@END{n}@@"));
         let before = self.output().len();
         self.type_line(&format!(
-            "a=@@; print \"${{a}}BEGIN\"; {{ {command} ; }} 2>&1; print \"${{a}}END\""
+            "a=@@; print \"${{a}}BEGIN{n}${{a}}\"; {{ {command} ; }} 2>&1; print \"${{a}}END{n}${{a}}\""
         ))?;
-        if !self.wait_for_after(before, "@@END", timeout) {
+        if !self.wait_for_after(before, &end, timeout) {
             let output = self.output();
             let tail = output.get(output.len().saturating_sub(800)..).unwrap_or("");
             return Err(format!(
@@ -1448,12 +1557,9 @@ impl Guest {
             ));
         }
         let text = without_kernel_messages(self.output().get(before..).unwrap_or(""));
-        let start = text
-            .find("@@BEGIN")
-            .map(|i| i + "@@BEGIN".len())
-            .unwrap_or(0);
-        let end = text.find("@@END").unwrap_or(text.len());
-        Ok(text.get(start..end).unwrap_or("").trim().to_owned())
+        let start = text.find(&begin).map(|i| i + begin.len()).unwrap_or(0);
+        let stop = text.find(&end).unwrap_or(text.len());
+        Ok(text.get(start..stop).unwrap_or("").trim().to_owned())
     }
 
     fn wait_for_after(&self, from: usize, text: &str, timeout: Duration) -> bool {
@@ -1723,6 +1829,8 @@ fn desktop_test(args: &[String]) -> Result<(), String> {
         .copied()
         .find(|e| e.name == "workstation")
         .ok_or("no workstation edition")?;
+    // Minimal installs it, as on a machine.
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
     build_image(arch, edition, image_version()?, "", None)?;
     let dir = image_dir(edition, arch)?;
     let disk = dir.join("desktop-test.raw");
@@ -1927,6 +2035,8 @@ fn setup_test(args: &[String]) -> Result<(), String> {
         .copied()
         .find(|e| e.name == "workstation")
         .ok_or("no workstation edition")?;
+    // Minimal installs it, as on a machine.
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
     build_image(arch, edition, image_version()?, "", None)?;
     let dir = image_dir(edition, arch)?;
     let disk = dir.join("setup-test.raw");
@@ -2089,7 +2199,12 @@ fn setup_test(args: &[String]) -> Result<(), String> {
         &out,
     );
 
-    let out = guest.run(&greeter(&format!("SecureDisk string:{DEV_USER}")), minute)?;
+    // As long as dbus-send's own wait: Argon2 is slow on purpose, and slower
+    // still with other guests beside this one.
+    let out = guest.run(
+        &greeter(&format!("SecureDisk string:{DEV_USER}")),
+        Duration::from_secs(300),
+    )?;
     let recovery = out
         .lines()
         .find_map(|l| l.trim().strip_prefix("string \""))
@@ -2346,13 +2461,20 @@ fn power_test(args: &[String]) -> Result<(), String> {
 /// named hideos-payload — a tar archive is read as it is, and a FAT file
 /// could not hold a payload over 4 GiB.
 const INSTALLER_SCRIPT: &str = r#"set -eu
-out=$1; uki=$2; manager=$3; payload=$4; boot=$5; recovery=$6
+out=$1; uki=$2; manager=$3; payload=$4; boot=$5; recovery=$6; extensions=$7
 mib() { echo $(( ($(stat -c %s "$1") + 1048575) / 1048576 )); }
 esp_mib=$(( $(mib "$uki") + $(mib "$manager") + $(mib "$recovery") + 64 ))
 payload_mib=$(( $(mib "$payload") + 1 ))
+ext_mib=0
+[ "$extensions" = - ] || ext_mib=$(( $(mib "$extensions") + 1 ))
 rm -f "$out"
-truncate -s $(( 1 + esp_mib + payload_mib + 1 ))M "$out"
+truncate -s $(( 1 + esp_mib + payload_mib + ext_mib + 1 ))M "$out"
 sgdisk --clear     --new=1:1M:+${esp_mib}M --typecode=1:ef00 --change-name=1:hideos-installer     --new=2:0:+${payload_mib}M --typecode=2:8300 --change-name=2:hideos-payload     "$out" >/dev/null
+# The system extensions published for the payload's image, raw like it:
+# the installer adds those the machine needs.
+if [ "$extensions" != - ]; then
+    sgdisk --new=3:0:+${ext_mib}M --typecode=3:8300 --change-name=3:hideos-extensions "$out" >/dev/null
+fi
 esp=$(mktemp -u)
 mkfs.vfat -C -F 32 -n HIDEOS "$esp" $(( esp_mib * 1024 )) >/dev/null
 mmd -i "$esp" ::EFI ::EFI/BOOT ::EFI/Linux ::EFI/hideos ::loader
@@ -2364,6 +2486,7 @@ printf 'timeout 0
 mcopy -i "$esp" "$esp.conf" ::loader/loader.conf
 dd if="$esp" of="$out" bs=1M seek=1 conv=notrunc status=none
 dd if="$payload" of="$out" bs=1M seek=$(( 1 + esp_mib )) conv=notrunc status=none
+[ "$extensions" = - ] || dd if="$extensions" of="$out" bs=1M seek=$(( 1 + esp_mib + payload_mib )) conv=notrunc status=none
 rm -f "$esp" "$esp.conf"
 "#;
 
@@ -2394,6 +2517,36 @@ fn installer(args: &[String]) -> Result<PathBuf, String> {
     } else {
         "BOOTX64.EFI"
     };
+    // The payload image's extensions, built for it, in one tar.
+    let extensions = if extensions_of(edition).is_empty() {
+        None
+    } else {
+        let dir = image_dir(edition, arch)?;
+        let digest = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
+        let digest = digest.trim().trim_start_matches("sha256:").to_owned();
+        let stage = dir.join("installer-extensions");
+        let _ = fs::remove_dir_all(&stage);
+        for name in extensions_of(edition) {
+            build_sysext(
+                arch,
+                name,
+                &digest,
+                true,
+                &format!(
+                    "/src/target/images/{}-{}/installer-extensions",
+                    edition.name, arch.name
+                ),
+            )?;
+        }
+        let archive = dir.join("installer-extensions.tar");
+        let mut tar = Command::new("tar");
+        tar.arg("-cf").arg(&archive).arg("-C").arg(&stage);
+        for name in extensions_of(edition) {
+            tar.arg(format!("{name}.sysext.oci.tar"));
+        }
+        run(&mut tar)?;
+        Some(archive)
+    };
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
     run(builder_command(&runtime, &workspace_root()?, false)
         .args(["sh", "-c", INSTALLER_SCRIPT, "installer"])
@@ -2402,9 +2555,294 @@ fn installer(args: &[String]) -> Result<PathBuf, String> {
         .arg(in_builder(&minimal.join("bootmanager.efi"))?)
         .arg(in_builder(&payload)?)
         .arg(boot)
-        .arg(in_builder(&minimal.join("recovery.efi"))?))?;
+        .arg(in_builder(&minimal.join("recovery.efi"))?)
+        .arg(match &extensions {
+            Some(archive) => in_builder(archive)?,
+            None => "-".to_owned(),
+        }))?;
     println!("  medium  {}", out.display());
     Ok(out)
+}
+
+/// Windows's partitions as a Windows 11 install makes them, and what the
+/// test leaves in them to find untouched: the ESP, the reserved partition,
+/// the system volume (an NTFS boot sector and a marker), the recovery
+/// partition — and 40 GiB free after them, as Disk Management's "Shrink
+/// Volume" leaves it.
+const FAKE_WINDOWS: &str = "printf 'label: gpt\\n\
+size=100MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=\"EFI system partition\"\\n\
+size=16MiB, type=E3C9E316-0B5C-4DB8-817D-F92DF00215AE, name=\"Microsoft reserved partition\"\\n\
+size=20GiB, type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name=\"Basic data partition\"\\n\
+size=1GiB, type=DE94BBA4-06D1-4D40-A16A-BFD50179D6AC\\n' | sfdisk --quiet /dev/vda && \
+for i in {1..50}; do [[ -e /dev/vda4 ]] && break; sleep 0.1; done; \
+mkfs.vfat -F 32 -n SYSTEM /dev/vda1 >/dev/null && mkdir -p /tmp/w && mount /dev/vda1 /tmp/w && \
+mkdir -p /tmp/w/EFI/Microsoft/Boot && tar -xOf /dev/vdb bootmgfw.efi > /tmp/w/EFI/Microsoft/Boot/bootmgfw.efi && \
+umount /tmp/w && printf 'NTFS    ' | dd of=/dev/vda3 bs=1 seek=3 conv=notrunc 2>/dev/null && \
+print 'windows data, untouched' | dd of=/dev/vda3 bs=512 seek=1 conv=notrunc 2>/dev/null && \
+sync && print windows-made";
+
+/// What the test checks Windows by: its partitions' places and types, and
+/// the contents of its ESP and the start of its system volume.
+const WINDOWS_PRINT: &str = "sfdisk --dump /dev/vda | grep -E '^/dev/vda[1-4] '; \
+sha256sum /dev/vda1 | cut -c1-16; dd if=/dev/vda3 bs=1M count=1 2>/dev/null | sha256sum | cut -c1-16";
+
+fn beside_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let medium = installer(args)?;
+    let dir = image_dir(MINIMAL, arch)?;
+    let disk = dir.join("beside-test.raw");
+    let _ = fs::remove_file(&disk);
+    fresh_firmware_variables(&dir);
+    fs::File::create(&disk)
+        .and_then(|f| f.set_len(64 << 30))
+        .map_err(|e| format!("creating {}: {e}", disk.display()))?;
+    // The stand-in for Windows Boot Manager, hideBoot's test application
+    // (recipes/system/test/test-bootmgfw.toml), out of hideforge's store.
+    let bundle = dir.join("beside-windows.tar");
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    run(builder_command(&runtime, &workspace_root()?, false).args([
+        "sh",
+        "-c",
+        &format!(
+            "set -e; f() {{ cargo run --quiet --release --package hideforge -- --arch {} \"$@\"; }}; \
+             f build test-bootmgfw; h=$(printf %.32s \"$(f hash test-bootmgfw)\"); \
+             mkdir -p /src/target/hideboot; \
+             cp /work/store/$h*-test-bootmgfw-*/usr/lib/hideboot-test/test-bootmgfw.efi /src/target/hideboot/",
+            arch.name
+        ),
+    ]))?;
+    let stand_in = workspace_root()?.join("target/hideboot/test-bootmgfw.efi");
+    let stage = dir.join("beside-stage");
+    let _ = fs::remove_dir_all(&stage);
+    fs::create_dir_all(&stage).map_err(|e| e.to_string())?;
+    fs::copy(&stand_in, stage.join("bootmgfw.efi")).map_err(|e| e.to_string())?;
+    run(Command::new("tar")
+        .arg("-cf")
+        .arg(&bundle)
+        .arg("-C")
+        .arg(&stage)
+        .arg("bootmgfw.efi"))?;
+
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let boot_timeout = arch.timeout.max(Duration::from_secs(300));
+
+    println!("Windows's disk, laid out by Minimal from RAM");
+    let (kernel, initrd) = ram_image(arch, &dir)?;
+    let mut command = qemu(arch, MINIMAL);
+    command
+        .arg("-kernel")
+        .arg(kernel)
+        .arg("-initrd")
+        .arg(initrd)
+        .arg("-append")
+        .arg(format!(
+            "console={} rdinit=/usr/bin/oxinit panic=-1",
+            arch.console
+        ))
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .arg("-drive")
+        .arg(format!(
+            "if=virtio,format=raw,readonly=on,file={}",
+            bundle.display()
+        ));
+    let mut guest = Guest::spawn(arch, command)?;
+    if !guest.wait_for("reached target default", boot_timeout) {
+        return Err(format!("Minimal did not start:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    let made = guest.run(FAKE_WINDOWS, minute)?;
+    if !made.contains("windows-made") {
+        return Err(format!("the Windows disk was not made:\n{made}"));
+    }
+    let before = guest.run(WINDOWS_PRINT, minute)?;
+    guest.type_line("poweroff")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+
+    println!("the installer, beside it");
+    let mut command = disk_qemu(arch, MINIMAL, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .arg("-drive")
+        .arg(format!(
+            "if=virtio,format=raw,readonly=on,file={}",
+            medium.display()
+        ));
+    let mut guest = Guest::spawn(arch, command)?;
+    let answer = |guest: &mut Guest, prompt: &str, text: &str| -> Result<bool, String> {
+        if !guest.wait_for(prompt, boot_timeout) {
+            return Ok(false);
+        }
+        guest.type_line(text)?;
+        thread::sleep(Duration::from_millis(500));
+        Ok(true)
+    };
+    let listed = answer(&mut guest, "Install on which disk?", "1")?;
+    check(
+        "the installer says the disk holds Windows",
+        listed && guest.output().contains("  Windows"),
+        &guest.output(),
+    );
+    let offered = guest.wait_for("1) Install beside Windows", boot_timeout)
+        && answer(&mut guest, "Which? [1-2]", "1")?;
+    check(
+        "it offers the free space beside Windows",
+        offered
+            && guest
+                .output()
+                .contains("beside Windows, which stays as it is"),
+        &guest.output(),
+    );
+    let mut asked = true;
+    for (prompt, text) in [
+        ("Encrypt the disk?", "n"),
+        ("Your login name: ", DEV_USER),
+        ("Your password: ", DEV_USER),
+        ("Your password, again: ", DEV_USER),
+    ] {
+        asked &= answer(&mut guest, prompt, text)?;
+    }
+    let installed = asked && guest.wait_for("hideOS is installed.", Duration::from_secs(1200));
+    let output = guest.output();
+    check(
+        "it installs in the free space, with an entry first in the firmware's boot order",
+        installed
+            && output.contains("partitioning the free space")
+            && output.contains("first in the firmware's order"),
+        &output,
+    );
+    answer(&mut guest, "Press Enter to turn the machine off.", "")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+
+    println!("the disk, from the firmware's boot order");
+    let mut guest = Guest::boot_with(arch, &dir, &disk, false, None)?;
+    let up = guest.wait_for("reached target default", boot_timeout);
+    check("hideOS boots beside Windows", up, &guest.output());
+    if up {
+        guest.shell()?;
+        let after = guest.run(WINDOWS_PRINT, minute)?;
+        check(
+            "Windows's partitions and their contents are as they were",
+            after == before && before.lines().count() == 6,
+            &format!("before:\n{before}\nafter:\n{after}"),
+        );
+        // The variables through a pipe: an efivarfs file's size is not its
+        // contents', and uutils' od skips by the size.
+        let out = guest.run(
+            "v=/sys/firmware/efi/efivars; g=8be4df61-93ca-11d2-aa0d-00e098032b8c; \
+             current=$(cat $v/BootCurrent-$g | od -An -tx2 -j4 -N2 | tr -d ' '); \
+             first=$(cat $v/BootOrder-$g | od -An -tx2 -j4 -N2 | tr -d ' '); \
+             print current=$current first=$first; \
+             tr -d '\\0' < $v/Boot${(U)current}-$g | grep -c hideOS; \
+             ls $v | grep -E '^Boot' | tr '\\n' ' '; \
+             sfdisk --dump /dev/vda | grep -c hideos",
+            minute,
+        )?;
+        let same = out
+            .lines()
+            .find_map(|l| l.strip_prefix("current="))
+            .and_then(|l| l.split_once(" first="))
+            .is_some_and(|(current, first)| current == first && !current.is_empty());
+        let clock = guest.run(
+            "cat /etc/hide/clock.conf; cat /var/log/oxinit/setup.log 2>/dev/null | grep -c 'local time'",
+            minute,
+        )?;
+        let console = guest.output();
+        check(
+            "the hardware clock is read as local time, as Windows keeps it",
+            clock.contains("hardware-clock = local")
+                && (console.contains("hardware clock read as local time")
+                    || clock
+                        .lines()
+                        .any(|l| l.trim().parse::<u32>().is_ok_and(|n| n > 0))),
+            &clock,
+        );
+        check(
+            "the firmware booted hideOS's own entry, first in its order",
+            same && out.lines().filter(|l| l.trim() == "1").count() >= 1,
+            &out,
+        );
+        // As Settings' Startup Disk asks hideupd, over the bus: what starts,
+        // then "Restart in Windows", Windows for the next start only.
+        let out = guest.run(
+            "call() { m=$1; shift; dbus-send --system --print-reply --dest=os.hide.Update1 \
+             /os/hide/Update1 os.hide.Update1.$m \"$@\"; }; \
+             call StartupDisk; call SetStartupDisk string:windows boolean:true",
+            minute,
+        )?;
+        check(
+            "hideBoot found Windows, and Startup Disk chooses it for the next start",
+            out.contains("Windows: found by hideBoot") && out.contains("starts next, once"),
+            &out,
+        );
+        guest.type_line("reboot")?;
+        let started = Instant::now();
+        while !guest.exited() && started.elapsed() < minute {
+            thread::sleep(Duration::from_millis(200));
+        }
+        drop(guest);
+
+        println!("Windows, once");
+        let mut guest = Guest::boot_with(arch, &dir, &disk, false, None)?;
+        let windows = guest.wait_for("Windows Boot Manager stand-in started", boot_timeout);
+        check(
+            "hideBoot starts Windows Boot Manager from Windows's ESP",
+            windows
+                && guest
+                    .output()
+                    .contains("\\EFI\\Microsoft\\Boot\\bootmgfw.efi"),
+            &guest.output(),
+        );
+        let started = Instant::now();
+        while !guest.exited() && started.elapsed() < minute {
+            thread::sleep(Duration::from_millis(200));
+        }
+        drop(guest);
+
+        println!("and hideOS after it");
+        let mut guest = Guest::boot_with(arch, &dir, &disk, false, None)?;
+        let up = guest.wait_for("reached target default", boot_timeout);
+        check(
+            "once means once: the next start is hideOS's",
+            up && !guest.output().contains("stand-in started"),
+            &guest.output(),
+        );
+        if up {
+            guest.shell()?;
+            guest.type_line("poweroff")?;
+            let started = Instant::now();
+            while !guest.exited() && started.elapsed() < minute {
+                thread::sleep(Duration::from_millis(200));
+            }
+        }
+    }
+    // Whichever guest is left, stopped as it goes out of scope.
+
+    let _ = fs::remove_file(&bundle);
+    if failures.is_empty() {
+        let _ = fs::remove_file(&disk);
+        println!("{}: hideOS installs beside Windows", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
 }
 
 /// The installer, driven as a person would: answers typed on its console.
@@ -2419,6 +2857,10 @@ fn installer_setup_test(args: &[String]) -> Result<(), String> {
     let dir = image_dir(edition, arch)?;
     let disk = dir.join("installer-test.raw");
     let _ = fs::remove_file(&disk);
+    // A new machine: the installer boots on Minimal's firmware variables,
+    // which the last test's install left an entry in for a disk that is
+    // gone — first in the boot order, it sends the firmware to its shell.
+    fresh_firmware_variables(&image_dir(MINIMAL, arch)?);
     fresh_firmware_variables(&dir);
     fs::File::create(&disk)
         .and_then(|f| f.set_len(DISK_SIZE))
@@ -2450,7 +2892,12 @@ fn installer_setup_test(args: &[String]) -> Result<(), String> {
         ("Type `erase` to continue", "erase"),
         ("Encrypt the disk?", "y"),
     ] {
-        asked &= guest.wait_for(prompt, boot_timeout);
+        // A question that never comes ends the test, rather than the
+        // answers going to whatever is on the screen.
+        asked = guest.wait_for(prompt, boot_timeout);
+        if !asked {
+            break;
+        }
         guest.type_line(text)?;
         thread::sleep(Duration::from_millis(500));
     }
@@ -2459,6 +2906,9 @@ fn installer_setup_test(args: &[String]) -> Result<(), String> {
         asked,
         &guest.output(),
     );
+    if !asked {
+        return Err(format!("{}: the installer did not ask", arch.name));
+    }
     let installed = guest.wait_for("the first start sets it up", Duration::from_secs(1500));
     let output = guest.output();
     check(
@@ -2795,6 +3245,180 @@ fn build_sysext(
 /// added; one built for another system image, added but left out at boot;
 /// one signed for this image, merged over /usr; and that one again with
 /// its record's signature damaged, left out.
+/// The nvidia system extension, on a Workstation in QEMU, which has no
+/// NVIDIA GPU: what can be checked without one. It is added and merged;
+/// its modules are the running kernel's, indexed with the image's, and
+/// load as far as finding no GPU; its userspace has every library it
+/// links; and the desktop still comes up, drawn by Mesa, with NVIDIA's EGL
+/// vendor beside Mesa's in libglvnd.
+fn nvidia_test(args: &[String]) -> Result<(), String> {
+    let arch = find_arch(args)?;
+    let edition = EDITIONS
+        .iter()
+        .copied()
+        .find(|e| e.name == "workstation")
+        .ok_or("no workstation edition")?;
+    // Minimal installs it, as on a machine.
+    build_image(arch, MINIMAL, image_version()?, "", None)?;
+    build_image(arch, edition, image_version()?, "", None)?;
+    let dir = image_dir(edition, arch)?;
+    let image = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
+    let image = image.trim().trim_start_matches("sha256:").to_owned();
+    let local = dir.join("sysext");
+    let _ = fs::remove_dir_all(&local);
+    build_sysext(
+        arch,
+        "nvidia",
+        &image,
+        true,
+        &format!("/src/target/images/workstation-{}/sysext/nvidia", arch.name),
+    )?;
+    // As the installer medium carries extensions: a raw tar of their OCI
+    // archives, which the installer gives `hide install` when this machine
+    // has an NVIDIA GPU. QEMU has none to show it, so the test names the
+    // extension itself; finding the GPU is `hide::pci`'s, tested on the host.
+    let bundle = dir.join("nvidia-bundle.tar");
+    run(Command::new("tar")
+        .arg("-cf")
+        .arg(&bundle)
+        .arg("-C")
+        .arg(local.join("nvidia"))
+        .arg("nvidia.sysext.oci.tar"))?;
+
+    let disk = dir.join("nvidia-test.raw");
+    fresh_firmware_variables(&dir);
+    install_payload_with(
+        arch,
+        edition,
+        &dir,
+        &disk,
+        &format!(
+            "--user {DEV_USER} --password {DEV_USER} --extensions /dev/vdc --extension nvidia"
+        ),
+        Some(&bundle),
+    )?;
+    let mut failures = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: &str| {
+        println!("  {}  {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            println!("        {}", detail.replace('\n', "\n        "));
+            failures.push(name.to_owned());
+        }
+    };
+    let minute = Duration::from_secs(60);
+    let socket = monitor_path("nvidia-test.sock");
+    let _ = fs::remove_file(&socket);
+    let mut command = disk_qemu(arch, edition, &dir, false)?;
+    command
+        .arg("-drive")
+        .arg(format!("if=virtio,format=raw,file={}", disk.display()))
+        .args(DESKTOP_DEVICES)
+        .arg("-monitor")
+        .arg(format!("unix:{},server,nowait", socket.display()));
+    let mut guest = Guest::spawn(arch, command)?;
+    if !guest.wait_for(
+        "reached target default",
+        arch.timeout.max(Duration::from_secs(300)),
+    ) {
+        return Err(format!("the disk did not boot:\n{}", guest.output()));
+    }
+    guest.shell()?;
+    println!("the first boot, the extension installed with the system");
+    let out = guest.run(
+        "hide ext list; release=$(uname -r); print release=$release; \
+         modinfo -F version nvidia; modinfo -F vermagic nvidia; \
+         modprobe -n -v nvidia-drm",
+        minute,
+    )?;
+    let release = out
+        .lines()
+        .find_map(|l| l.strip_prefix("release="))
+        .unwrap_or("?")
+        .to_owned();
+    check(
+        "its modules are the running kernel's, and indexed with the image's",
+        out.contains("nvidia")
+            && out.contains("615.71.09")
+            && out.contains(&format!("{release} "))
+            && ["nvidia.ko", "nvidia-modeset.ko", "nvidia-drm.ko"]
+                .iter()
+                .all(|m| out.contains(m)),
+        &out,
+    );
+    let out = guest.run(
+        // Without its timestamp: the console reader leaves out lines that
+        // look like the kernel's own.
+        "modprobe nvidia; print exit=$?; dmesg | grep -m3 NVRM | sed 's/^\\[[^]]*\\] *//'",
+        minute,
+    )?;
+    check(
+        "nvidia.ko loads into the kernel as far as finding no GPU",
+        // Accepted by the kernel — its format, symbols and vermagic — and
+        // its init run, which finds no NVIDIA GPU in QEMU.
+        out.contains("No such device")
+            && out.contains("NVRM: No NVIDIA GPU found")
+            && !out.contains("Unknown symbol")
+            && !out.contains("Exec format"),
+        &out,
+    );
+    let out = guest.run(
+        "for f in /usr/lib/libEGL_nvidia.so.0 /usr/lib/libGLESv2_nvidia.so.2 \
+         /usr/lib/libcuda.so.1 /usr/lib/libnvidia-ml.so.1 /usr/lib/libnvidia-egl-wayland.so.1 \
+         /usr/lib/libnvidia-egl-gbm.so.1 /usr/lib/gbm/nvidia-drm_gbm.so /usr/bin/nvidia-smi; do \
+         [[ -e $f ]] || print \"missing $f\"; ldd $f | grep 'not found'; done; \
+         ls /usr/share/glvnd/egl_vendor.d; ls /usr/lib/firmware/nvidia/615.71.09 | head -n 2; \
+         nvidia-smi; print smi=$?; modprobe -c | grep -E '^blacklist nouveau|^softdep nvidia'",
+        minute,
+    )?;
+    check(
+        "its userspace has every library it links, beside Mesa's in libglvnd",
+        !out.contains("missing")
+            && !out.contains("not found")
+            && out.contains("10_nvidia.json")
+            && out.contains("50_mesa.json")
+            && out.contains("gsp_")
+            && out.contains("couldn't communicate with the NVIDIA driver")
+            && out.contains("blacklist nouveau")
+            && out.contains("softdep nvidia"),
+        &out,
+    );
+    // libglvnd tries NVIDIA's EGL first (10 before 50) and it finds no
+    // NVIDIA device: the compositor and the applications must still get
+    // Mesa's.
+    log_in(&mut guest, &socket)?;
+    let out = guest.run(
+        "sleep 20; for p in /proc/[0-9]*; do [[ $(<$p/comm) == cosmic-panel ]] && \
+         print panel-up && break; done 2>/dev/null; \
+         for p in /proc/[0-9]*; do [[ $(<$p/comm) == cosmic-comp ]] && \
+         grep -c libEGL_mesa $p/maps && break; done 2>/dev/null",
+        Duration::from_secs(120),
+    )?;
+    check(
+        "the desktop comes up, drawn by Mesa through libglvnd",
+        out.contains("panel-up")
+            && out
+                .lines()
+                .any(|l| l.trim().parse::<u32>().is_ok_and(|n| n > 0)),
+        &out,
+    );
+    guest.type_line("poweroff")?;
+    let started = Instant::now();
+    while !guest.exited() && started.elapsed() < minute {
+        thread::sleep(Duration::from_millis(200));
+    }
+    drop(guest);
+    let _ = fs::remove_file(&socket);
+
+    if failures.is_empty() {
+        let _ = fs::remove_file(&disk);
+        let _ = fs::remove_file(&bundle);
+        println!("{}: the nvidia extension merges and links", arch.name);
+        Ok(())
+    } else {
+        Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
+    }
+}
+
 fn sysext_test(args: &[String]) -> Result<(), String> {
     let arch = find_arch(args)?;
     let dir = image_dir(MINIMAL, arch)?;
@@ -3456,23 +4080,45 @@ fn registry_test(args: &[String]) -> Result<(), String> {
     let version = image_version()?;
     println!("building N (version {version})");
     build_image(arch, MINIMAL, version, "", None)?;
-    let short = |path: &Path| -> Result<String, String> {
+    let full = |path: &Path| -> Result<String, String> {
         let digest = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        Ok(digest
-            .trim()
-            .trim_start_matches("sha256:")
-            .chars()
-            .take(12)
-            .collect())
+        Ok(digest.trim().trim_start_matches("sha256:").to_owned())
     };
-    let n = short(&dir.join("image.digest"))?;
+    let n_full = full(&dir.join("image.digest"))?;
     println!("building N+1 (version {})", version + 1);
     build_image(arch, MINIMAL, version + 1, "next", None)?;
     let next_dir = dir.join("next");
-    let n1 = short(&next_dir.join("image.digest"))?;
+    let n1_full = full(&next_dir.join("image.digest"))?;
+    let n: String = n_full.chars().take(12).collect();
+    let n1: String = n1_full.chars().take(12).collect();
     println!("N is {n}, N+1 is {n1}");
 
-    // N+1's OCI archive, unpacked: the layout the registry serves from.
+    // The test extension, built for each: N's is added by hand, N+1's
+    // published beside N+1 for the update to bring.
+    let sysext = dir.join("registry-sysext");
+    let _ = fs::remove_dir_all(&sysext);
+    for (sub, image) in [("n", &n_full), ("n1", &n1_full)] {
+        build_sysext(
+            arch,
+            "hello-sysext",
+            image,
+            true,
+            &format!(
+                "/src/target/images/minimal-{}/registry-sysext/{sub}",
+                arch.name
+            ),
+        )?;
+    }
+    let bundle = dir.join("registry-sysext.tar");
+    run(Command::new("tar")
+        .arg("-cf")
+        .arg(&bundle)
+        .arg("-C")
+        .arg(&sysext)
+        .arg("n"))?;
+
+    // N+1's OCI archive and the extension's, unpacked into one layout: the
+    // registry serves both from it, by tag.
     let layout = dir.join("registry");
     let _ = fs::remove_dir_all(&layout);
     fs::create_dir_all(&layout).map_err(|e| e.to_string())?;
@@ -3481,7 +4127,32 @@ fn registry_test(args: &[String]) -> Result<(), String> {
         .arg(next_dir.join("image.oci.tar"))
         .arg("-C")
         .arg(&layout))?;
-    let port = serve_registry(&layout)?;
+    let image_manifest = first_manifest(&layout)?;
+    let ext_layout = sysext.join("n1/layout");
+    fs::create_dir_all(&ext_layout).map_err(|e| e.to_string())?;
+    run(Command::new("tar")
+        .arg("-xf")
+        .arg(sysext.join("n1/hello-sysext.sysext.oci.tar"))
+        .arg("-C")
+        .arg(&ext_layout))?;
+    let ext_manifest = first_manifest(&ext_layout)?;
+    // The extension's blobs beside the image's; those the two share are
+    // there already.
+    for blob in fs::read_dir(ext_layout.join("blobs/sha256"))
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        let target = layout.join("blobs/sha256").join(blob.file_name());
+        if !target.exists() {
+            fs::copy(blob.path(), &target).map_err(|e| e.to_string())?;
+        }
+    }
+    // The image only, at first: an update must wait for the extension.
+    let tags: Tags = std::sync::Arc::new(std::sync::Mutex::new(vec![(
+        "minimal-edge".to_owned(),
+        image_manifest,
+    )]));
+    let port = serve_registry(&layout, std::sync::Arc::clone(&tags))?;
     println!("registry on port {port}");
 
     let disk = dir.join("registry-test.raw");
@@ -3493,42 +4164,81 @@ fn registry_test(args: &[String]) -> Result<(), String> {
             failures.push(name.to_owned());
         }
     };
+    let minute = Duration::from_secs(60);
     let mut log = String::new();
     fresh_firmware_variables(&dir);
     install_disk(arch, MINIMAL, &disk)?;
-    let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
+    let mut guest = boot_until_up(arch, &dir, &disk, Some(&bundle), &mut log)?;
     check("N boots", running_digest(&mut guest)? == n, &log);
     let out = guest.run(
-        &format!(
-            "mkdir -p /etc/hide && print 'registry = http://10.0.2.2:{port}/hideos\nchannel = edge' \
-             > /etc/hide/update.conf && hide update"
-        ),
+        "mkdir -p /tmp/x && tar -xf /dev/vdb -C /tmp/x && \
+         hide ext add oci-archive:/tmp/x/n/hello-sysext.sysext.oci.tar; print exit=$?",
+        minute,
+    )?;
+    check(
+        "N has the test extension, for N",
+        out.contains("exit=0"),
+        &out,
+    );
+    let update = format!(
+        "mkdir -p /etc/hide && print 'registry = http://10.0.2.2:{port}/hideos\nchannel = edge' \
+         > /etc/hide/update.conf && hide update; print exit=$?"
+    );
+    let out = guest.run(&update, Duration::from_secs(600))?;
+    check(
+        "with no build of the extension for N+1, the update waits",
+        out.contains("the update waits") && !out.contains("committed") && !out.contains("exit=0"),
+        &out,
+    );
+    if let Ok(mut tags) = tags.lock() {
+        tags.push((format!("ext-hello-sysext-{n1_full}"), ext_manifest));
+    }
+    let out = guest.run(
+        &format!("{update}; hide ext list"),
         Duration::from_secs(600),
     )?;
     check(
-        "plain `hide update` fetches the channel's image from the registry and stages it",
+        "plain `hide update` fetches the channel's image and the extension's build for it",
         out.contains("fetched http://10.0.2.2")
             && out.contains("minimal-edge")
-            && out.contains("committed"),
+            && out.contains("hello-sysext for the new system")
+            && out.contains("committed")
+            && out.contains("2 builds"),
         &out,
     );
     reboot(guest)?;
     let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
+    let out = guest.run("hello-sysext; hide ext list", minute)?;
     check(
-        "N+1 boots after the update",
-        running_digest(&mut guest)? == n1,
-        &log,
+        "N+1 boots after the update, its build of the extension merged",
+        running_digest(&mut guest)? == n1 && out.contains("merged") && !out.contains("not merged"),
+        &format!("{out}\n{log}"),
+    );
+    let out = guest.run("hide rollback", minute)?;
+    reboot(guest)?;
+    let mut guest = boot_until_up(arch, &dir, &disk, None, &mut log)?;
+    let merged = guest.run("hide ext list", minute)?;
+    check(
+        "back on N, N's build is merged",
+        running_digest(&mut guest)? == n
+            && merged.contains("merged")
+            && !merged.contains("not merged"),
+        &format!("{out}\n{merged}\n{log}"),
     );
     guest.type_line("poweroff")?;
     let started = Instant::now();
-    while !guest.exited() && started.elapsed() < Duration::from_secs(60) {
+    while !guest.exited() && started.elapsed() < minute {
         thread::sleep(Duration::from_millis(200));
     }
     drop(guest);
     let _ = fs::remove_file(&disk);
+    let _ = fs::remove_file(&bundle);
 
     if failures.is_empty() {
-        println!("{}: updates come from a registry", arch.name);
+        println!(
+            "{}: updates come from a registry, with their extensions",
+            arch.name
+        );
         Ok(())
     } else {
         Err(format!("{}: {} check(s) failed", arch.name, failures.len()))
@@ -3540,18 +4250,26 @@ fn registry_test(args: &[String]) -> Result<(), String> {
 /// endpoints a pull uses — `/v2/`, a manifest by tag or digest, a blob by
 /// digest — and nothing else. On a thread, for the life of xtask. Returns
 /// the port, on every interface, so that QEMU's guests reach it.
-fn serve_registry(layout: &Path) -> Result<u16, String> {
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::TcpListener;
-
+/// The first manifest an OCI layout's index names: hideforge's layouts
+/// have one.
+fn first_manifest(layout: &Path) -> Result<String, String> {
     let index = fs::read_to_string(layout.join("index.json")).map_err(|e| e.to_string())?;
-    // The first manifest of the layout's index: hideforge's layouts have one.
-    let digest = index
+    index
         .split("\"digest\"")
         .nth(1)
         .and_then(|rest| rest.split('"').nth(1))
-        .ok_or("the layout's index names no manifest")?
-        .to_owned();
+        .map(str::to_owned)
+        .ok_or_else(|| "the layout's index names no manifest".to_owned())
+}
+
+/// Tags a test registry serves, tag to manifest digest; changed while it
+/// runs to publish one.
+type Tags = std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>;
+
+fn serve_registry(layout: &Path, tags: Tags) -> Result<u16, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
     let listener = TcpListener::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let layout = layout.to_path_buf();
@@ -3578,12 +4296,21 @@ fn serve_registry(layout: &Path) -> Result<u16, String> {
                 ("200 OK", "application/json", None, None)
             } else if let Some((_, reference)) = path.split_once("/manifests/") {
                 let wanted = if reference.starts_with("sha256:") {
-                    reference.to_owned()
+                    Some(reference.to_owned())
                 } else {
-                    digest.clone()
+                    tags.lock().ok().and_then(|tags| {
+                        tags.iter()
+                            .find(|(tag, _)| tag == reference)
+                            .map(|(_, digest)| digest.clone())
+                    })
                 };
-                match blob(&wanted).filter(|p| p.is_file()) {
-                    Some(p) => (
+                match wanted
+                    .as_deref()
+                    .and_then(blob)
+                    .filter(|p| p.is_file())
+                    .zip(wanted.clone())
+                {
+                    Some((p, wanted)) => (
                         "200 OK",
                         "application/vnd.oci.image.manifest.v1+json",
                         Some(p),
@@ -4429,6 +5156,61 @@ fn publish(args: &[String]) -> Result<(), String> {
             edition.name
         ));
     }
+    let root = workspace_root()?;
+    let auth = ghcr_auth(&root)?;
+    let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
+    let push = |archive: &Path, target: &str| -> Result<(), String> {
+        let relative = archive
+            .strip_prefix(&root)
+            .map_err(|_| "the archive is outside the workspace".to_owned())?;
+        run(builder_command(&runtime, &root, false)
+            .args([
+                "skopeo",
+                "copy",
+                "--authfile",
+                "/src/target/.ghcr-auth.json",
+            ])
+            .arg(format!("oci-archive:/src/{}", relative.display()))
+            .arg(target))?;
+        println!("published {target}");
+        Ok(())
+    };
+    // The image's extensions first, each built for it: an update to the
+    // image fetches them, and waits while one is missing.
+    let result = (|| {
+        let digest = fs::read_to_string(dir.join("image.digest")).map_err(|e| e.to_string())?;
+        let digest = digest.trim().trim_start_matches("sha256:").to_owned();
+        for name in extensions_of(edition) {
+            build_sysext(
+                arch,
+                name,
+                &digest,
+                true,
+                &format!(
+                    "/src/target/images/{}-{}/sysext/{name}",
+                    edition.name, arch.name
+                ),
+            )?;
+            push(
+                &dir.join("sysext")
+                    .join(name)
+                    .join(format!("{name}.sysext.oci.tar")),
+                &format!("docker://ghcr.io/youhide/hideos:ext-{name}-{digest}"),
+            )?;
+        }
+        push(
+            &archive,
+            &format!("docker://ghcr.io/youhide/hideos:{}-{channel}", edition.name),
+        )
+    })();
+    let _ = fs::remove_file(&auth);
+    result
+}
+
+/// skopeo's credentials for ghcr.io, from gh's token, in a file only this
+/// user reads, in the checkout so the builder sees it at /src. The caller
+/// removes it.
+fn ghcr_auth(root: &Path) -> Result<PathBuf, String> {
     let token = Command::new("gh")
         .args(["auth", "token"])
         .output()
@@ -4437,42 +5219,90 @@ fn publish(args: &[String]) -> Result<(), String> {
         return Err("gh has no token: `gh auth login`".to_owned());
     }
     let token = String::from_utf8_lossy(&token.stdout).trim().to_owned();
-    let root = workspace_root()?;
     let auth = root.join("target/.ghcr-auth.json");
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let encoded = base64_encode(format!("youhide:{token}").as_bytes());
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&auth)
-            .map_err(|e| e.to_string())?;
-        std::io::Write::write_all(
-            &mut file,
-            format!("{{\"auths\":{{\"ghcr.io\":{{\"auth\":\"{encoded}\"}}}}}}").as_bytes(),
-        )
+    use std::os::unix::fs::OpenOptionsExt;
+    let encoded = base64_encode(format!("youhide:{token}").as_bytes());
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&auth)
         .map_err(|e| e.to_string())?;
-    }
-    let target = format!("docker://ghcr.io/youhide/hideos:{}-{channel}", edition.name);
-    let relative = archive
-        .strip_prefix(&root)
-        .map_err(|_| "the image is outside the workspace".to_owned())?;
+    std::io::Write::write_all(
+        &mut file,
+        format!("{{\"auths\":{{\"ghcr.io\":{{\"auth\":\"{encoded}\"}}}}}}").as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(auth)
+}
+
+/// Moves an edition's channel tag to the image another channel has: the
+/// same image, not a rebuild, so what reaches beta is what edge machines
+/// ran. Each channel only from the one before it — stable takes beta's
+/// image, beta takes edge's — and only when every extension built for
+/// that image is published, or the machines that follow would wait for it.
+fn promote(args: &[String]) -> Result<(), String> {
+    let edition = find_edition(args)?;
+    let to = flag(args, "--to")?.ok_or("--to beta|stable is required")?;
+    let from = match to {
+        "beta" => "edge",
+        "stable" => "beta",
+        other => {
+            return Err(format!(
+                "`{other}` cannot be promoted to: beta takes edge's image, stable takes beta's"
+            ));
+        }
+    };
+    let root = workspace_root()?;
     let runtime = container_runtime().ok_or("neither docker nor podman is on PATH")?;
-    let result = run(builder_command(&runtime, &root, false)
-        .args([
-            "skopeo",
-            "copy",
-            "--authfile",
-            "/src/target/.ghcr-auth.json",
-        ])
-        .arg(format!("oci-archive:/src/{}", relative.display()))
-        .arg(&target));
+    let repository = "docker://ghcr.io/youhide/hideos";
+    let auth = ghcr_auth(&root)?;
+    let skopeo = |words: &[&str]| -> Result<String, String> {
+        let output = builder_command(&runtime, &root, false)
+            .args(["skopeo", words.first().copied().unwrap_or_default()])
+            .args(["--authfile", "/src/target/.ghcr-auth.json"])
+            .args(words.get(1..).unwrap_or_default())
+            .stderr(Stdio::inherit())
+            .output()
+            .map_err(|e| format!("running skopeo: {e}"))?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        } else {
+            Err(format!("skopeo {} failed", words.join(" ")))
+        }
+    };
+    let result = (|| {
+        let source = format!("{repository}:{}-{from}", edition.name);
+        let digest = skopeo(&["inspect", "--format", "{{.Digest}}", &source])?;
+        let digest = digest.trim().to_owned();
+        let hex = digest.trim_start_matches("sha256:");
+        if hex.len() != 64 {
+            return Err(format!("{source} has no digest: `{digest}`"));
+        }
+        for name in extensions_of(edition) {
+            let tag = format!("{repository}:ext-{name}-{hex}");
+            skopeo(&["inspect", "--format", "{{.Digest}}", &tag]).map_err(|_| {
+                format!("{source} is {digest}, and its {name} extension is not published: {tag}")
+            })?;
+            println!("  {name} extension published for it");
+        }
+        let target = format!("{repository}:{}-{to}", edition.name);
+        skopeo(&["copy", &format!("{repository}@{digest}"), &target])?;
+        println!("{} {to} is now {digest}, {from}'s image", edition.name);
+        Ok(())
+    })();
     let _ = fs::remove_file(&auth);
-    result?;
-    println!("published {target}");
-    Ok(())
+    result
+}
+
+/// The system extensions hideOS publishes for each of an edition's
+/// images: NVIDIA's driver for the Workstation, whose display it is.
+fn extensions_of(edition: Edition) -> &'static [&'static str] {
+    match edition.name {
+        "workstation" => &["nvidia"],
+        _ => &[],
+    }
 }
 
 /// Standard base64, for the registry auth file: the one place xtask needs it.
@@ -4705,6 +5535,226 @@ fn firmware_smoke(args: &[String]) -> Result<(), String> {
 
 // ---------------------------------------------------------------------------
 // helpers
+
+// ---------------------------------------------------------------------------
+// The round of tests
+
+/// Every test, the longest first, so that the last to start are short and
+/// the lanes finish together.
+const ROUND: &[&str] = &[
+    "nvidia-test",
+    "update-test",
+    "setup-test",
+    "installer-test --edition workstation",
+    "desktop-test",
+    "registry-test",
+    "secureboot-test",
+    "seal-test",
+    "beside-test",
+    "crypt-test",
+    "sysext-test",
+    "installer-test",
+    "power-test",
+    "net-test",
+    "hw-test",
+];
+
+/// Runs tests side by side. A test owns its image directory — the disks,
+/// the firmware's variables, the logs — so each lane is a copy of the
+/// checkout, with its own `target/`, and runs its tests one at a time.
+/// What the lanes share is the builder's work volume, where hideforge
+/// takes turns on a recipe or an image (`Layout::lock`), so a lane finds
+/// in the store what another just built.
+fn round(args: &[String]) -> Result<(), String> {
+    let lanes = match flag(args, "--lanes")? {
+        Some(n) => n
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n > 0)
+            .ok_or_else(|| format!("--lanes `{n}` is not a positive number"))?,
+        // A guest has two CPUs, and spends much of a test waiting on its
+        // firmware and its boots; past three lanes the image assembly they
+        // take turns at is what they wait for.
+        None => thread::available_parallelism()
+            .map_or(1, |n| n.get() / 2)
+            .clamp(1, 3),
+    };
+    let named: Vec<String> = args
+        .iter()
+        .enumerate()
+        .filter(|&(i, a)| {
+            a != "--lanes" && args.get(i.wrapping_sub(1)).is_none_or(|p| p != "--lanes")
+        })
+        .map(|(_, a)| a.clone())
+        .collect();
+    let tests: Vec<String> = if named.is_empty() {
+        ROUND.iter().map(|t| (*t).to_owned()).collect()
+    } else {
+        // `installer-test --edition workstation` is one test: a word that
+        // starts with `--` belongs to the test before it.
+        let mut tests: Vec<String> = Vec::new();
+        for word in named {
+            match tests.last_mut() {
+                Some(last) if word.starts_with("--") || last.ends_with(" --edition") => {
+                    last.push(' ');
+                    last.push_str(&word);
+                }
+                _ => tests.push(word),
+            }
+        }
+        tests
+    };
+    let lanes = lanes.min(tests.len().max(1));
+    let root = workspace_root()?;
+    let logs = root.join("target").join("logs");
+    fs::create_dir_all(&logs).map_err(|e| format!("creating {}: {e}", logs.display()))?;
+    let summary = logs.join("round.log");
+    fs::write(&summary, "").map_err(|e| format!("writing {}: {e}", summary.display()))?;
+
+    // Each image once, here, before the lanes: assembling one is gigabytes
+    // of writing, and lanes that each assembled their own would wait on the
+    // disk together. Every test of the round starts from Minimal; the
+    // Workstation's are the ones that name it.
+    let arch = find_arch(&[])?;
+    let version = image_version()?;
+    println!("the images, once for every lane");
+    build_image(arch, MINIMAL, version, "", None)?;
+    let workstation = ["nvidia", "setup", "desktop", "workstation"];
+    if tests
+        .iter()
+        .any(|t| workstation.iter().any(|w| t.contains(w)))
+        && let Some(edition) = EDITIONS.iter().copied().find(|e| e.name == "workstation")
+    {
+        build_image(arch, edition, version, "", None)?;
+    }
+
+    let mut dirs = Vec::new();
+    for lane in 1..=lanes {
+        let dir = root.join("target").join("lanes").join(lane.to_string());
+        fs::create_dir_all(&dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
+        // The checkout as it is, uncommitted changes and `.git` with it:
+        // hideforge's workspace snapshot asks git what is tracked. `-a`
+        // keeps the times, so cargo in the builder, which sees every lane
+        // at /src, finds hideforge as fresh as the last lane left it.
+        let status = Command::new("rsync")
+            .args(["-a", "--delete", "--exclude", "/target"])
+            .arg(format!("{}/", root.display()))
+            .arg(format!("{}/", dir.display()))
+            .status()
+            .map_err(|e| format!("running rsync: {e}"))?;
+        if !status.success() {
+            return Err(format!("copying the checkout to {} failed", dir.display()));
+        }
+        share_images(
+            &root.join("target").join("images"),
+            &dir.join("target").join("images"),
+        )?;
+        dirs.push(dir);
+    }
+    println!(
+        "{} test(s) in {lanes} lane(s); logs in {}",
+        tests.len(),
+        logs.display()
+    );
+
+    let queue = std::sync::Mutex::new(tests.into_iter().collect::<std::collections::VecDeque<_>>());
+    let results = std::sync::Mutex::new(Vec::new());
+    thread::scope(|scope| {
+        for (lane, dir) in dirs.iter().enumerate() {
+            let (queue, results, logs, summary) = (&queue, &results, &logs, &summary);
+            // In a function, so the queue is locked only while a test is
+            // taken from it, not while it runs.
+            let next = move || queue.lock().ok().and_then(|mut q| q.pop_front());
+            scope.spawn(move || {
+                while let Some(test) = next() {
+                    let name: String = test
+                        .chars()
+                        .filter_map(|c| match c {
+                            ' ' => Some('_'),
+                            '-' => None,
+                            c => Some(c),
+                        })
+                        .collect();
+                    let log = logs.join(format!("round-{name}.log"));
+                    let started = Instant::now();
+                    println!("lane {}: {test}", lane + 1);
+                    let passed = fs::File::create(&log)
+                        .and_then(|out| {
+                            let err = out.try_clone()?;
+                            Command::new("cargo")
+                                .arg("xtask")
+                                .args(test.split_whitespace())
+                                .current_dir(dir)
+                                .stdin(Stdio::null())
+                                .stdout(out)
+                                .stderr(err)
+                                .status()
+                        })
+                        .is_ok_and(|s| s.success());
+                    let line = format!(
+                        "{test}: {} ({} min, lane {})",
+                        if passed { "ok" } else { "FAILED" },
+                        started.elapsed().as_secs() / 60,
+                        lane + 1
+                    );
+                    println!("{line}");
+                    if let Ok(mut file) = fs::OpenOptions::new().append(true).open(summary) {
+                        use std::io::Write as _;
+                        let _ = writeln!(file, "{line}");
+                    }
+                    if let Ok(mut r) = results.lock() {
+                        r.push((test, passed));
+                    }
+                }
+            });
+        }
+    });
+    let results = results.into_inner().unwrap_or_default();
+    let failed: Vec<&str> = results
+        .iter()
+        .filter(|(_, passed)| !passed)
+        .map(|(t, _)| t.as_str())
+        .collect();
+    if failed.is_empty() {
+        println!("round: {} test(s) passed", results.len());
+        Ok(())
+    } else {
+        Err(format!(
+            "{} test(s) failed: {}",
+            failed.len(),
+            failed.join(", ")
+        ))
+    }
+}
+
+/// Gives a lane the images assembled in `from`: each file hideforge's stamp
+/// lists, hard-linked, and the stamp, so hideforge in the lane finds the
+/// image assembled from its inputs and leaves it. Links, not copies — no
+/// test writes into an image's files, and hideforge removes them before it
+/// assembles again rather than writing through a link.
+fn share_images(from: &Path, to: &Path) -> Result<(), String> {
+    const STAMP: &str = ".hideforge-image";
+    for entry in fs::read_dir(from).into_iter().flatten().flatten() {
+        let source = entry.path();
+        let Ok(stamp) = fs::read_to_string(source.join(STAMP)) else {
+            continue;
+        };
+        let target = to.join(entry.file_name());
+        fs::create_dir_all(&target).map_err(|e| format!("creating {}: {e}", target.display()))?;
+        let _ = fs::remove_file(target.join(STAMP));
+        for name in stamp.lines().skip(1).filter_map(|l| l.split('\t').next()) {
+            if name.is_empty() || name.contains('/') {
+                continue;
+            }
+            let _ = fs::remove_file(target.join(name));
+            fs::hard_link(source.join(name), target.join(name))
+                .map_err(|e| format!("linking {name} into {}: {e}", target.display()))?;
+        }
+        fs::write(target.join(STAMP), &stamp)
+            .map_err(|e| format!("writing {}: {e}", target.join(STAMP).display()))?;
+    }
+    Ok(())
+}
 
 /// `--name VALUE`, if present.
 fn flag<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, String> {

@@ -48,7 +48,7 @@ impl Layout {
         // the sandbox's PID 1 is called that in `ps` and /proc/1/comm.
         self.root
             .join("build")
-            .join(format!(".hideforge-{}", std::process::id()))
+            .join(format!(".hideforge-{}", run_id()))
             .join("hideforge")
     }
 
@@ -60,6 +60,22 @@ impl Layout {
         self.root.join("images").join(name)
     }
 
+    /// Holds a lock named `name` for as long as the returned file is open.
+    /// Test lanes run hideforge side by side on one work directory; they
+    /// take turns building a recipe and assembling an image, and the second
+    /// to build a recipe finds it in the store.
+    pub fn lock(&self, name: &str) -> std::io::Result<std::fs::File> {
+        let dir = self.root.join("locks");
+        std::fs::create_dir_all(&dir)?;
+        let file = std::fs::File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join(name))?;
+        file.lock()?;
+        Ok(file)
+    }
+
     pub fn logs(&self) -> PathBuf {
         self.root.join("logs")
     }
@@ -67,6 +83,20 @@ impl Layout {
     pub fn log(&self, hash: &InputHash, recipe: &Recipe) -> PathBuf {
         self.logs()
             .join(format!("{}.log", store_name(hash, recipe)))
+    }
+}
+
+/// What names this run's own scratch files apart from another's on the same
+/// work directory: the process ID, and the host's name, because in the
+/// builder every run is a small PID in a namespace of its own, and runs side
+/// by side are other containers, each with its own host name.
+pub fn run_id() -> String {
+    let host = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
+    let host = host.trim();
+    if host.is_empty() {
+        std::process::id().to_string()
+    } else {
+        format!("{host}-{}", std::process::id())
     }
 }
 

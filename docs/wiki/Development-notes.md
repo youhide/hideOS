@@ -4,13 +4,25 @@ Things this tree learned the hard way, one entry each, with the reason.
 Add an entry in the commit that learned it; remove one when the code it
 describes goes away. Newest last.
 
-## One image build at a time
+## One image build at a time, per checkout
 
-Never run two `cargo xtask image` builds — or two tests, which each build
-first — at once. Both run hideforge in the builder against the same `/work`
-volume, and hideforge takes no lock: two runs that build the same recipe
-share its scratch directory `/work/build/<hash>` and its log, and the
-image staging directory, and collide.
+Two tests in one checkout at once collide: each owns the image directory
+in `target/images` — its disks, the firmware's variables, the image it
+assembles there. Side by side, tests run through `cargo xtask round`
+(see [[Testing#a-round-of-tests]]), each lane in a copy of the checkout.
+
+Lanes share the builder's `/work`, and hideforge is made for it: a lock
+per recipe and per image (`Layout::lock`), so the second run to want a
+recipe finds it in the store, and scratch names carrying the container's
+host name as well as the PID (`run_id`) — in the builder every run is
+PID 7, and two of them once shared `/work/build/.hideforge-7` ("Text file
+busy").
+
+One thing the lanes must not share is a changed hideforge: cargo in the
+builder builds it into `/work/target`, from whichever lane's `/src` asks,
+so lanes with different hideforge sources rebuild it over each other.
+`round` copies the checkout to every lane at its start; change hideforge
+between rounds, not during one.
 
 ## Firmware variables persist per disk
 
@@ -96,8 +108,9 @@ its directory and the filesystem (`rename_durably` in
 
 `cargo xtask` runs hideforge in a docker container, and killing xtask does
 not stop it: the build goes on in the background, holding `/work`. A new
-build started then collides with it (see "One image build at a time") —
-"Text file busy" on hideforge's own binary is the sign. Stop it with
+build started then waits on its locks, or, before they existed,
+collided with it — "Text file busy" on hideforge's own binary was the
+sign. Stop it with
 `docker ps -q | xargs docker kill` before starting another.
 
 ## `SOURCE_DATE_EPOCH` counts unpacked files only
