@@ -103,8 +103,7 @@
 and what is left when nothing on the disk starts. The design is
 <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#the-installer-medium">ARCHITECTURE.md, “The installer medium”</a>
 and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md#recovery">“Recovery”</a>. All of it is exercised by
-<code>cargo xtask installer-test</code>; see <a href="Testing.html">Testing</a>. None of it has run on real
-hardware yet.</p>
+<code>cargo xtask installer-test</code>; see <a href="Testing.html">Testing</a>.</p>
 <h2 id="the-installer-medium"><a class="h" href="#the-installer-medium" aria-hidden="true" tabindex="-1">##</a> The installer medium</h2>
 <pre><code class="language-sh">cargo xtask installer                        # Minimal
 cargo xtask installer --edition workstation
@@ -122,6 +121,25 @@ device as from a file, and a file on FAT could not be over 4 GiB.</p>
 <p>The installer’s UKI is Minimal’s kernel with Minimal’s whole root as a
 zstd-compressed initramfs, starting <code>hide installer</code> as its init. The
 installer is always Minimal’s, whichever edition it installs.</p>
+<h3 id="before-booting-it-secure-boot"><a class="h" href="#before-booting-it-secure-boot" aria-hidden="true" tabindex="-1">###</a> Before booting it: Secure Boot</h3>
+<p>hideBoot and the installer are signed with hideOS’s own keys, not
+Microsoft’s, so a PC with Secure Boot on and its factory keys refuses them
+before anything of hideOS appears; the firmware’s own message (“Secure
+Boot Violation”, “Invalid signature detected”) is all there is. In the
+firmware’s setup, before booting the stick, either:</p>
+<ul>
+<li><strong>put Secure Boot in setup mode</strong> — “Clear Secure Boot keys”, “Delete
+all Secure Boot variables”, or the key management’s “Reset to Setup
+Mode” — and leave it on: the installer enrolls hideOS’s keys with
+Microsoft’s beside them, so Windows, and a discrete GPU’s firmware,
+keep starting; or</li>
+<li><strong>turn Secure Boot off</strong>, install, and enroll later with
+<code>hide secureboot enroll</code> after putting the firmware in setup mode.</li>
+</ul>
+<p>With BitLocker on a Windows beside it, Windows asks once for its recovery
+key after the keys change: have it at hand. ARCHITECTURE, “Secure Boot
+with hideOS’s own keys”, has the reasons; a Microsoft-signed shim, for
+firmware that cannot be put in setup mode, may come later.</p>
 <h2 id="the-installer"><a class="h" href="#the-installer" aria-hidden="true" tabindex="-1">##</a> The installer</h2>
 <p><a href="https://github.com/youhide/hideOS/blob/main/crates/hide/src/installer.rs">crates/hide/src/installer.rs</a>. On the
 console it asks:</p>
@@ -258,7 +276,7 @@ will start. It never counts its attempts and is never the default. See
     <div class="footer__card">
       <div class="footer__accent"></div>
       <div class="footer__body">
-        <p># built from commit <code>8fd257e</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Install-and-recover.md">docs/wiki/Install-and-recover.md</a>.</p>
+        <p># built from commit <code>628f232</code>. source: <a href="https://github.com/youhide/hideOS/blob/main/docs/wiki/Install-and-recover.md">docs/wiki/Install-and-recover.md</a>.</p>
         <p># the wiki changes in the same commit as the work it describes; where it and <a href="https://github.com/youhide/hideOS/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> disagree, ARCHITECTURE.md decides.</p>
         <p>hideOS is open source under MIT or Apache-2.0, by <a href="https://youhide.com.br">youhide</a>.</p>
       </div>
