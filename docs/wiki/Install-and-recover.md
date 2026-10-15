@@ -4,8 +4,7 @@ How hideOS gets onto a disk, how it is reinstalled without losing `/home`,
 and what is left when nothing on the disk starts. The design is
 [ARCHITECTURE.md, "The installer medium"](../../ARCHITECTURE.md#the-installer-medium)
 and ["Recovery"](../../ARCHITECTURE.md#recovery). All of it is exercised by
-`cargo xtask installer-test`; see [[Testing]]. None of it has run on real
-hardware yet.
+`cargo xtask installer-test`; see [[Testing]].
 
 ## The installer medium
 
@@ -28,6 +27,27 @@ device as from a file, and a file on FAT could not be over 4 GiB.
 The installer's UKI is Minimal's kernel with Minimal's whole root as a
 zstd-compressed initramfs, starting `hide installer` as its init. The
 installer is always Minimal's, whichever edition it installs.
+
+### Before booting it: Secure Boot
+
+hideBoot and the installer are signed with hideOS's own keys, not
+Microsoft's, so a PC with Secure Boot on and its factory keys refuses them
+before anything of hideOS appears; the firmware's own message ("Secure
+Boot Violation", "Invalid signature detected") is all there is. In the
+firmware's setup, before booting the stick, either:
+
+- **put Secure Boot in setup mode** — "Clear Secure Boot keys", "Delete
+  all Secure Boot variables", or the key management's "Reset to Setup
+  Mode" — and leave it on: the installer enrolls hideOS's keys with
+  Microsoft's beside them, so Windows, and a discrete GPU's firmware,
+  keep starting; or
+- **turn Secure Boot off**, install, and enroll later with
+  `hide secureboot enroll` after putting the firmware in setup mode.
+
+With BitLocker on a Windows beside it, Windows asks once for its recovery
+key after the keys change: have it at hand. ARCHITECTURE, "Secure Boot
+with hideOS's own keys", has the reasons; a Microsoft-signed shim, for
+firmware that cannot be put in setup mode, may come later.
 
 ## The installer
 
